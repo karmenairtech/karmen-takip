@@ -1,0 +1,52 @@
+rules_version = '2';
+// Kar-Men Proje Takip — Firestore güvenlik kuralları
+// Ekip listesi ve roller: config/access belgesi ({ members: { "eposta": { name, role } } })
+// Roller: admin (yönetici), member (üye), viewer (izleyici)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    // Her zaman yönetici olan hesaplar (docs/config.js içindeki BOOT_ADMINS ile aynı olmalı)
+    function isBoot() { return signedIn() && myEmail() in ['planlama.karmen@gmail.com']; }
+    function accessPath() { return /databases/$(database)/documents/config/access; }
+    function me() { return get(accessPath()).data.members.get(myEmail(), null); }
+    function hasEntry() { return signedIn() && exists(accessPath()) && me() != null; }
+    function isAdmin() { return isBoot() || (hasEntry() && me().role == 'admin'); }
+    function isMember() { return isBoot() || (hasEntry() && me().role in ['admin', 'member', 'viewer']); }
+    function canWrite() { return isBoot() || (hasEntry() && me().role in ['admin', 'member']); }
+
+    match /config/access {
+      allow read: if isMember();
+      allow create, update: if isAdmin() && request.resource.data.members is map;
+      allow delete: if isBoot();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isMember();
+      allow create, delete: if isAdmin();
+      // Yönetici her alanı; üye yalnızca sorumlusu olduğu işin oranını değiştirir
+      allow update: if isAdmin() || (
+        canWrite()
+        && me().name in resource.data.owners
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress', 'updatedAt', 'updatedBy'])
+        && request.resource.data.progress is number
+        && request.resource.data.progress >= 0 && request.resource.data.progress <= 100
+      );
+    }
+
+    match /feedback/{fbId} {
+      allow read: if isMember();
+      allow create: if isAdmin() || (
+        canWrite()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.author == me().name
+        && request.resource.data.taskId is string
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 4000
+      );
+      allow update: if false;
+      allow delete: if isAdmin() || (canWrite() && resource.data.uid == request.auth.uid);
+    }
+  }
+}
