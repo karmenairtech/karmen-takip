@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="22">
+<meta name="app-version" content="23">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -212,6 +212,70 @@
   <section id="plView"></section>
 </main>
 </div>
+<div id="modSA" data-route="satinalma" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">SATINALMA MODÜLÜ</div>
+        <h1>Talep, sipariş ve tedarikçiler</h1>
+      </div>
+      <div class="dateblock" aria-label="Bugünün tarihi">
+        <div class="dnum num js-dday">—</div>
+        <div class="dmeta"><div class="dwd js-dwd">—</div><div class="dmy js-dmy">—</div><div class="dclk num js-dclk">—</div></div>
+      </div>
+    </div>
+    <div class="kpis" id="saKpis"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <div class="seg pktabs satabs" id="saTabs" role="group" aria-label="Satınalma menüsü">
+      <button type="button" data-sa="genel" aria-pressed="true">Genel bakış</button>
+      <button type="button" data-sa="talep" aria-pressed="false">Talepler</button>
+      <button type="button" data-sa="teklif" aria-pressed="false">Fiyat talepleri</button>
+      <button type="button" data-sa="siparis" aria-pressed="false">Siparişler</button>
+      <button type="button" data-sa="kabul" aria-pressed="false">Mal kabul</button>
+      <button type="button" data-sa="fatura" aria-pressed="false">Faturalar</button>
+      <button type="button" data-sa="ted" aria-pressed="false">Tedarikçi puanları</button>
+    </div>
+    <div class="filters">
+      <button class="btn ghost" id="saCfgBtn" type="button" hidden>Ayarlar</button>
+      <button class="btn" id="saAdd" type="button" hidden>+ Talep</button>
+    </div>
+  </div>
+  <section id="saView"></section>
+</main>
+</div>
+<div id="modCari" data-route="cari" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">CARİ MODÜLÜ</div>
+        <h1>Müşteriler ve tedarikçiler</h1>
+      </div>
+      <div class="dateblock" aria-label="Bugünün tarihi">
+        <div class="dnum num js-dday">—</div>
+        <div class="dmeta"><div class="dwd js-dwd">—</div><div class="dmy js-dmy">—</div><div class="dclk num js-dclk">—</div></div>
+      </div>
+    </div>
+    <div class="kpis" id="crKpis"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <div class="seg pktabs" id="crTabs" role="group" aria-label="Cari türü">
+      <button type="button" data-cr="ted" aria-pressed="true">Tedarikçiler</button>
+      <button type="button" data-cr="mus" aria-pressed="false">Müşteriler</button>
+    </div>
+    <div class="filters">
+      <button class="btn" id="crAdd" type="button" hidden>+ Cari kart</button>
+    </div>
+  </div>
+  <section id="crView"></section>
+</main>
+</div>
 <div id="modStok" data-route="stok" hidden>
 <header class="band">
   <div class="wrap">
@@ -324,6 +388,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=22"></script>
+<script type="module" src="app.js?v=23"></script>
 </body>
 </html>

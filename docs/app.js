@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "22";
+const APP_V = "23";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -52,14 +52,16 @@ let ME = null;            // {uid,email,name,role}
 let unsubs = [];
 /* ================= Yetki modeli ================= */
 // Modül seviyesi: none (erişim yok) · view (gözlemci) · use (kullanıcı) · edit (düzenleyici). Sistem yöneticisi her şeyi yapar.
-const PERM_MODS = ["proje", "stok", "satinalma", "disis", "personel", "planlama", "siparis"];
+const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "planlama", "siparis"];
 const PERM_LEVELS = [["none", "Erişim yok"], ["view", "Gözlemci"], ["use", "Kullanıcı"], ["edit", "Düzenleyici"]];
 const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
   disis: [["d.create", "Dış iş oluşturma"], ["d.inout", "Çıkış / giriş kaydetme"], ["d.edit.own", "Kendi açtığı işleri düzenleme"], ["d.edit.all", "Tüm işleri düzenleme"], ["d.cancel", "İş iptal etme"], ["d.delete", "İş silme"], ["d.cfg", "Araç ve personel listesini düzenleme"], ["d.report", "Günlük rapor (PDF) alma"]],
   stok: [["s.edit", "Stok kartı ekleme ve düzenleme"], ["s.move", "Stok giriş / çıkış hareketi"], ["s.count", "Sayım ve stok düzeltme"], ["s.price", "Alış fiyatlarını görme ve düzenleme"], ["s.delete", "Stok kartı silme"], ["s.cfg", "Grup ve depo listesini düzenleme"]],
   planlama: [["pl.ie", "İş emri oluşturma ve düzenleme"], ["pl.op", "Operasyon başlatma / bitirme (üretim)"], ["pl.akis", "İş akış şemalarını düzenleme"], ["pl.ist", "İş istasyonlarını ve ayarları düzenleme"], ["pl.delete", "İş emri silme"]],
-  personel: [["k.yoklama", "Günlük yoklama girme (geldi, geç, gelmedi)"], ["k.izin", "İzin kaydı girme, düzenleme ve silme"], ["k.list", "Personel listesini ve ayarları düzenleme"], ["k.ozel", "Kişisel bilgileri görme (TC, adres, telefon)"]]
+  personel: [["k.yoklama", "Günlük yoklama girme (geldi, geç, gelmedi)"], ["k.izin", "İzin kaydı girme, düzenleme ve silme"], ["k.list", "Personel listesini ve ayarları düzenleme"], ["k.ozel", "Kişisel bilgileri görme (TC, adres, telefon)"]],
+  satinalma: [["sa.talep", "Satın alma talebi açma"], ["sa.siparis", "Fiyat talebi ve sipariş oluşturma, gönderme"], ["sa.kabul", "Mal kabul ve tedarikçiye iade (stok girişi)"], ["sa.fatura", "e-Fatura yükleme ve stok eşleştirme"], ["sa.cfg", "Firma bilgileri, onay limiti ve onaycılar"], ["sa.delete", "Talep, sipariş ve fatura silme"]],
+  cari: [["c.edit", "Cari kart ekleme ve düzenleme"], ["c.puan", "Tedarikçiye iletişim/hizmet puanı verme"], ["c.delete", "Cari kart silme"]]
 };
 // Modülden bağımsız genel yetkiler
 const PERM_GLOBAL = [["p.msg", "Mesaj gönderme (üst çubuktaki Mesajlar)"]];
@@ -68,14 +70,16 @@ const PERM_DEF = {
   disis: { none: [], view: ["d.report"], use: ["d.create", "d.inout", "d.edit.own", "d.report"], edit: PERM_ACTS.disis.map(a => a[0]) },
   stok: { none: [], view: [], use: ["s.move"], edit: PERM_ACTS.stok.map(a => a[0]) },
   planlama: { none: [], view: [], use: ["pl.op"], edit: PERM_ACTS.planlama.map(a => a[0]) },
-  personel: { none: [], view: [], use: ["k.yoklama"], edit: PERM_ACTS.personel.map(a => a[0]) }
+  personel: { none: [], view: [], use: ["k.yoklama"], edit: PERM_ACTS.personel.map(a => a[0]) },
+  satinalma: { none: [], view: [], use: ["sa.talep"], edit: PERM_ACTS.satinalma.map(a => a[0]) },
+  cari: { none: [], view: [], use: [], edit: PERM_ACTS.cari.map(a => a[0]) }
 };
 function effPerms(e) {
   if (!e) return null;
   if (e.role === "admin") return { role: "admin", mods: {}, acts: {} };
   if (e.mods && typeof e.mods === "object") return { role: "user", mods: { ...e.mods }, acts: { ...(e.acts || {}) } };
   const L = e.role === "viewer" ? "view" : "use", mods = {}, acts = {};   // eski kayıt (üye / izleyici)
-  PERM_MODS.forEach(m => { if (m === "personel") { mods[m] = "none"; return; } mods[m] = L; if (m !== "stok" && m !== "planlama") ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
+  PERM_MODS.forEach(m => { if (m === "personel") { mods[m] = "none"; return; } mods[m] = L; if (!["stok", "planlama", "satinalma", "cari"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
   return { role: "user", mods, acts };
 }
 const isAdmin = () => !!ME && ME.role === "admin";
@@ -216,6 +220,8 @@ function startData() {
   if (lvl("disis") !== "none") startDisis(); else { DT.jobs = []; DT.ready = true; }
   if (lvl("planlama") !== "none") startPlan(); else { PL.ie = []; PL.ready = true; }
   if (lvl("stok") !== "none") startStok(); else { SK.page = []; SK.stocked = []; SK.cache.clear(); SK.ready = true; }
+  if (lvl("cari") !== "none" || lvl("satinalma") !== "none") startCari(); else { CR.list = []; CR.ready = true; }
+  if (lvl("satinalma") !== "none") startSA(); else { SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true; }
   if (lvl("personel") !== "none") startPersonel(); else { PT.people = []; PT.izin = []; PT.ozel = {}; PT.ready = true; }
   if (lvl("proje") === "none") { state.ready = true; render(); return; }
   let got = 0; const first = () => { if (++got === 2) { state.ready = true; render(); } };
@@ -947,14 +953,15 @@ const ICONS = {
   disis: '<path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
   planlama: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M7 13h6M10 17h7"/>',
   siparis: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>',
+  cari: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.5 17c.6-1.9 2-3 3.5-3s2.9 1.1 3.5 3"/><path d="M14.5 9.5h4M14.5 13h4"/>',
   personel: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.2 3.2 0 010 6.3"/><path d="M18 14.4c1.8.8 3 2.9 3 5.6"/>'
 };
 const svgIco = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
 const MODULES = [
   { id: "proje", name: "PROJE TAKİP", desc: "İşler, sorumlular, günlük geri bildirim ve ekip mesajları", active: true },
   { id: "stok", name: "STOK MODÜLÜ", desc: "Stok kartları, depo adresleri, giriş–çıkış hareketleri ve alış fiyatları", active: true },
-  { id: "satinalma", name: "SATINALMA MODÜLÜ", desc: "Talepler, tedarikçiler ve satın alma siparişleri",
-    scope: ["Satın alma talepleri", "Tedarikçi kartları", "Satın alma siparişi ve teslim takibi"], tasks: [13] },
+  { id: "satinalma", name: "SATINALMA MODÜLÜ", desc: "Talep, onay, fiyat talebi, sipariş, mal kabul, e-Fatura ve tedarikçi puanı", active: true },
+  { id: "cari", name: "CARİ MODÜLÜ", desc: "Müşteri ve tedarikçi kartları, iletişim, vade ve geçmiş", active: true },
   { id: "disis", name: "DIŞ İŞ TAKİP MODÜLÜ", desc: "Dışarı çıkan personel, araç, çıkış–dönüş saatleri ve masraflar", active: true },
   { id: "personel", name: "PERSONEL TAKİP MODÜLÜ", desc: "Günlük devam, geç kalma, izinler ve personel listesi", active: true },
   { id: "planlama", name: "PLANLAMA MODÜLÜ", desc: "İş istasyonları, ürün iş akış şemaları ve iş emirleri", active: true },
@@ -975,6 +982,8 @@ function route() {
   $("#modPersonel").hidden = r !== "personel";
   $("#modStok").hidden = r !== "stok";
   $("#modPlan").hidden = r !== "planlama";
+  $("#modSA").hidden = r !== "satinalma";
+  $("#modCari").hidden = r !== "cari";
   $("#modYetki").hidden = r !== "yetki";
   $("#modPh").hidden = !(mod && !mod.active);
   $("#crumb").innerHTML = r === "home" ? "<b>Ana ekran</b>" : `<a href="#home">‹ <span>Ana ekran</span></a><b>${esc(mod ? mod.name : "YETKİLENDİRME")}</b>`;
@@ -985,6 +994,8 @@ function route() {
   if (r === "personel") { pkWatch(); renderPersonel(); }
   if (r === "stok") { skWatch(); renderStok(); }
   if (r === "planlama") renderPlan();
+  if (r === "satinalma") renderSA();
+  if (r === "cari") renderCari();
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
@@ -1002,6 +1013,8 @@ function renderHome() {
     if (m.id === "personel") return personelTile(m);
     if (m.id === "stok") return stokTile(m);
     if (m.id === "planlama") return planTile(m);
+    if (m.id === "satinalma") return saTile(m);
+    if (m.id === "cari") return cariTile(m);
     if (m.active) return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
@@ -1830,7 +1843,7 @@ async function diBuildPdf(day) {
 }
 // Minimal PDF yazıcı: her sayfa tek JPEG görsel
 function jpegPagesToPdf(dataUrls, pxW, pxH) {
-  const PW = 841.89, PH = 595.28, enc = new TextEncoder(), parts = [], offs = [];
+  const land = pxW >= pxH, PW = land ? 841.89 : 595.28, PH = land ? 595.28 : 841.89, enc = new TextEncoder(), parts = [], offs = [];
   let len = 0; const push = b => { const u = typeof b === "string" ? enc.encode(b) : b; parts.push(u); len += u.length; };
   const obj = (n, body) => { offs[n] = len; push(`${n} 0 obj\n`); body(); push("\nendobj\n"); };
   push("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
@@ -1866,7 +1879,7 @@ function wireDisisToolbar() {
 wireDisisToolbar();
 
 /* ================= YETKİLENDİRME (yalnızca yönetici) ================= */
-const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
+const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
 const LV_SHORT = { none: "Yok", view: "Gözlemci", use: "Kullanıcı", edit: "Düzenleyici" };
 const YT = { rows: [], dirty: false, msg: "" };
 function yetkiTile() {
@@ -3287,8 +3300,8 @@ function skOpenCard(id, tab) {
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="skT" style="width:min(760px,100%)">
       <div class="dh"><h2 id="skT">${cur ? `<span class="num skk">${esc(cur.kod)}</span> ${esc(cur.ad)}` : "Yeni stok kartı"}</h2><button class="x" id="skX" aria-label="Kapat">×</button></div>
       ${cur ? `<div class="skhead"><div class="skbig" style="--tc:${L.c}"><b class="num">${nf(cur.miktar)}</b><span>${esc(cur.birim || "Adet")} · ${L.l}</span></div>
-        <div class="skhm"><span>${esc([cur.depo, cur.adres].filter(Boolean).join(" · ") || "Depo girilmedi")}</span><span>Min ${nf(cur.minStok)}${cur.maxStok ? " · Max " + nf(cur.maxStok) : ""}${cur.sonHareket ? " · son hareket " + skTs(cur.sonHareket) : ""}</span><span class="skgg">${skGenel(cur) ? `<b>Genel grup:</b> ${esc(skGenel(cur))}` : "Genel grup girilmedi"}${cur.anaGrup ? ` · ${esc(cur.anaGrup)}${cur.altGrup ? " › " + esc(cur.altGrup) : ""}` : ""}</span></div>
-        <div class="skhb">${can("s.move") && cur.aktif !== false ? `<button type="button" class="qb ok" data-cmv="giris">+ Giriş</button><button type="button" class="qb ba" data-cmv="cikis">− Çıkış</button>` : ""}${can("s.count") && cur.aktif !== false ? '<button type="button" class="qb mo" data-cmv="sayim">Sayım</button>' : ""}</div></div>
+        <div class="skhm"><span>${esc([cur.depo, cur.adres].filter(Boolean).join(" · ") || "Depo girilmedi")}</span><span>Min ${nf(cur.minStok)}${cur.maxStok ? " · Max " + nf(cur.maxStok) : ""}${cur.sonHareket ? " · son hareket " + skTs(cur.sonHareket) : ""}</span><span class="skgg">${skGenel(cur) ? `<b>Genel grup:</b> ${esc(skGenel(cur))}` : "Genel grup girilmedi"}${cur.anaGrup ? ` · ${esc(cur.anaGrup)}${cur.altGrup ? " › " + esc(cur.altGrup) : ""}` : ""}</span>${saStokHead(cur)}</div>
+        <div class="skhb">${can("s.move") && cur.aktif !== false ? `<button type="button" class="qb ok" data-cmv="giris">+ Giriş</button><button type="button" class="qb ba" data-cmv="cikis">− Çıkış</button>` : ""}${can("s.count") && cur.aktif !== false ? '<button type="button" class="qb mo" data-cmv="sayim">Sayım</button>' : ""}${can("sa.talep") && cur.aktif !== false ? '<button type="button" class="qb" id="skTalep">Talep aç</button>' : ""}</div></div>
         <div class="seg sktabs" role="tablist"><button type="button" data-ct="kart" aria-pressed="${T === "kart"}">Kart bilgileri</button><button type="button" data-ct="har" aria-pressed="${T === "har"}">Stok hareketleri <span class="acount num" id="skHc">${hist.length}</span></button>${pr ? `<button type="button" data-ct="fiy" aria-pressed="${T === "fiy"}">Alış fiyatı arşivi <span class="acount num">${(f.arsiv || []).length}</span></button>` : ""}</div>` : ""}
       <div class="db" id="skBody">${T === "kart" ? cardForm(cur, f, t) : T === "har" ? histHtml(cur) : priceHtml(cur, f)}</div>
       ${T === "kart" ? `<div class="df"><span>${cur && can("s.delete") ? '<button class="btn danger" id="cDel" type="button">Sil</button>' : ""}</span><div class="r"><button class="btn ghost" id="cC" type="button">${ed ? "Vazgeç" : "Kapat"}</button>${ed ? '<button class="btn" id="cS" type="button">Kaydet</button>' : ""}</div></div>` : ""}
@@ -3298,6 +3311,8 @@ function skOpenCard(id, tab) {
     document.querySelectorAll("[data-cmv]").forEach(b => b.onclick = () => skOpenMove(sid, b.dataset.cmv, () => skOpenCard(sid, T === "kart" ? "har" : T)));
     if (T === "kart") bindForm(cur, f);
     if (T === "fiy") bindPrice(cur, f);
+    const stb = $("#skTalep"); if (stb) stb.onclick = () => saOpenTalepForm(null, { sid });
+    document.querySelectorAll("#drawerHost [data-skpo]").forEach(b => b.onclick = () => saOpenPO(b.dataset.skpo));
   }
   function cardForm(cur, f, t) {
     const v = (k, d = "") => form && k in form ? form[k] : d;
@@ -3325,7 +3340,7 @@ function skOpenCard(id, tab) {
         <div class="field"><label for="cMax">Maksimum stok</label><input id="cMax" type="number" step="any" min="0" value="${esc(v("cMax", cur && cur.maxStok ? cur.maxStok : ""))}" placeholder="İsteğe bağlı"${dis}></div>
       </div>
       <section><h3 class="sec-t">Tedarikçi detayı</h3><div class="fgrid">
-        <div class="field"><label for="tFir">Tedarikçi firma</label><input id="tFir" list="tFirL" maxlength="100" value="${esc(v("tFir", t.firma || ""))}"${dis}><datalist id="tFirL">${sortTr(SK.items.map(i => i.ted && i.ted.firma)).map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div class="field"><label for="tFir">Tedarikçi firma</label><input id="tFir" list="tFirL" maxlength="100" value="${esc(v("tFir", t.firma || ""))}"${dis}><datalist id="tFirL">${sortTr([...SK.items.map(i => i.ted && i.ted.firma), ...CR.list.filter(c => c.tedarikci).map(crAd)]).map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
         <div class="field"><label for="tYet">Yetkili kişi</label><input id="tYet" maxlength="80" value="${esc(v("tYet", t.yetkili || ""))}"${dis}></div>
         <div class="field"><label for="tTel">Telefon</label><input id="tTel" type="tel" maxlength="30" value="${esc(v("tTel", t.tel || ""))}"${dis}></div>
         <div class="field"><label for="tMail">E-posta</label><input id="tMail" type="email" maxlength="100" value="${esc(v("tMail", t.eposta || ""))}"${dis}></div>
@@ -3353,10 +3368,10 @@ function skOpenCard(id, tab) {
   }
   function priceHtml(cur, f) {
     const a = (f.arsiv || []).slice().sort((x, y) => x.ts - y.ts);
-    return `${a.length > 1 ? skSpark(a) : ""}
+    return `${a.filter(x => !x.teklif).length > 1 ? skSpark(a.filter(x => !x.teklif)) : ""}${saPriceSummary(f)}
       <div class="ledger fled" role="table"><div class="lhead" role="row"><div>Tarih</div><div>Alış fiyatı</div><div>Değişim</div><div>Tedarikçi</div><div>Not</div><div>Giren</div></div>${a.length ? a.slice().reverse().map((x, k, arr) => {
         const p = arr[k + 1], d = p && p.pb === x.pb && Number(p.fiyat) ? (x.fiyat - p.fiyat) / p.fiyat * 100 : null;
-        return `<div class="row" role="row"><div><span class="date">${skTs(x.ts).split(" ")[0]}</span></div><div class="num"><b>${money(x.fiyat, x.pb)}</b></div><div class="num">${d == null ? "—" : `<span class="${d > 0 ? "up" : d < 0 ? "dn" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} %${nf(Math.abs(d), 1)}</span>`}</div><div class="izs">${esc(x.tedarikci || "—")}</div><div class="izs">${esc(x.not || "")}</div><div class="izs">${esc(x.by || "")}</div></div>`;
+        return `<div class="row" role="row"><div><span class="date">${skTs(x.ts).split(" ")[0]}</span></div><div class="num"><b>${money(x.fiyat, x.pb)}</b></div><div class="num">${d == null ? "—" : `<span class="${d > 0 ? "up" : d < 0 ? "dn" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} %${nf(Math.abs(d), 1)}</span>`}</div><div class="izs">${esc(x.tedarikci || "—")}</div><div class="izs">${x.teklif ? '<span class="kst" style="--tc:var(--k-gunluk)">Teklif</span> ' : x.kaynak && SA_KAYNAK[x.kaynak] ? `<span class="kst" style="--tc:var(--brand)">${SA_KAYNAK[x.kaynak]}</span> ` : ""}${esc(x.not || "")}</div><div class="izs">${esc(x.by || "")}</div></div>`;
       }).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Henüz fiyat girilmedi.</div>'}</div>
       ${can("s.price") ? `<section class="pfadd"><h3 class="sec-t">Yeni fiyat ekle</h3><div class="fgrid three">
         <div class="field"><label for="nF">Alış fiyatı</label><input id="nF" type="number" step="any" min="0"></div>
@@ -3395,7 +3410,7 @@ function skOpenCard(id, tab) {
       const numOr = (x, d = null) => x === "" ? d : Math.max(0, Number(x) || 0);
       const data = { kod, ad, barkod: g("cBar").trim(), tanim: g("cTan").trim(), anaGrup: g("cAna").trim(), altGrup: g("cAlt").trim(), depo: g("cDepo").trim(), adres: g("cAdr").trim().toLocaleUpperCase("tr"), birim: g("cBir") || "Adet",
         minStok: numOr(g("cMin"), 0), maxStok: numOr(g("cMax"), null), not: g("cNot").trim(),
-        ted: { firma: g("tFir").trim(), yetkili: g("tYet").trim(), tel: g("tTel").trim(), eposta: g("tMail").trim(), kod: g("tKod").trim(), teslimGun: numOr(g("tGun")), moq: numOr(g("tMoq")), alternatif: g("tAlt").trim() },
+        ted: { firma: g("tFir").trim(), cariId: (crByName(g("tFir")) || {}).id || "", yetkili: g("tYet").trim(), tel: g("tTel").trim(), eposta: g("tMail").trim(), kod: g("tKod").trim(), teslimGun: numOr(g("tGun")), moq: numOr(g("tMoq")), alternatif: g("tAlt").trim() },
         aktif: cur ? !$("#cPas").checked : true, tip: g("cTip") || skKodParts(kod).tip, anaKod: g("cAk") || skKodParts(kod).ana, altKod: g("cLk") || skKodParts(kod).alt, updatedAt: Date.now(), updatedBy: ME.name };
       data.seviye = skSeviye(cur ? cur.miktar : numOr(g("cMik"), 0), data.minStok, data.maxStok); data.kelimeler = skWords({ ...data, olcu: cur ? cur.olcu : "" });
       sv.disabled = true;
@@ -4734,4 +4749,1527 @@ function plAkisForKod(kod) {
   kod = String(kod || ""); let best = null, bl = 0;
   PL.akis.forEach(a => ((a.kodOnek && a.kodOnek.length ? a.kodOnek : PL_KOD_AKIS_DEF[a.kod]) || []).forEach(p => { if (kod.startsWith(p) && p.length > bl) { best = a; bl = p.length; } }));
   return best;
+}
+
+/* ================= CARİ (müşteriler ve tedarikçiler) ================= */
+const CR = { list: [], ready: false, view: "ted", F: { q: "", kat: "", sinif: "", dur: "aktif" } };
+const crAd = c => c ? (c.kisaAd || c.unvan || "") : "";
+const crFind = id => CR.list.find(c => c.id === id) || null;
+const crFold = s => trFold(s).replace(/(ANONIMSIRKETI|LIMITEDSIRKETI|SANAYIVETICARET|SANVETIC|LTDSTI|SANTIC|AS$|LTD$|STI$)/g, "");
+const crByName = n => { const k = crFold(n); return k ? CR.list.find(c => crFold(c.unvan) === k || (c.kisaAd && crFold(c.kisaAd) === k)) || null : null; };
+const crByVkn = v => { v = String(v || "").replace(/\D/g, ""); return v ? CR.list.find(c => String(c.vergiNo || "").replace(/\D/g, "") === v) || null : null; };
+const crTeds = () => CR.list.filter(c => c.tedarikci && c.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr"));
+const crPhone = t => { let d = String(t || "").replace(/\D/g, ""); if (!d) return ""; if (d.startsWith("0")) d = "90" + d.slice(1); else if (d.length === 10) d = "90" + d; return d; };
+const crNextKod = () => "C-" + String(Math.max(0, ...CR.list.map(c => { const m = String(c.kod || "").match(/^C-(\d+)$/); return m ? Number(m[1]) : 0; })) + 1).padStart(4, "0");
+let crDrawerRefresh = null;
+function startCari() {
+  CR.ready = false;
+  dataUnsubs.push(onSnapshot(collection(fs, "cari"), s => { CR.list = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")); CR.ready = true; crChanged(); },
+    e => { CR.ready = true; crChanged(); toast("Cari kartlar okunamadı: " + (e.code || e.message)); }));
+}
+function crChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "cari") renderCari(); if (ROUTE === "satinalma") renderSA(); if (crDrawerRefresh) crDrawerRefresh(); }
+
+function cariTile(m) {
+  const T = CR.list.filter(c => c.tedarikci && c.aktif !== false), M = CR.list.filter(c => c.musteri && c.aktif !== false);
+  const sc = T.map(c => saScore(c.id)).filter(x => x.toplam != null), A = sc.filter(x => x.sinif === "A").length, C = sc.filter(x => x.sinif === "C").length;
+  const pct = sc.length ? Math.round(sc.reduce((s, x) => s + x.toplam, 0) / sc.length) : 0;
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div>
+        <div class="meter" title="Tedarikçi puan ortalaması ${pct}"><i style="width:${pct}%"></i></div>
+        <div class="stats"><span>${T.length} tedarikçi</span><span>${M.length} müşteri</span>${A ? `<span>${A} A sınıfı</span>` : ""}${C ? `<span class="alert">${C} C sınıfı</span>` : ""}</div>
+      </div></a>`;
+}
+
+function renderCari() {
+  if (!ME || $("#modCari").hidden) return;
+  const T = CR.list.filter(c => c.tedarikci), M = CR.list.filter(c => c.musteri), act = x => x.aktif !== false;
+  const sc = T.filter(act).map(c => ({ c, s: saScore(c.id) })), puanli = sc.filter(x => x.s.toplam != null);
+  const y12 = saSpendByCari(365);
+  $("#crKpis").innerHTML = [
+    ["Tedarikçi", T.filter(act).length, `${puanli.length} tanesinin puanı var`, ""],
+    ["A sınıfı tedarikçi", puanli.filter(x => x.s.sinif === "A").length, "Puan 85 ve üstü", "ok"],
+    ["C sınıfı tedarikçi", puanli.filter(x => x.s.sinif === "C").length, puanli.filter(x => x.s.sinif === "C").slice(0, 2).map(x => crAd(x.c)).join(", ") || "Puanı 70 altında olan yok", puanli.some(x => x.s.sinif === "C") ? "bad" : ""],
+    ["Müşteri", M.filter(act).length, `${CR.list.filter(c => c.musteri && c.tedarikci).length} firma hem müşteri hem tedarikçi`, ""],
+    lvl("satinalma") !== "none" ? ["Son 12 ay alım", moneyR(Object.values(y12).reduce((s, x) => s + x, 0)), `${Object.keys(y12).length} tedarikçiden`, ""] : ["Pasif kart", CR.list.filter(c => !act(c)).length, "Kullanımdan kalkan firmalar", ""]
+  ].map(([k, v, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  document.querySelectorAll("#crTabs [data-cr]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.cr === CR.view ? "true" : "false"); b.onclick = () => { CR.view = b.dataset.cr; CR.F.kat = ""; CR.F.sinif = ""; closeDrawer(); renderCari(); }; });
+  const add = $("#crAdd"); add.hidden = !can("c.edit"); add.textContent = CR.view === "ted" ? "+ Tedarikçi" : "+ Müşteri"; add.onclick = () => crOpen(null, CR.view);
+  const v = $("#crView");
+  if (!CR.ready) { v.innerHTML = '<div class="empty"><h3>Cari kartlar yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
+  const isT = CR.view === "ted", L0 = isT ? T : M;
+  if (!L0.length) {
+    v.innerHTML = `<div class="empty"><h3>Henüz ${isT ? "tedarikçi" : "müşteri"} kartı yok</h3><p>${isT ? "Tedarikçi kartları satın alma talepleri, siparişler ve e-Fatura eşleştirmesinde kullanılır. Stok kartlarına yazılmış tedarikçi adları tek tuşla cari karta dönüştürülebilir." : "Müşteri kartları sipariş takip ve iş emirlerinde kullanılacak."}</p>
+      ${can("c.edit") ? `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="crE1" type="button">+ ${isT ? "Tedarikçi" : "Müşteri"} ekle</button>${isT && lvl("stok") !== "none" ? '<button class="btn ghost" id="crE2" type="button">Stok kartlarındaki tedarikçileri aktar</button>' : ""}${can("sa.siparis") && !SA.talep.length && !SA.siparis.length ? '<button class="btn ghost" id="crE3" type="button">Satınalma deneme verilerini ekle</button>' : ""}</div>` : ""}</div>`;
+    const b1 = $("#crE1"); if (b1) b1.onclick = () => crOpen(null, CR.view);
+    const b2 = $("#crE2"); if (b2) b2.onclick = crImportFromStok;
+    const b3 = $("#crE3"); if (b3) b3.onclick = saSeedDemo;
+    return;
+  }
+  const F = CR.F, kats = sortTr(T.map(c => c.kategori));
+  v.innerHTML = `<div class="pkbar"><div class="filters">
+      ${isT ? `<select class="f${F.kat ? " on" : ""}" id="crKat" aria-label="Kategori"><option value="">Tüm kategoriler</option>${kats.map(k => opt(k, k, F.kat)).join("")}</select>
+      <select class="f${F.sinif ? " on" : ""}" id="crSin" aria-label="Puan sınıfı">${[["", "Tüm sınıflar"], ["A", "A sınıfı (85+)"], ["B", "B sınıfı (70–84)"], ["C", "C sınıfı (70 altı)"], ["-", "Puanı olmayan"]].map(([a, l]) => opt(a, l, F.sinif)).join("")}</select>` : ""}
+      <select class="f${F.dur !== "aktif" ? " on" : ""}" id="crDur" aria-label="Durum">${[["aktif", "Aktif kartlar"], ["pasif", "Pasif kartlar"], ["tum", "Tümü"]].map(([a, l]) => opt(a, l, F.dur)).join("")}</select>
+      <input class="f" id="crQ" type="search" placeholder="Unvan, kod, yetkili, şehir ara…" aria-label="Carilerde ara" value="${esc(F.q)}"></div>
+    <div class="filters"><span class="sortinfo" id="crInfo"></span><button type="button" class="btn ghost sm" id="crCsv">Excel'e aktar</button>${isT && can("c.edit") && lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="crImp">Stoktaki tedarikçileri aktar</button>' : ""}</div></div>
+    <div id="crList"></div>`;
+  const openPO = saOpenPOByCari(), sp = saSpendByCari(365), ie = crIeByMusteri();
+  const rowsOf = () => { const q = skNorm(F.q.trim());
+    return L0.filter(c => (F.dur === "tum" || (F.dur === "pasif" ? c.aktif === false : c.aktif !== false))
+      && (!F.kat || c.kategori === F.kat)
+      && (!F.sinif || (() => { const s = saScore(c.id); return F.sinif === "-" ? s.toplam == null : s.sinif === F.sinif; })())
+      && (!q || skNorm([c.kod, c.unvan, c.kisaAd, c.kategori, c.il, c.ilce, c.tel, c.eposta, c.muhasebeKod, ...(c.yetkililer || []).map(y => y.ad)].join(" ")).includes(q))); };
+  const draw = () => {
+    const R = rowsOf(); $("#crInfo").textContent = `${R.length} kart`;
+    $("#crList").innerHTML = `<div class="ledger crled${isT ? "" : " mus"}" role="table"><div class="lhead" role="row"><div>Kod</div><div>Unvan</div><div>İletişim</div><div>Vade</div>${isT ? "<div>Puan</div><div>Açık sipariş</div><div>Son 12 ay alım</div>" : "<div>Açık iş emri</div><div>Şehir</div>"}</div>
+      ${R.length ? R.map(c => { const s = isT ? saScore(c.id) : null, y = (c.yetkililer || [])[0];
+        return `<div class="row" role="row" tabindex="0" data-cr="${esc(c.id)}" style="--stripe:${c.aktif === false ? "var(--ink-3)" : s && s.sinif === "C" ? "var(--k-izinsiz)" : "transparent"}">
+          <div class="skc"><span class="num">${esc(c.kod || "—")}</span>${c.deneme ? '<span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}</div>
+          <div class="ska"><b>${esc(c.unvan)}</b><div class="desc">${esc([c.kategori, c.musteri && c.tedarikci ? "Müşteri + tedarikçi" : "", c.aktif === false ? "Pasif" : ""].filter(Boolean).join(" · ") || (c.kisaAd || ""))}</div></div>
+          <div class="izs">${y ? esc(y.ad) + "<br>" : ""}${c.tel ? `<span class="num">${esc(c.tel)}</span>` : ""}${c.eposta ? `<div class="note">${esc(c.eposta)}</div>` : ""}${!y && !c.tel && !c.eposta ? '<span class="date none">—</span>' : ""}</div>
+          <div class="num">${c.vade ? c.vade + " gün" : "—"}${c.pb && c.pb !== "TRY" ? " · " + esc(c.pb) : ""}</div>
+          ${isT ? `<div>${s.toplam == null ? '<span class="date none">Veri yok</span>' : `<span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif} · ${s.toplam}</span>${s.trend ? `<small class="note"> ${s.trend > 0 ? "▲" : "▼"}${Math.abs(s.trend)}</small>` : ""}`}</div>
+            <div class="num">${openPO[c.id] ? `${openPO[c.id].n} sipariş${openPO[c.id].gec ? ` <span class="late">· ${openPO[c.id].gec} gecikti</span>` : ""}` : "—"}</div>
+            <div class="num">${sp[c.id] ? moneyR(sp[c.id]) : "—"}</div>`
+          : `<div class="num">${(ie[c.id] || []).length || "—"}</div><div class="izs">${esc([c.il, c.ilce].filter(Boolean).join(" / ") || "—")}</div>`}
+        </div>`; }).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtrelere uyan kart yok.</div>'}</div>`;
+    $("#crList").querySelectorAll("[data-cr]").forEach(el => { const go = () => crOpen(el.dataset.cr); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  };
+  draw();
+  const k = $("#crKat"); if (k) k.onchange = e => { F.kat = e.target.value; renderCari(); };
+  const sn = $("#crSin"); if (sn) sn.onchange = e => { F.sinif = e.target.value; renderCari(); };
+  $("#crDur").onchange = e => { F.dur = e.target.value; renderCari(); };
+  $("#crQ").oninput = e => { F.q = e.target.value; draw(); };
+  $("#crCsv").onclick = () => crCsv(rowsOf(), isT);
+  const im = $("#crImp"); if (im) im.onclick = crImportFromStok;
+}
+const SA_SINIF = { A: "var(--k-fabrikada)", B: "var(--k-gunluk)", C: "var(--k-izinsiz)" };
+// Müşteriye bağlı iş emirleri (planlama: müşteri adı eşleşmesi)
+function crIeByMusteri() {
+  const out = {}; if (typeof PL === "undefined") return out;
+  CR.list.filter(c => c.musteri).forEach(c => { const k = [crFold(c.unvan), c.kisaAd ? crFold(c.kisaAd) : ""].filter(Boolean);
+    out[c.id] = PL.ie.filter(e => plIeOpen(e) && e.musteri && k.includes(crFold(e.musteri))); });
+  return out;
+}
+function crCsv(R, isT) {
+  const H = ["Kod", "Muhasebe kodu", "Unvan", "Kısa ad", "Tür", "Kategori", "Vergi dairesi", "Vergi no", "Adres", "İl", "İlçe", "Telefon", "WhatsApp", "E-posta", "Web", "Vade (gün)", "Para birimi", "IBAN", "Yetkili", ...(isT ? ["Puan", "Sınıf"] : []), "Not"];
+  const rows = R.map(c => { const s = isT ? saScore(c.id) : null;
+    return [c.kod, c.muhasebeKod, c.unvan, c.kisaAd, [c.tedarikci ? "Tedarikçi" : "", c.musteri ? "Müşteri" : ""].filter(Boolean).join(" + "), c.kategori, c.vd, c.vergiNo, c.adres, c.il, c.ilce, c.tel, c.whatsapp, c.eposta, c.web, c.vade, c.pb, c.iban,
+      (c.yetkililer || []).map(y => [y.ad, y.gorev, y.tel].filter(Boolean).join(" ")).join(" | "), ...(isT ? [s.toplam ?? "", s.sinif || ""] : []), c.not]; });
+  const csv = "﻿" + [H, ...rows].map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  saveFile(new Blob([csv], { type: "text/csv;charset=utf-8" }), (isT ? "tedarikciler" : "musteriler") + "-" + TODAY + ".csv");
+}
+
+/* Stok kartlarındaki serbest tedarikçi adlarından cari kart oluşturur ve kartları bağlar */
+async function crImportFromStok() {
+  if (!can("c.edit")) return;
+  try {
+    toast("Stok kartlarındaki tedarikçiler okunuyor…");
+    const s = await getDocs(query(collection(fs, "stok"), where("ted.firma", ">", "")));
+    const by = new Map(); s.docs.forEach(d => { const x = d.data(), t = x.ted || {}, n = String(t.firma || "").trim(); if (!n || /kar-?men/i.test(n)) return; const k = crFold(n); if (!k) return;
+      const g = by.get(k) || { ad: n, t, ids: [] }; g.ids.push(d.id); if (!g.t.tel && t.tel) g.t = { ...g.t, tel: t.tel }; if (!g.t.eposta && t.eposta) g.t = { ...g.t, eposta: t.eposta }; by.set(k, g); });
+    if (!by.size) { toast("Stok kartlarında tedarikçi adı bulunamadı"); return; }
+    const now = Date.now(); let yeni = 0, bag = 0, n = Math.max(0, ...CR.list.map(c => { const m = String(c.kod || "").match(/^C-(\d+)$/); return m ? Number(m[1]) : 0; }));
+    const b = writeBatch(fs), ups = [];
+    for (const [, g] of by) {
+      let c = crByName(g.ad), id = c ? c.id : null;
+      if (!c) { const ref = doc(collection(fs, "cari")); id = ref.id; yeni++;
+        b.set(ref, { kod: "C-" + String(++n).padStart(4, "0"), unvan: g.ad, kisaAd: "", tedarikci: true, musteri: false, kategori: "", tel: g.t.tel || "", eposta: g.t.eposta || "", whatsapp: "", yetkililer: g.t.yetkili ? [{ ad: g.t.yetkili, gorev: "", tel: g.t.tel || "", eposta: g.t.eposta || "" }] : [], vade: null, pb: "TRY", aktif: true, kaynak: "stok", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name }); }
+      else if (!c.tedarikci) b.update(doc(fs, "cari", c.id), { tedarikci: true, updatedAt: now, updatedBy: ME.name });
+      if (can("s.edit")) g.ids.forEach(sid => ups.push([sid, id]));
+    }
+    await b.commit();
+    for (let i = 0; i < ups.length; i += 400) { const b2 = writeBatch(fs); ups.slice(i, i + 400).forEach(([sid, cid]) => b2.update(doc(fs, "stok", sid), { "ted.cariId": cid })); await b2.commit(); bag += Math.min(400, ups.length - i); }
+    toast(`${yeni} yeni tedarikçi kartı açıldı${bag ? ` · ${bag} stok kartı bağlandı` : ""}`);
+  } catch (x) { toast(writeErr(x)); }
+}
+
+/* Cari kart */
+function crOpen(id, tip) {
+  const it = id ? crFind(id) : null; if (id && !it) { toast("Cari kart bulunamadı"); return; }
+  const ed = can("c.edit"), dis = ed ? "" : " disabled";
+  let T = "bil", form = null, yet = it ? JSON.parse(JSON.stringify(it.yetkililer || [])) : [];
+  if (!yet.length) yet.push({ ad: "", gorev: "", tel: "", eposta: "" });
+  crDrawerRefresh = () => { if (T !== "bil") paint(); };
+  onDrawerClose = () => { crDrawerRefresh = null; };
+  const keep = () => { if (!$("#kUn")) return; form = {}; document.querySelectorAll("#crForm [id]").forEach(el => { if ("value" in el) form[el.id] = el.type === "checkbox" ? el.checked : el.value; });
+    yet = yet.map((y, k) => ({ ad: ($("#yA" + k) || {}).value || "", gorev: ($("#yG" + k) || {}).value || "", tel: ($("#yT" + k) || {}).value || "", eposta: ($("#yE" + k) || {}).value || "" })); };
+  function paint() {
+    const cur = it ? crFind(it.id) || it : null, isT = cur ? !!cur.tedarikci : tip !== "mus", isM = cur ? !!cur.musteri : tip === "mus";
+    const tabs = cur ? [["bil", "Bilgiler"], ...(isT && lvl("satinalma") !== "none" ? [["sa", "Satın alma"], ["puan", "Puan"]] : []), ...(isM ? [["ie", "Siparişler / iş emirleri"]] : [])] : [];
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="krT" style="width:min(760px,100%)">
+      <div class="dh"><h2 id="krT">${cur ? `<span class="num skk">${esc(cur.kod || "")}</span> ${esc(cur.unvan)}` : isM && !isT ? "Yeni müşteri" : "Yeni tedarikçi"}</h2><button class="x" id="krX" aria-label="Kapat">×</button></div>
+      ${cur ? crHead(cur, isT) : ""}
+      ${tabs.length > 1 ? `<div class="seg sktabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" data-kt="${k}" aria-pressed="${T === k}">${l}</button>`).join("")}</div>` : ""}
+      <div class="db">${T === "bil" ? formHtml(cur, isT, isM) : T === "sa" ? saHtml(cur) : T === "puan" ? puanHtml(cur) : ieHtml(cur)}</div>
+      ${T === "bil" ? `<div class="df"><span>${cur && can("c.delete") ? '<button class="btn danger" id="kDel" type="button">Sil</button>' : ""}</span><div class="r"><button class="btn ghost" id="kC" type="button">${ed ? "Vazgeç" : "Kapat"}</button>${ed ? '<button class="btn" id="kS" type="button">Kaydet</button>' : ""}</div></div>` : ""}
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#krX").onclick = closeDrawer;
+    document.querySelectorAll("[data-kt]").forEach(b => b.onclick = () => { if (T === "bil") keep(); T = b.dataset.kt; paint(); });
+    if (T === "bil") bind(cur);
+    if (T === "puan") bindPuan(cur);
+    document.querySelectorAll("#drawerHost [data-po]").forEach(el => el.onclick = () => saOpenPO(el.dataset.po));
+    document.querySelectorAll("#drawerHost [data-fa]").forEach(el => el.onclick = () => saOpenFatura(el.dataset.fa));
+    document.querySelectorAll("#drawerHost [data-ie]").forEach(el => el.onclick = () => { closeDrawer(); location.hash = "planlama"; setTimeout(() => plOpenIe(el.dataset.ie), 80); });
+    const np = $("#kNewTalep"); if (np) np.onclick = () => saOpenPOForm(null, { cariId: cur.id });
+  }
+  function crHead(c, isT) {
+    const s = isT ? saScore(c.id) : null, wa = crPhone(c.whatsapp || c.tel);
+    return `<div class="skhead"><div class="skbig" style="--tc:${s && s.sinif ? SA_SINIF[s.sinif] : "var(--ink-3)"}"><b class="num">${s && s.toplam != null ? s.toplam : "—"}</b><span>${s && s.sinif ? s.sinif + " sınıfı" : isT ? "Puan verisi yok" : "Müşteri"}</span></div>
+      <div class="skhm"><span>${esc([c.il, c.ilce].filter(Boolean).join(" / ") || "Adres girilmedi")}</span><span>${esc([c.vd ? c.vd + " VD" : "", c.vergiNo ? "VKN " + c.vergiNo : ""].filter(Boolean).join(" · ") || "Vergi bilgisi yok")}</span><span>${[c.tedarikci ? "Tedarikçi" : "", c.musteri ? "Müşteri" : ""].filter(Boolean).join(" + ")}${c.vade ? " · vade " + c.vade + " gün" : ""}${c.muhasebeKod ? " · Bilsoft " + esc(c.muhasebeKod) : ""}</span></div>
+      <div class="skhb">${c.tel ? `<a class="qb" href="tel:${esc(String(c.tel).replace(/[^\d+]/g, ""))}">Ara</a>` : ""}${wa ? `<a class="qb ok" href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${c.eposta ? `<a class="qb mo" href="mailto:${esc(c.eposta)}">E-posta</a>` : ""}</div></div>`;
+  }
+  function formHtml(cur, isT, isM) {
+    const v = (k, d = "") => form && k in form ? form[k] : d, c = cur || {};
+    return `<div id="crForm"><div class="fgrid">
+      <div class="field"><label for="kKod">Cari kodu</label><input id="kKod" maxlength="20" value="${esc(v("kKod", c.kod || crNextKod()))}" style="font-family:var(--mono)"${dis}></div>
+      <div class="field"><label for="kMk">Muhasebe kodu (Bilsoft)</label><input id="kMk" maxlength="30" value="${esc(v("kMk", c.muhasebeKod || ""))}" placeholder="İsteğe bağlı" style="font-family:var(--mono)"${dis}></div>
+      <div class="field full"><label for="kUn">Unvan *</label><input id="kUn" maxlength="160" value="${esc(v("kUn", c.unvan || ""))}" placeholder="Örn. Örnek Alüminyum Sanayi ve Ticaret A.Ş."${dis}></div>
+      <div class="field"><label for="kKa">Kısa ad</label><input id="kKa" maxlength="60" value="${esc(v("kKa", c.kisaAd || ""))}" placeholder="Listelerde görünen ad"${dis}></div>
+      <div class="field"><label>Cari türü</label><div style="display:flex;gap:16px;padding-top:6px"><label class="chk"><input type="checkbox" id="kTt"${v("kTt", isT) ? " checked" : ""}${dis}> Tedarikçi</label><label class="chk"><input type="checkbox" id="kTm"${v("kTm", isM) ? " checked" : ""}${dis}> Müşteri</label></div></div>
+      <div class="field"><label for="kKat">Kategori (ne tedarik ediyor)</label><input id="kKat" list="kKatL" maxlength="60" value="${esc(v("kKat", c.kategori || ""))}" placeholder="Örn. Alüminyum profil"${dis}><datalist id="kKatL">${sortTr(CR.list.map(x => x.kategori)).map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+      <div class="field"><label for="kVd">Vergi dairesi</label><input id="kVd" maxlength="60" value="${esc(v("kVd", c.vd || ""))}"${dis}></div>
+      <div class="field"><label for="kVn">Vergi no / TCKN</label><input id="kVn" inputmode="numeric" maxlength="11" value="${esc(v("kVn", c.vergiNo || ""))}" style="font-family:var(--mono)"${dis}></div>
+      <div class="field"><label for="kMer">MERSİS no</label><input id="kMer" maxlength="20" value="${esc(v("kMer", c.mersis || ""))}" style="font-family:var(--mono)"${dis}></div>
+      <div class="field full"><label for="kAdr">Adres</label><textarea id="kAdr" maxlength="400"${dis}>${esc(v("kAdr", c.adres || ""))}</textarea></div>
+      <div class="field"><label for="kIl">İl</label><input id="kIl" maxlength="40" value="${esc(v("kIl", c.il || ""))}"${dis}></div>
+      <div class="field"><label for="kIlc">İlçe</label><input id="kIlc" maxlength="40" value="${esc(v("kIlc", c.ilce || ""))}"${dis}></div>
+      <div class="field"><label for="kTel">Telefon</label><input id="kTel" type="tel" maxlength="30" value="${esc(v("kTel", c.tel || ""))}"${dis}></div>
+      <div class="field"><label for="kWa">WhatsApp</label><input id="kWa" type="tel" maxlength="30" value="${esc(v("kWa", c.whatsapp || ""))}" placeholder="Boşsa telefon kullanılır"${dis}></div>
+      <div class="field"><label for="kMail">E-posta</label><input id="kMail" type="email" maxlength="100" value="${esc(v("kMail", c.eposta || ""))}" placeholder="Sipariş ve fiyat talepleri buraya"${dis}></div>
+      <div class="field"><label for="kWeb">Web sitesi</label><input id="kWeb" maxlength="100" value="${esc(v("kWeb", c.web || ""))}"${dis}></div>
+      <div class="field"><label for="kVade">Ödeme vadesi (gün)</label><input id="kVade" type="number" min="0" max="365" value="${esc(v("kVade", c.vade ?? ""))}"${dis}></div>
+      <div class="field"><label for="kPb">Para birimi</label><select id="kPb"${dis}>${ST_PB.map(p => opt(p, p, v("kPb", c.pb || "TRY"))).join("")}</select></div>
+      <div class="field full"><label for="kIban">IBAN</label><input id="kIban" maxlength="40" value="${esc(v("kIban", c.iban || ""))}" style="font-family:var(--mono)"${dis}></div>
+    </div>
+    <section><h3 class="sec-t">Yetkililer <small>sipariş ve fiyat talepleri ilk yetkiliye hitaben yazılır</small></h3>
+      ${yet.map((y, k) => `<div class="fgrid" style="grid-template-columns:1.3fr 1fr 1fr 1.3fr auto;align-items:end;margin-bottom:8px">
+        <div class="field"><label for="yA${k}">Ad soyad</label><input id="yA${k}" maxlength="60" value="${esc(y.ad)}"${dis}></div>
+        <div class="field"><label for="yG${k}">Görevi</label><input id="yG${k}" maxlength="40" value="${esc(y.gorev)}"${dis}></div>
+        <div class="field"><label for="yT${k}">Telefon</label><input id="yT${k}" maxlength="30" value="${esc(y.tel)}"${dis}></div>
+        <div class="field"><label for="yE${k}">E-posta</label><input id="yE${k}" maxlength="100" value="${esc(y.eposta)}"${dis}></div>
+        ${ed ? `<button type="button" class="btn ghost sm" data-yrm="${k}" aria-label="Yetkiliyi kaldır">×</button>` : "<span></span>"}</div>`).join("")}
+      ${ed && yet.length < 6 ? '<button type="button" class="btn ghost sm" id="yAdd">+ Yetkili</button>' : ""}</section>
+    <div class="fgrid"><div class="field full"><label for="kNot">Notlar</label><textarea id="kNot" maxlength="2000"${dis}>${esc(v("kNot", c.not || ""))}</textarea></div>
+      ${cur ? `<label class="chk field"><input type="checkbox" id="kPas"${v("kPas", cur.aktif === false) ? " checked" : ""}${dis}> Pasif (artık çalışılmıyor)</label>` : ""}</div>
+    ${cur ? `<p class="note" style="margin:0">Oluşturan: ${esc(cur.createdBy || "—")}${cur.updatedBy ? " · son düzenleyen " + esc(cur.updatedBy) : ""}</p>` : ""}</div>`;
+  }
+  function bind(cur) {
+    $("#kC").onclick = closeDrawer;
+    const ya = $("#yAdd"); if (ya) ya.onclick = () => { keep(); yet.push({ ad: "", gorev: "", tel: "", eposta: "" }); paint(); };
+    document.querySelectorAll("[data-yrm]").forEach(b => b.onclick = () => { keep(); yet.splice(Number(b.dataset.yrm), 1); if (!yet.length) yet.push({ ad: "", gorev: "", tel: "", eposta: "" }); paint(); });
+    const del = $("#kDel"); if (del) { let armed = false; del.onclick = async () => {
+      const used = SA.siparis.some(p => p.cariId === cur.id) || SA.fatura.some(f => f.cariId === cur.id);
+      if (used) { toast("Bu firmaya ait sipariş veya fatura var; silmek yerine Pasif yapın"); return; }
+      if (!armed) { armed = true; del.textContent = "Silinsin mi? Tekrar basın"; return; }
+      try { await deleteDoc(doc(fs, "cari", cur.id)); toast("Cari kart silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+    const sv = $("#kS"); if (!sv) return;
+    sv.onclick = async () => {
+      keep(); const g = k => String(form[k] ?? "").trim();
+      const unvan = g("kUn"); if (!unvan) { toast("Unvan girin"); $("#kUn").focus(); return; }
+      if (!form.kTt && !form.kTm) { toast("Tedarikçi ya da müşteri seçin"); return; }
+      const vn = g("kVn").replace(/\D/g, ""); if (vn && vn.length !== 10 && vn.length !== 11) { toast("Vergi no 10, TCKN 11 haneli olmalı"); $("#kVn").focus(); return; }
+      const dupV = vn && CR.list.find(c => c.id !== (cur && cur.id) && String(c.vergiNo || "").replace(/\D/g, "") === vn);
+      if (dupV) { toast(`Bu vergi numarası ${crAd(dupV)} kartında kayıtlı`); return; }
+      const dupN = CR.list.find(c => c.id !== (cur && cur.id) && crFold(c.unvan) === crFold(unvan));
+      if (dupN) { toast(`Aynı unvanla kart var: ${dupN.kod || ""} ${crAd(dupN)}`); return; }
+      const now = Date.now(), Y = yet.map(y => ({ ad: y.ad.trim().slice(0, 60), gorev: y.gorev.trim().slice(0, 40), tel: y.tel.trim().slice(0, 30), eposta: y.eposta.trim().slice(0, 100) })).filter(y => y.ad || y.tel || y.eposta);
+      const data = { kod: g("kKod") || crNextKod(), muhasebeKod: g("kMk"), unvan: unvan.slice(0, 160), kisaAd: g("kKa"), tedarikci: !!form.kTt, musteri: !!form.kTm, kategori: g("kKat"), vd: g("kVd"), vergiNo: vn, mersis: g("kMer"),
+        adres: g("kAdr"), il: g("kIl"), ilce: g("kIlc"), tel: g("kTel"), whatsapp: g("kWa"), eposta: g("kMail"), web: g("kWeb"), vade: form.kVade === "" ? null : Math.max(0, Number(form.kVade) || 0), pb: form.kPb || "TRY", iban: g("kIban").replace(/\s+/g, " ").toUpperCase(),
+        yetkililer: Y, not: g("kNot"), aktif: cur ? !form.kPas : true, updatedAt: now, updatedBy: ME.name };
+      sv.disabled = true;
+      try {
+        if (cur) await updateDoc(doc(fs, "cari", cur.id), data);
+        else { const ref = doc(collection(fs, "cari")); await setDoc(ref, { ...data, createdAt: now, createdBy: ME.name }); }
+        toast(cur ? "Cari kart güncellendi" : "Cari kart eklendi"); closeDrawer();
+      } catch (x) { sv.disabled = false; toast(writeErr(x)); }
+    };
+  }
+  function saHtml(c) {
+    const P = SA.siparis.filter(p => p.cariId === c.id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)), Fa = SA.fatura.filter(f => f.cariId === c.id).sort((a, b) => String(b.tarih).localeCompare(String(a.tarih)));
+    const Tk = SA.teklif.filter(t => t.cariId === c.id), y12 = P.filter(p => p.durum !== "iptal" && dnum(p.tarih) >= dnum(TODAY) - 365).reduce((s, p) => s + saPoTRY(p), 0);
+    const urun = {}; P.filter(p => p.durum !== "iptal").forEach(p => (p.kalemler || []).forEach(k => { const key = k.kod || k.ad; const u = urun[key] = urun[key] || { ad: k.ad, kod: k.kod, n: 0, birim: k.birim, son: null }; u.n += Number(k.miktar) || 0; if (!u.son || p.tarih > u.son.tarih) u.son = { tarih: p.tarih, fiyat: k.fiyat, pb: p.pb }; }));
+    return `<div class="pkst"><div><b class="num">${P.length}</b><span>sipariş</span></div><div><b class="num">${P.filter(saPoOpen).length}</b><span>açık sipariş</span></div><div><b class="num">${Tk.length}</b><span>fiyat talebi</span></div><div><b class="num">${Fa.length}</b><span>fatura</span></div><div><b>${moneyR(y12)}</b><span>son 12 ay</span></div></div>
+      ${can("sa.siparis") && c.aktif !== false ? '<div><button type="button" class="btn ghost sm" id="kNewTalep">+ Bu firmaya sipariş</button></div>' : ""}
+      <section><h3 class="sec-t">Siparişler <small>${P.length}</small></h3>${P.length ? `<div class="ledger saled mini" role="table">${P.slice(0, 30).map(saPoRow).join("")}</div>` : '<p class="note">Bu firmaya henüz sipariş verilmedi.</p>'}</section>
+      <section><h3 class="sec-t">Alınan ürünler ve son fiyatlar</h3>${Object.keys(urun).length ? `<div class="ledger fled mini" role="table"><div class="lhead" role="row"><div>Kod</div><div>Ürün</div><div>Toplam miktar</div><div>Son fiyat</div><div>Son sipariş</div></div>${Object.values(urun).sort((a, b) => b.n - a.n).slice(0, 25).map(u => `<div class="row" role="row" style="cursor:default"><div class="num skk">${esc(u.kod || "—")}</div><div class="izs"><b>${esc(u.ad)}</b></div><div class="num">${nf(u.n)} ${esc(u.birim || "")}</div><div class="num">${u.son && u.son.fiyat != null ? money(u.son.fiyat, u.son.pb) : "—"}</div><div class="date">${u.son ? fmtS(u.son.tarih) : "—"}</div></div>`).join("")}</div>` : '<p class="note">Henüz ürün alınmadı.</p>'}</section>
+      <section><h3 class="sec-t">Faturalar <small>${Fa.length}</small></h3>${Fa.length ? Fa.slice(0, 20).map(f => `<div class="nowr" data-fa="${esc(f.id)}" role="button" tabindex="0"><span class="lk num">${esc(f.no)}</span><div><b>${fmtS(f.tarih)}</b><div class="note">${(f.satirlar || []).length} satır${(f.sapma || []).length ? ` · <span class="late">${f.sapma.length} fiyat farkı</span>` : ""}</div></div><span class="num">${money(f.genel, f.pb)}</span></div>`).join("") : '<p class="note">Bu firmadan fatura yüklenmedi.</p>'}</section>`;
+  }
+  function puanHtml(c) {
+    const s = saScore(c.id), p = s.prev, P = c.puan || {}, ed2 = can("c.puan");
+    const bar = (k, l, w, val, why) => `<div class="loadr" style="cursor:default;grid-template-columns:170px minmax(0,1fr) 60px"><span>${l} <small class="note">%${w}</small></span><div class="lb"><span style="width:${val == null ? 0 : val}%;--fill:${val == null ? "var(--ink-3)" : val >= 85 ? "var(--k-fabrikada)" : val >= 70 ? "var(--k-gunluk)" : "var(--k-izinsiz)"}"></span></div><span class="lv num">${val == null ? "—" : val}</span></div><p class="note" style="margin:-2px 0 8px">${why}</p>`;
+    return `<section class="plcard"><h3 class="sec-t">Son 6 ay puanı <small>${s.n} sipariş · ${s.kabul} mal kabul</small></h3>
+      <div style="display:flex;gap:18px;align-items:baseline;margin-bottom:12px"><b style="font:600 40px var(--display)">${s.toplam ?? "—"}</b>${s.sinif ? `<span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif} sınıfı</span>` : ""}${p && p.toplam != null ? `<span class="note">Önceki 6 ay: ${p.toplam}${s.toplam != null ? ` (${s.toplam - p.toplam >= 0 ? "+" : ""}${s.toplam - p.toplam})` : ""}</span>` : ""}</div>
+      ${bar("t", "Termine uyum", 35, s.termin, s.termin == null ? "Termini olan sipariş teslim alınmadı." : `${s.gecikme} geç teslim / ${s.teslim} teslim · her gecikme günü −10 puan`)}
+      ${bar("k", "Kalite", 30, s.kalite, s.kalite == null ? "Mal kabul verisi yok." : `Gelen ${nf(s.gelen)} · reddedilen ${nf(s.red)} · iade ${nf(s.iade)} · hatalı oranın 5 katı düşülür`)}
+      ${bar("f", "Fiyat", 20, s.fiyat, s.fiyat == null ? "Aynı ürün başka tedarikçiden alınmadığı için karşılaştırma yok." : `Aynı ürünlerin diğer tedarikçi fiyatlarına göre ortalama %${nf(s.fiyatFark, 1)} ${s.fiyatFark >= 0 ? "pahalı" : "ucuz"}`)}
+      ${bar("i", "İletişim ve hizmet", 15, s.iletisim, P.iletisim ? `${P.iletisim}/5 · ${esc(P.by || "")} ${P.at ? skTs(P.at).split(" ")[0] : ""}${P.not ? " · " + esc(P.not) : ""}` : "Elle verilen puan yok.")}
+      <p class="note" style="margin:8px 0 0">Sınıf: A 85 ve üstü · B 70–84 · C 70 altı. Verisi olmayan ölçüt hesaba katılmaz, diğerlerinin ağırlığı artar.</p></section>
+      ${ed2 ? `<section><h3 class="sec-t">İletişim ve hizmet puanı ver</h3><div class="fgrid"><div class="field"><label for="pIl">Puan</label><select id="pIl">${[["", "Seçin"], ["5", "5 · Çok iyi"], ["4", "4 · İyi"], ["3", "3 · Orta"], ["2", "2 · Zayıf"], ["1", "1 · Kötü"]].map(([a, l]) => opt(a, l, String(P.iletisim || ""))).join("")}</select></div>
+        <div class="field"><label for="pNt">Not</label><input id="pNt" maxlength="160" value="${esc(P.not || "")}" placeholder="Örn. teklife hızlı dönüş, teknik destek"></div></div><button type="button" class="btn" id="pSv" style="margin-top:10px">Puanı kaydet</button></section>` : ""}
+      ${(P.log || []).length ? `<section><h3 class="sec-t">Puan geçmişi</h3>${P.log.slice().reverse().map(l => `<div class="note">${skTs(l.at).split(" ")[0]} · ${esc(l.by)} · ${l.iletisim}/5${l.not ? " · " + esc(l.not) : ""}</div>`).join("")}</section>` : ""}`;
+  }
+  function bindPuan(c) {
+    const b = $("#pSv"); if (!b) return;
+    b.onclick = async () => { const n = Number($("#pIl").value); if (!n) { toast("Puan seçin"); return; } b.disabled = true;
+      const now = Date.now(), not = $("#pNt").value.trim(), log = ((c.puan || {}).log || []).concat([{ at: now, by: ME.name, iletisim: n, not }]).slice(-20);
+      try { await updateDoc(doc(fs, "cari", c.id), { puan: { iletisim: n, not, by: ME.name, at: now, log }, updatedAt: now, updatedBy: ME.name }); toast("Puan kaydedildi"); } catch (x) { b.disabled = false; toast(writeErr(x)); } };
+  }
+  function ieHtml(c) {
+    const k = [crFold(c.unvan), c.kisaAd ? crFold(c.kisaAd) : ""].filter(Boolean);
+    const L = typeof PL !== "undefined" ? PL.ie.filter(e => e.musteri && k.includes(crFold(e.musteri))).sort((a, b) => String(a.termin || "9").localeCompare(String(b.termin || "9"))) : [];
+    return `<p class="note" style="margin:0">Sipariş Takip modülü açılınca müşteri siparişleri burada listelenecek. Şimdilik planlamadaki iş emirleri müşteri adıyla eşleştiriliyor.</p>
+      ${L.length ? L.map(e => { const s = plStats(e); return `<div class="nowr" data-ie="${esc(e.id)}" role="button" tabindex="0"><span class="lk num">${esc(e.no)}</span><div><b>${esc(e.urunAd)}</b><div class="note">${esc(e.siparisNo || "Stoka üretim")} · ${nf(e.miktar)} ${esc(e.birim || "Adet")} · %${s.pct} · ${PL_EDUR[e.durum][0]}</div></div><span class="num ${s.late || s.over ? "late" : "note"}">${e.termin ? fmtS(e.termin) : "—"}</span></div>`; }).join("") : '<p class="note">Bu müşteriye bağlı iş emri bulunamadı.</p>'}`;
+  }
+  paint();
+}
+
+/* ================= SATINALMA ================= */
+const SA_SARTLAR = "1. Sipariş numaramız irsaliye ve faturada mutlaka belirtilmelidir.\n2. Malzemeler belirtilen termin tarihinde, teslim yerine eksiksiz ve hasarsız teslim edilmelidir. Gecikme olacaksa önceden yazılı bildirilmelidir.\n3. Teknik özelliklere, ölçülere veya onaylı numuneye uymayan ürünler iade edilir; iade ve yeniden sevk masrafları tedarikçiye aittir.\n4. Fatura fiyatları sipariş fiyatlarıyla aynı olmalıdır; fiyat farkı önceden yazılı onay alınmadan kabul edilmez.\n5. Teslimatla birlikte gerekli sertifika, test raporu ve garanti belgeleri gönderilmelidir.";
+const SA_CFG_DEF = () => ({ limit: 100000, onayBuyuk: null, onayKucuk: null, kur: { USD: null, EUR: null },
+  firma: { unvan: "KAR-MEN AIRTECH", adres: "", tel: "", eposta: "", web: "", vd: "", vno: "", mersis: "" }, sartlar: SA_SARTLAR, teslimYeri: "", odeme: "" });
+const SA = { talep: [], teklif: [], siparis: [], fatura: [], cfg: SA_CFG_DEF(), ready: false, view: "genel", F: { q: "", dur: "acik", cari: "" }, fiyat: {} };
+const SA_TDUR = { onay: ["Onay bekliyor", "var(--k-gec)"], onaylandi: ["Onaylandı", "var(--brand)"], teklif: ["Fiyat isteniyor", "var(--k-gunluk)"], siparis: ["Siparişe döndü", "var(--k-fabrikada)"], kapandi: ["Kapandı", "var(--ink-3)"], red: ["Reddedildi", "var(--k-izinsiz)"], iptal: ["İptal", "var(--ink-3)"] };
+const SA_SDUR = { onay: ["Onay bekliyor", "var(--k-gec)"], hazir: ["Gönderilmedi", "var(--brand)"], gonderildi: ["Tedarikçide", "var(--k-gunluk)"], kismi: ["Kısmi teslim", "var(--k-gec)"], tamam: ["Teslim alındı", "var(--k-fabrikada)"], iptal: ["İptal", "var(--ink-3)"] };
+const SA_FDUR = { hazir: ["Gönderilmedi", "var(--brand)"], gonderildi: ["Yanıt bekleniyor", "var(--k-gunluk)"], geldi: ["Fiyat geldi", "var(--k-fabrikada)"], secildi: ["Seçildi", "var(--k-fabrikada)"], red: ["Seçilmedi", "var(--ink-3)"] };
+const SA_ONC = { normal: ["Normal", "var(--ink-3)"], acil: ["Acil", "var(--k-izinsiz)"] };
+const D_MS = 864e5;
+let saDrawerRefresh = null;
+function startSA() {
+  SA.ready = false; let n = 0; const one = () => { if (++n >= 4) SA.ready = true; saChanged(); };
+  const L = (c, k, sort) => dataUnsubs.push(onSnapshot(collection(fs, c), s => { SA[k] = s.docs.map(d => ({ id: d.id, ...d.data() })).sort(sort); if (!SA["_" + k]) { SA["_" + k] = 1; one(); } else saChanged(); },
+    e => { if (!SA["_" + k]) { SA["_" + k] = 1; one(); } toast("Satınalma verisi okunamadı: " + (e.code || e.message)); }));
+  ["_talep", "_teklif", "_siparis", "_fatura"].forEach(k => delete SA[k]);
+  const byNew = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
+  L("sa_talep", "talep", byNew); L("sa_teklif", "teklif", byNew); L("sa_siparis", "siparis", byNew); L("sa_fatura", "fatura", (a, b) => String(b.tarih || "").localeCompare(String(a.tarih || "")) || byNew(a, b));
+  dataUnsubs.push(onSnapshot(doc(fs, "config", "satinalma"), s => { const d = s.exists() ? s.data() : {}, D0 = SA_CFG_DEF();
+    SA.cfg = { ...D0, ...d, firma: { ...D0.firma, ...(d.firma || {}) }, kur: { ...D0.kur, ...(d.kur || {}) }, limit: Number(d.limit) || D0.limit, sartlar: d.sartlar ?? D0.sartlar }; saChanged(); }, () => {}));
+}
+function saChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "satinalma") renderSA(); if (ROUTE === "cari") renderCari(); if (ROUTE === "stok" && skDrawerRefresh) skDrawerRefresh(); if (saDrawerRefresh) saDrawerRefresh(); }
+
+/* --- yardımcılar --- */
+const saNextNo = (pre, L) => { const y = TODAY.slice(0, 4), mx = Math.max(0, ...L.map(x => { const m = String(x.no || "").match(new RegExp("^" + pre + "-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; })); return `${pre}-${y}-${String(mx + 1).padStart(4, "0")}`; };
+const saKur = (pb, kur) => !pb || pb === "TRY" ? 1 : Number(kur) || Number((SA.cfg.kur || {})[pb]) || null;
+const saTRY = (n, pb, kur) => { const k = saKur(pb, kur); return k == null ? null : (Number(n) || 0) * k; };
+function saLine(k) { const q = Number(k.miktar) || 0, f = Number(k.fiyat) || 0, isk = Math.min(100, Math.max(0, Number(k.isk) || 0)), net = q * f * (1 - isk / 100); return { brut: q * f, isk: q * f - net, net, kdv: net * (Number(k.kdv ?? 20) || 0) / 100 }; }
+function saTotals(K) { const t = { ara: 0, isk: 0, net: 0, kdv: 0, genel: 0 }; (K || []).forEach(k => { const l = saLine(k); t.ara += l.brut; t.isk += l.isk; t.net += l.net; t.kdv += l.kdv; }); t.genel = t.net + t.kdv; return t; }
+const saPoTRY = p => saTRY((p.toplam || saTotals(p.kalemler)).net, p.pb, p.kur) || 0;   // KDV hariç
+const saPoOpen = p => ["onay", "hazir", "gonderildi", "kismi"].includes(p.durum);
+const saKalan = k => Math.max(0, (Number(k.miktar) || 0) - (Number(k.gelen) || 0));
+const saPoLate = p => saPoOpen(p) && p.termin && p.termin < TODAY && (p.kalemler || []).some(k => saKalan(k) > 0);
+const saFind = (k, id) => SA[k].find(x => x.id === id) || null;
+const saLog = (d, t) => (d.log || []).concat([{ at: Date.now(), by: ME.name, t }]).slice(-60);
+// Onaycılar: ayarlardaki listeler; ayar yoksa adlarından (Feyzullah, Birkan → büyük; Vildan, Hasan → küçük)
+function saMembers() { return Object.entries(state.access || {}).map(([email, e]) => ({ email, name: (e && e.name) || email, role: e && e.role })).sort((a, b) => a.name.localeCompare(b.name, "tr")); }
+function saOnaycilar() {
+  const M = saMembers(), by = re => M.filter(m => re.test(m.name)).map(m => m.email);
+  return { buyuk: Array.isArray(SA.cfg.onayBuyuk) ? SA.cfg.onayBuyuk : by(/feyzullah|birkan/i), kucuk: Array.isArray(SA.cfg.onayKucuk) ? SA.cfg.onayKucuk : by(/vildan|hasan/i) };
+}
+const saSeviye = t => t != null && t >= SA.cfg.limit ? "buyuk" : "kucuk";
+function saCanOnay(seviye) { if (!ME) return false; if (isAdmin()) return true; const O = saOnaycilar(); return O.buyuk.includes(ME.email) || (seviye !== "buyuk" && O.kucuk.includes(ME.email)); }
+const saOnayAd = sev => { const O = saOnaycilar(), M = saMembers(), nm = e => (M.find(m => m.email === e) || { name: e }).name; return (sev === "buyuk" ? O.buyuk : [...O.kucuk, ...O.buyuk]).map(nm).filter((x, i, a) => a.indexOf(x) === i).join(", ") || "yönetici"; };
+// Ürünün son alış fiyatı (stok fiyat arşivi): önce bellekteki, sonra veritabanı
+async function saFiyatGet(sid) {
+  if (!sid) return null; if (SK.fiyat[sid]) return SK.fiyat[sid]; if (sid in SA.fiyat) return SA.fiyat[sid];
+  try { const d = await getDoc(doc(fs, "stok_fiyat", sid)); SA.fiyat[sid] = d.exists() ? d.data() : null; } catch (e) { SA.fiyat[sid] = null; }
+  return SA.fiyat[sid];
+}
+// Fiyat arşivine kayıt: kaynak (sipariş, mal kabul, fatura, teklif) ve tedarikçiyle; teklif güncel fiyatı değiştirmez
+async function saPriceLog(sid, e, setCurrent = true) {
+  if (!sid || e.fiyat == null || !isFinite(e.fiyat)) return;
+  const f = (await saFiyatGet(sid)) || {}, arsiv = Array.isArray(f.arsiv) ? f.arsiv.slice() : [], pb = e.pb || "TRY";
+  const last = arsiv.filter(a => !a.teklif && (a.cariId ? a.cariId === e.cariId : a.tedarikci === e.tedarikci)).slice(-1)[0];
+  const same = last && Number(last.fiyat) === Number(e.fiyat) && (last.pb || "TRY") === pb;
+  if (!e.teklif && same && Number(f.alisFiyat) === Number(e.fiyat)) return;
+  if (e.teklif && arsiv.some(a => a.teklif && a.belge === e.belge && Number(a.fiyat) === Number(e.fiyat))) return;
+  if (!same || e.teklif) arsiv.push({ ts: Date.now(), fiyat: Number(e.fiyat), pb, tedarikci: e.tedarikci || "", cariId: e.cariId || "", kaynak: e.kaynak || "", belge: e.belge || "", not: (e.not || "").slice(0, 120), by: ME.name, ...(e.teklif ? { teklif: true } : {}) });
+  const data = { arsiv: arsiv.slice(-120), updatedAt: Date.now(), updatedBy: ME.name };
+  if (setCurrent && !e.teklif) { data.alisFiyat = Number(e.fiyat); data.pb = pb; if (e.kdv != null) data.kdv = Number(e.kdv); }
+  else if (f.alisFiyat == null) { data.alisFiyat = null; data.pb = f.pb || pb; }
+  if (f.kdv == null && data.kdv == null) data.kdv = e.kdv != null ? Number(e.kdv) : 20;
+  await setDoc(doc(fs, "stok_fiyat", sid), data, { merge: true }); SA.fiyat[sid] = { ...f, ...data };
+}
+// Stokta ara (kod öneki ya da kelime); en fazla 12 sonuç
+async function saStokAra(q) {
+  q = String(q || "").trim(); if (q.length < 2 || lvl("stok") === "none" && lvl("satinalma") === "none") return [];
+  const c = collection(fs, "stok"); let s;
+  try {
+    if (/^[a-zçğıöşü]{1,4}-[0-9a-z]*$/i.test(q)) { const Q = q.toLocaleUpperCase("tr"); s = await getDocs(query(c, where("kod", ">=", Q), where("kod", "<=", Q + ""), orderBy("kod"), limit(12))); }
+    else s = await getDocs(query(c, where("kelimeler", "array-contains", skBestTok(q).slice(0, 11)), limit(40)));
+  } catch (e) { return []; }
+  const toks = skNorm(q).split(/[^0-9a-zçğıöşü]+/).filter(Boolean);
+  return s.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => i.aktif !== false && (toks.length < 2 || toks.every(t => (i.kelimeler || []).some(w => w.startsWith(t.slice(0, 11)))))).slice(0, 12);
+}
+const saKalemFromStok = (i, extra = {}) => ({ sid: i.id, kod: i.kod, ad: i.ad, tanim: i.tanim || "", birim: i.birim || "Adet", miktar: 1, tedKod: (i.ted && i.ted.kod) || "", ...extra });
+// Açık siparişlerde yoldaki miktar (stok kartı için)
+function saYolda(sid) { let m = 0; const L = []; SA.siparis.filter(p => saPoOpen(p) && p.durum !== "onay").forEach(p => (p.kalemler || []).forEach(k => { if (k.sid === sid && saKalan(k) > 0) { m += saKalan(k); L.push({ id: p.id, no: p.no, termin: p.termin, cari: p.cariAd, kalan: saKalan(k) }); } })); return { miktar: m, L }; }
+function saOpenPOByCari() { const o = {}; SA.siparis.filter(saPoOpen).forEach(p => { const x = o[p.cariId] = o[p.cariId] || { n: 0, gec: 0 }; x.n++; if (saPoLate(p)) x.gec++; }); return o; }
+function saSpendByCari(days) { const o = {}, from = dnum(TODAY) - days; SA.siparis.filter(p => p.durum !== "iptal" && p.durum !== "onay" && dnum(p.tarih) >= from).forEach(p => { o[p.cariId] = (o[p.cariId] || 0) + saPoTRY(p); }); return o; }
+
+/* --- tedarikçi puanı (son 6 ay, önceki 6 ayla karşılaştırma) --- */
+let saScoreCache = { sig: "", m: {} };
+function saScore(cid) {
+  const sig = SA.siparis.length + ":" + (SA.siparis[0] ? SA.siparis[0].updatedAt : 0) + ":" + Math.max(0, ...SA.siparis.map(p => p.updatedAt || 0)) + ":" + CR.list.length + ":" + Math.max(0, ...CR.list.map(c => c.updatedAt || 0)) + ":" + TODAY;
+  if (saScoreCache.sig !== sig) saScoreCache = { sig, m: {} };
+  if (saScoreCache.m[cid]) return saScoreCache.m[cid];
+  const now = dnum(TODAY), cur = saScoreWin(cid, now - 182, now), prev = saScoreWin(cid, now - 364, now - 182);
+  cur.prev = prev; cur.trend = cur.toplam != null && prev.toplam != null ? cur.toplam - prev.toplam : 0;
+  return (saScoreCache.m[cid] = cur);
+}
+function saScoreWin(cid, from, to) {
+  const P = SA.siparis.filter(p => p.cariId === cid && p.durum !== "iptal" && p.durum !== "onay");
+  let tW = 0, tS = 0, teslim = 0, gec = 0, gelen = 0, red = 0, iade = 0, kabul = 0;
+  P.forEach(p => {
+    (p.kabuller || []).forEach(k => { const d = dnum(dayOf(k.at)); if (d < from || d > to) return; kabul++;
+      const m = (k.satir || []).reduce((s, x) => s + (Number(x.miktar) || 0), 0), r = (k.satir || []).reduce((s, x) => s + (Number(x.red) || 0), 0); gelen += m; red += r;
+      if (p.termin) { const late = Math.max(0, d - dnum(p.termin)); tW += m || 1; tS += (m || 1) * Math.max(0, 100 - late * 10); teslim++; if (late > 0) gec++; } });
+    (p.iadeler || []).forEach(x => { const d = dnum(dayOf(x.at)); if (d >= from && d <= to) iade += Number(x.miktar) || 0; });
+    // termini geçmiş, hâlâ gelmeyen kalemler de cezalandırılır
+    if (saPoOpen(p) && p.termin && dnum(p.termin) < Math.min(to, dnum(TODAY)) && dnum(p.termin) >= from) { const kal = (p.kalemler || []).reduce((s, k) => s + saKalan(k), 0); if (kal > 0) { const late = Math.min(to, dnum(TODAY)) - dnum(p.termin); tW += kal; tS += kal * Math.max(0, 100 - late * 10); teslim++; gec++; } }
+  });
+  const termin = tW ? Math.round(tS / tW) : null;
+  const kalite = gelen + red > 0 ? Math.round(Math.max(0, 100 - (red + iade) / (gelen + red) * 500)) : null;
+  // fiyat: aynı ürünün başka tedarikçilerden son 12 aydaki fiyatlarına göre
+  const oth = {}; SA.siparis.filter(p => p.cariId !== cid && p.durum !== "iptal" && p.durum !== "onay" && dnum(p.tarih) >= to - 365).forEach(p => (p.kalemler || []).forEach(k => { if (!k.sid || !(Number(k.fiyat) > 0)) return; const v = saTRY(k.fiyat, p.pb, p.kur); if (v == null) return; (oth[k.sid] = oth[k.sid] || []).push(v); }));
+  const R = []; P.filter(p => dnum(p.tarih) >= from && dnum(p.tarih) <= to).forEach(p => (p.kalemler || []).forEach(k => { const o = oth[k.sid]; if (!o || !(Number(k.fiyat) > 0)) return; const v = saTRY(k.fiyat, p.pb, p.kur); if (v == null) return; const avg = o.reduce((s, x) => s + x, 0) / o.length; R.push(v / avg); }));
+  const ratio = R.length ? R.reduce((s, x) => s + x, 0) / R.length : null;
+  const fiyat = ratio == null ? null : Math.round(Math.max(0, Math.min(100, 100 - (ratio - 1) * 200)));
+  const c = crFind(cid), il = c && c.puan && c.puan.iletisim ? Math.round((c.puan.iletisim - 1) / 4 * 100) : null;
+  const parts = [[termin, 35], [kalite, 30], [fiyat, 20], [il, 15]].filter(([v]) => v != null), w = parts.reduce((s, [, x]) => s + x, 0);
+  const toplam = w && (termin != null || kalite != null || fiyat != null) ? Math.round(parts.reduce((s, [v, x]) => s + v * x, 0) / w) : null;
+  return { toplam, sinif: toplam == null ? "" : toplam >= 85 ? "A" : toplam >= 70 ? "B" : "C", termin, kalite, fiyat, iletisim: il, fiyatFark: ratio == null ? 0 : (ratio - 1) * 100, teslim, gecikme: gec, gelen, red, iade, kabul, n: P.filter(p => dnum(p.tarih) >= from && dnum(p.tarih) <= to).length };
+}
+
+function saTile(m) {
+  const onay = SA.talep.filter(t => t.durum === "onay").length + SA.siparis.filter(p => p.durum === "onay").length;
+  const O = SA.siparis.filter(saPoOpen), late = O.filter(saPoLate).length, ay = SA.siparis.filter(p => p.durum !== "iptal" && p.durum !== "onay" && String(p.tarih).slice(0, 7) === TODAY.slice(0, 7)).reduce((s, p) => s + saPoTRY(p), 0);
+  const tk = SA.siparis.filter(p => !["iptal", "onay"].includes(p.durum)), done = tk.filter(p => p.durum === "tamam").length, pct = tk.length ? Math.round(done / tk.length * 100) : 0;
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div>
+        <div class="meter" title="Teslim alınan siparişler %${pct}"><i style="width:${pct}%"></i></div>
+        <div class="stats"><span>${O.length} açık sipariş</span>${onay ? `<span class="alert">${onay} onay bekliyor</span>` : ""}${late ? `<span class="alert">${late} geciken</span>` : ""}${ay ? `<span>Bu ay ${moneyR(ay)}</span>` : ""}</div>
+      </div></a>`;
+}
+
+/* --- ekran --- */
+function renderSA() {
+  if (!ME || $("#modSA").hidden) return;
+  const T = SA.talep, P = SA.siparis, O = P.filter(saPoOpen), late = O.filter(saPoLate);
+  const onayT = T.filter(t => t.durum === "onay"), onayP = P.filter(p => p.durum === "onay"), mine = [...onayT.filter(t => saCanOnay(t.onay && t.onay.seviye)), ...onayP.filter(p => saCanOnay(p.onay && p.onay.seviye))];
+  const ay = TODAY.slice(0, 7), ayT = P.filter(p => p.durum !== "iptal" && p.durum !== "onay" && String(p.tarih).slice(0, 7) === ay).reduce((s, p) => s + saPoTRY(p), 0);
+  const acikT = O.filter(p => p.durum !== "onay").reduce((s, p) => s + (p.kalemler || []).reduce((a, k) => a + saKalan(k) * (Number(k.fiyat) || 0) * (1 - (Number(k.isk) || 0) / 100), 0) * (saKur(p.pb, p.kur) || 0), 0);
+  const bekT = SA.teklif.filter(t => t.durum === "gonderildi").length;
+  $("#saKpis").innerHTML = [
+    ["Onay bekleyen", onayT.length + onayP.length, mine.length ? `${mine.length} tanesi sizin onayınızda` : `${onayT.length} talep · ${onayP.length} sipariş`, onayT.length + onayP.length ? "bad" : ""],
+    ["Açık sipariş", O.filter(p => p.durum !== "onay").length, `Bekleyen tutar ${moneyR(acikT)} (KDV hariç)`, ""],
+    ["Geciken sipariş", late.length, late.length ? late.slice(0, 2).map(p => p.no + " · " + crAd(crFind(p.cariId)) ).join(", ") : "Termini geçen sipariş yok", late.length ? "bad" : "ok"],
+    ["Bu ay satın alma", moneyR(ayT), "KDV hariç, sipariş tarihine göre", ""],
+    ["Fiyat talebi", SA.teklif.filter(t => ["hazir", "gonderildi", "geldi"].includes(t.durum)).length, bekT ? `${bekT} tanesi yanıt bekliyor` : "Yanıt bekleyen yok", ""]
+  ].map(([k, v, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  document.querySelectorAll("#saTabs [data-sa]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.sa === SA.view ? "true" : "false"); b.onclick = () => { SA.view = b.dataset.sa; SA.F = { q: "", dur: "acik", cari: "" }; closeDrawer(); renderSA(); }; });
+  const kt = document.querySelector('#saTabs [data-sa="kabul"]'); if (kt) kt.hidden = !(can("sa.kabul"));
+  const ft = document.querySelector('#saTabs [data-sa="fatura"]'); if (ft) ft.hidden = !(can("sa.fatura") || SA.fatura.length);
+  if ((SA.view === "kabul" && kt.hidden) || (SA.view === "fatura" && ft.hidden)) SA.view = "genel";
+  const add = $("#saAdd"), A = { siparis: ["sa.siparis", "+ Sipariş", () => saOpenPOForm(null)], fatura: ["sa.fatura", "e-Fatura yükle", () => saOpenFaturaYukle()], teklif: ["sa.siparis", "+ Fiyat talebi", () => saOpenRFQNew(null)] }[SA.view] || ["sa.talep", "+ Talep", () => saOpenTalepForm(null)];
+  add.hidden = !can(A[0]); add.textContent = A[1]; add.onclick = A[2];
+  $("#saCfgBtn").hidden = !can("sa.cfg"); $("#saCfgBtn").onclick = saOpenCfg;
+  const v = $("#saView");
+  if (!SA.ready || !CR.ready) { v.innerHTML = '<div class="empty"><h3>Satınalma verileri yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
+  ({ genel: saGenelView, talep: saTalepView, teklif: saTeklifView, siparis: saSiparisView, kabul: saKabulView, fatura: saFaturaView, ted: saTedView })[SA.view](v);
+}
+
+/* Genel bakış */
+function saGenelView(v) {
+  if (!SA.talep.length && !SA.siparis.length && !SA.teklif.length) {
+    v.innerHTML = `<div class="empty"><h3>Henüz satın alma kaydı yok</h3><p>Akış: <b>talep</b> (ihtiyaç bildirimi) → <b>onay</b> (100.000 TL altı ve üstü ayrı onaycılar) → gerekirse <b>fiyat talebi</b> ve teklif karşılaştırma → <b>sipariş</b> (PDF, WhatsApp, e-posta) → <b>mal kabul</b> (stoğa giriş) → <b>e-Fatura</b> (stok ve fiyat eşleştirme). Toplantıda göstermek için deneme verileri eklenebilir; tek düğmeyle silinir.</p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">${can("sa.talep") ? '<button class="btn" id="saE1" type="button">+ Talep aç</button>' : ""}${can("sa.talep") && lvl("stok") !== "none" ? '<button class="btn ghost" id="saE2" type="button">Kritik stoklardan talep</button>' : ""}${can("sa.siparis") ? '<button class="btn ghost" id="saE3" type="button">Deneme verilerini ekle</button>' : ""}</div></div>`;
+    const b1 = $("#saE1"); if (b1) b1.onclick = () => saOpenTalepForm(null);
+    const b2 = $("#saE2"); if (b2) b2.onclick = () => saOpenTalepForm(null, { kritik: true });
+    const b3 = $("#saE3"); if (b3) b3.onclick = saSeedDemo;
+    return;
+  }
+  const T = SA.talep, P = SA.siparis, onay = [...T.filter(t => t.durum === "onay").map(t => ({ k: "t", d: t })), ...P.filter(p => p.durum === "onay").map(p => ({ k: "p", d: p }))];
+  const late = P.filter(saPoLate).sort((a, b) => a.termin.localeCompare(b.termin));
+  const yak = P.filter(p => saPoOpen(p) && p.durum !== "onay" && p.termin && p.termin >= TODAY && dnum(p.termin) - dnum(TODAY) <= 7).sort((a, b) => a.termin.localeCompare(b.termin));
+  // son 6 ay harcama
+  const M6 = []; { const [y, m] = TODAY.split("-").map(Number); for (let i = 5; i >= 0; i--) { const d = new Date(Date.UTC(y, m - 1 - i, 1)); M6.push(d.toISOString().slice(0, 7)); } }
+  const har = Object.fromEntries(M6.map(a => [a, 0])); P.filter(p => p.durum !== "iptal" && p.durum !== "onay").forEach(p => { const a = String(p.tarih).slice(0, 7); if (a in har) har[a] += saPoTRY(p); });
+  const hmx = Math.max(1, ...Object.values(har));
+  const sp = Object.entries(saSpendByCari(365)).sort((a, b) => b[1] - a[1]).slice(0, 6), spT = sp.reduce((s, x) => s + x[1], 0) || 1;
+  const ur = {}; P.filter(p => p.durum !== "iptal" && p.durum !== "onay" && dnum(p.tarih) >= dnum(TODAY) - 365).forEach(p => (p.kalemler || []).forEach(k => { const key = k.sid || k.ad; const u = ur[key] = ur[key] || { ad: k.ad, kod: k.kod, t: 0, n: 0, birim: k.birim }; u.t += (saLine(k).net) * (saKur(p.pb, p.kur) || 0); u.n += Number(k.miktar) || 0; }));
+  const urL = Object.values(ur).sort((a, b) => b.t - a.t).slice(0, 6);
+  v.innerHTML = `<div class="plgrid">
+    <section class="plcard"><h3 class="sec-t">Onay bekleyenler <small>${onay.length}</small></h3>
+      ${onay.length ? onay.map(({ k, d }) => { const sev = d.onay && d.onay.seviye, tut = k === "t" ? d.tahmini : saPoTRY(d), my = saCanOnay(sev);
+        return `<div class="nowr" data-${k === "t" ? "talep" : "po"}="${esc(d.id)}" role="button" tabindex="0"><span class="lk num">${esc(d.no)}</span><div><b>${k === "t" ? "Talep · " + esc(saTalepOzet(d)) : "Sipariş · " + esc(d.cariAd || "")}</b><div class="note">${esc(d.createdBy || "")} · ${tut != null ? moneyR(tut) : "tutar bilinmiyor"} · ${sev === "buyuk" ? "büyük (100.000 TL+)" : "küçük"} onay${my ? "" : " · " + esc(saOnayAd(sev))}</div></div>${my ? `<span class="kst" style="--tc:var(--k-gec)">Sizin onayınız</span>` : ""}</div>`; }).join("") : '<p class="note">Onay bekleyen talep veya sipariş yok.</p>'}</section>
+    <section class="plcard"><h3 class="sec-t">Geciken siparişler <small>${late.length}</small></h3>
+      ${late.length ? late.slice(0, 8).map(p => `<div class="nowr" data-po="${esc(p.id)}" role="button" tabindex="0"><span class="lk num">${esc(p.no)}</span><div><b>${esc(p.cariAd || "")}</b><div class="note">${(p.kalemler || []).filter(k => saKalan(k) > 0).length} kalem bekliyor · ${esc(saPoOzet(p))}</div></div><span class="num late">${dnum(TODAY) - dnum(p.termin)} gün</span></div>`).join("") : '<p class="note">Termini geçen sipariş yok.</p>'}
+      ${yak.length ? `<h3 class="sec-t" style="margin-top:14px">7 gün içinde gelecek <small>${yak.length}</small></h3>${yak.slice(0, 6).map(p => `<div class="nowr" data-po="${esc(p.id)}" role="button" tabindex="0"><span class="lk num">${esc(p.no)}</span><div><b>${esc(p.cariAd || "")}</b><div class="note">${esc(saPoOzet(p))}</div></div><span class="num note">${fmtS(p.termin)}</span></div>`).join("")}` : ""}</section>
+    <section class="plcard"><h3 class="sec-t">Aylık satın alma <small>son 6 ay · KDV hariç</small></h3>
+      <div class="sabars">${M6.map(a => `<div class="sab"><span class="num">${har[a] ? moneyR(har[a]).replace(/\s?₺/, "") : ""}</span><i style="height:${Math.round(har[a] / hmx * 100)}%"></i><small>${MON[Number(a.slice(5)) - 1]}</small></div>`).join("")}</div></section>
+    <section class="plcard"><h3 class="sec-t">Tedarikçi dağılımı <small>son 12 ay</small></h3>
+      ${sp.length ? sp.map(([cid, t]) => { const c = crFind(cid), s = saScore(cid); return `<div class="loadr" data-cr="${esc(cid)}" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto auto"><span class="izs"><b>${esc(crAd(c) || "—")}</b></span><div class="lb"><span style="width:${t / spT * 100}%"></span></div><span class="lv num">${moneyR(t)}</span>${s.sinif ? `<span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif}</span>` : "<span></span>"}</div>`; }).join("") : '<p class="note">Henüz sipariş yok.</p>'}</section>
+    <section class="plcard"><h3 class="sec-t">En çok alınan ürünler <small>son 12 ay · tutara göre</small></h3>
+      ${urL.length ? urL.map(u => `<div class="nowr" style="cursor:default"><span class="lk num">${esc(u.kod || "—")}</span><div><b>${esc(u.ad)}</b><div class="note">${nf(u.n)} ${esc(u.birim || "")}</div></div><span class="num">${moneyR(u.t)}</span></div>`).join("") : '<p class="note">Henüz sipariş yok.</p>'}</section>
+    <section class="plcard"><h3 class="sec-t">Son hareketler</h3>
+      ${saRecent().slice(0, 8).map(x => `<div class="nowr" ${x.attr} role="button" tabindex="0"><span class="lk num">${esc(x.no)}</span><div><b>${esc(x.t)}</b><div class="note">${esc(x.by || "")} · ${skTs(x.at)}</div></div></div>`).join("") || '<p class="note">Hareket yok.</p>'}</section>
+  </div>`;
+  saBindOpen(v);
+}
+function saRecent() {
+  const L = [];
+  SA.talep.forEach(t => (t.log || []).slice(-3).forEach(l => L.push({ no: t.no, t: l.t, by: l.by, at: l.at, attr: `data-talep="${esc(t.id)}"` })));
+  SA.siparis.forEach(p => (p.log || []).slice(-3).forEach(l => L.push({ no: p.no, t: l.t, by: l.by, at: l.at, attr: `data-po="${esc(p.id)}"` })));
+  SA.fatura.forEach(f => L.push({ no: f.no, t: "e-Fatura işlendi · " + (f.cariAd || ""), by: f.createdBy, at: f.createdAt || 0, attr: `data-fa="${esc(f.id)}"` }));
+  return L.sort((a, b) => b.at - a.at);
+}
+function saBindOpen(root) {
+  root.querySelectorAll("[data-po]").forEach(el => { const go = () => saOpenPO(el.dataset.po); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  root.querySelectorAll("[data-talep]").forEach(el => { const go = () => saOpenTalep(el.dataset.talep); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  root.querySelectorAll("[data-rfq]").forEach(el => { const go = () => saOpenRFQ(el.dataset.rfq); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  root.querySelectorAll("[data-fa]").forEach(el => { const go = () => saOpenFatura(el.dataset.fa); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  root.querySelectorAll("[data-cr]").forEach(el => { const go = () => crOpen(el.dataset.cr); el.onclick = go; });
+}
+const saTalepOzet = t => { const K = t.kalemler || []; return K.length ? K[0].ad + (K.length > 1 ? ` +${K.length - 1} kalem` : "") : "—"; };
+const saPoOzet = p => { const K = p.kalemler || []; return K.length ? K[0].ad + (K.length > 1 ? ` +${K.length - 1} kalem` : "") : "—"; };
+const saChip = (M, k) => { const x = M[k] || [k, "var(--ink-3)"]; return `<span class="kst" style="--tc:${x[1]}">${esc(x[0])}</span>`; };
+
+/* Liste ekranları için ortak çubuk */
+function saBar(v, opts, info) {
+  const F = SA.F;
+  v.innerHTML = `<div class="pkbar"><div class="filters">
+      <select class="f${F.dur !== "acik" ? " on" : ""}" id="saDur" aria-label="Durum">${opts.map(([a, l]) => opt(a, l, F.dur)).join("")}</select>
+      ${info.cari ? `<select class="f${F.cari ? " on" : ""}" id="saCari" aria-label="Tedarikçi"><option value="">Tüm tedarikçiler</option>${crTeds().map(c => opt(c.id, crAd(c), F.cari)).join("")}</select>` : ""}
+      <input class="f" id="saQ" type="search" placeholder="${esc(info.ph)}" aria-label="Ara" value="${esc(F.q)}"></div>
+    <div class="filters"><span class="sortinfo" id="saInfo"></span>${info.extra || ""}</div></div><div id="saList"></div>`;
+  $("#saDur").onchange = e => { F.dur = e.target.value; renderSA(); };
+  const c = $("#saCari"); if (c) c.onchange = e => { F.cari = e.target.value; renderSA(); };
+}
+function saQ(fields) { const q = skNorm(SA.F.q.trim()); return !q || skNorm(fields.join(" ")).includes(q); }
+
+/* Talepler */
+function saTalepView(v) {
+  saBar(v, [["acik", "Açık talepler"], ["onay", "Onay bekleyen"], ["onaylandi", "Onaylanan (sipariş bekleyen)"], ["teklif", "Fiyat isteniyor"], ["siparis", "Siparişe dönen"], ["red", "Reddedilen"], ["tum", "Tümü"]], { ph: "Talep no, ürün, talep eden ara…", extra: can("sa.talep") && lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="saKrit">Kritik stoklardan talep</button>' : "" });
+  const k = $("#saKrit"); if (k) k.onclick = () => saOpenTalepForm(null, { kritik: true });
+  const F = SA.F, R = SA.talep.filter(t => (F.dur === "tum" || (F.dur === "acik" ? ["onay", "onaylandi", "teklif"].includes(t.durum) : t.durum === F.dur))
+    && saQ([t.no, t.createdBy, t.departman, t.aciklama, ...(t.kalemler || []).flatMap(x => [x.kod, x.ad])]));
+  $("#saInfo").textContent = R.length + " talep";
+  $("#saList").innerHTML = `<div class="ledger saled" role="table"><div class="lhead" role="row"><div>Talep no</div><div>Kalemler</div><div>Talep eden</div><div>İstenen tarih</div><div>Tahmini tutar</div><div>Durum</div></div>
+    ${R.length ? R.map(t => `<div class="row" role="row" tabindex="0" data-talep="${esc(t.id)}" style="--stripe:${SA_TDUR[t.durum] ? SA_TDUR[t.durum][1] : "transparent"}">
+      <div class="skc"><span class="num">${esc(t.no)}</span>${t.oncelik === "acil" ? '<span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}${t.deneme ? '<span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}</div>
+      <div class="ska"><b>${esc(saTalepOzet(t))}</b><div class="desc">${esc(t.aciklama || (t.kalemler || []).map(x => nf(x.miktar) + " " + (x.birim || "")).join(", "))}</div></div>
+      <div class="izs">${esc(t.createdBy || "")}${t.departman ? `<div class="note">${esc(t.departman)}</div>` : ""}</div>
+      <div class="date${t.termin && t.termin < TODAY && ["onay", "onaylandi", "teklif"].includes(t.durum) ? " late" : ""}">${t.termin ? fmtS(t.termin) : "—"}</div>
+      <div class="num">${t.tahmini != null ? moneyR(t.tahmini) : "—"}</div>
+      <div>${saChip(SA_TDUR, t.durum)}${t.durum === "onay" ? `<div class="note">${t.onay && t.onay.seviye === "buyuk" ? "Büyük onay" : "Küçük onay"}</div>` : ""}</div></div>`).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtreye uyan talep yok.</div>'}</div>`;
+  saBindOpen($("#saList"));
+  $("#saQ").oninput = e => { F.q = e.target.value; saTalepView(v); const i = $("#saQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); };
+}
+/* Fiyat talepleri */
+function saTeklifView(v) {
+  saBar(v, [["acik", "Açık fiyat talepleri"], ["gonderildi", "Yanıt bekleyen"], ["geldi", "Fiyatı gelen"], ["secildi", "Seçilen"], ["tum", "Tümü"]], { ph: "Fiyat talep no, proforma, ürün ara…", cari: true });
+  const F = SA.F, R = SA.teklif.filter(t => (F.dur === "tum" || (F.dur === "acik" ? ["hazir", "gonderildi", "geldi"].includes(t.durum) : t.durum === F.dur)) && (!F.cari || t.cariId === F.cari)
+    && saQ([t.no, t.proformaNo, t.talepNo, t.cariAd, ...(t.kalemler || []).flatMap(x => [x.kod, x.ad])]));
+  $("#saInfo").textContent = R.length + " fiyat talebi";
+  $("#saList").innerHTML = `<div class="ledger saled" role="table"><div class="lhead" role="row"><div>Fiyat talebi</div><div>Tedarikçi / kalemler</div><div>Talep no</div><div>Proforma</div><div>Teklif toplamı</div><div>Durum</div></div>
+    ${R.length ? R.map(t => { const tt = saTotals(t.kalemler); return `<div class="row" role="row" tabindex="0" data-rfq="${esc(t.id)}" style="--stripe:${SA_FDUR[t.durum] ? SA_FDUR[t.durum][1] : "transparent"}">
+      <div class="skc"><span class="num">${esc(t.no)}</span>${t.deneme ? '<span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}</div>
+      <div class="ska"><b>${esc(t.cariAd || "")}</b><div class="desc">${esc(saPoOzet(t))}</div></div>
+      <div class="num">${esc(t.talepNo || "—")}</div><div class="num">${esc(t.proformaNo || "—")}</div>
+      <div class="num">${tt.net ? money(tt.net, t.pb) : "—"}</div><div>${saChip(SA_FDUR, t.durum)}</div></div>`; }).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtreye uyan fiyat talebi yok. Fiyat talebi onaylanmış bir talepten açılır.</div>'}</div>`;
+  saBindOpen($("#saList"));
+  $("#saQ").oninput = e => { F.q = e.target.value; saTeklifView(v); const i = $("#saQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); };
+}
+/* Siparişler */
+function saPoRow(p) {
+  const K = p.kalemler || [], top = K.reduce((s, k) => s + (Number(k.miktar) || 0), 0), gel = K.reduce((s, k) => s + Math.min(Number(k.miktar) || 0, Number(k.gelen) || 0), 0), pct = top ? Math.round(gel / top * 100) : 0, late = saPoLate(p);
+  return `<div class="row" role="row" tabindex="0" data-po="${esc(p.id)}" style="--stripe:${late ? "var(--k-izinsiz)" : SA_SDUR[p.durum] ? SA_SDUR[p.durum][1] : "transparent"}">
+    <div class="skc"><span class="num">${esc(p.no)}</span>${p.deneme ? '<span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}</div>
+    <div class="ska"><b>${esc(p.cariAd || "")}</b><div class="desc">${esc(saPoOzet(p))}</div></div>
+    <div class="date" data-l="Tarih">${fmtS(p.tarih)}</div>
+    <div class="date${late ? " late" : ""}" data-l="Termin">${p.termin ? fmtS(p.termin) : "—"}${late ? `<div class="note late">${dnum(TODAY) - dnum(p.termin)} gün gecikti</div>` : ""}</div>
+    <div class="num">${money((p.toplam || saTotals(K)).genel, p.pb)}</div>
+    <div>${saChip(SA_SDUR, p.durum)}${["gonderildi", "kismi", "tamam"].includes(p.durum) ? `<div class="prog" style="margin-top:4px"><div class="bar" style="height:5px"><span style="width:${pct}%;--fill:var(--k-fabrikada)"></span></div><span class="pct">%${pct}</span></div>` : ""}</div></div>`;
+}
+function saSiparisView(v) {
+  const dm = SA.siparis.some(p => p.deneme) && can("sa.delete");
+  saBar(v, [["acik", "Açık siparişler"], ["onay", "Onay bekleyen"], ["hazir", "Gönderilmeyen"], ["gonderildi", "Tedarikçide"], ["kismi", "Kısmi teslim"], ["gec", "Gecikenler"], ["tamam", "Teslim alınan"], ["iptal", "İptal"], ["tum", "Tümü"]], { ph: "Sipariş no, ürün, proforma ara…", cari: true, extra: '<button type="button" class="btn ghost sm" id="saCsv">Excel\'e aktar</button>' + (dm ? '<button type="button" class="btn ghost sm dangerb" id="saUns">Deneme verilerini sil</button>' : "") });
+  const us = $("#saUns"); if (us) { let a = false; us.onclick = async () => { if (!a) { a = true; us.textContent = "Tüm satınalma ve cari deneme kayıtları silinsin mi? Tekrar basın"; return; } us.disabled = true; await saUnseedDemo(); }; }
+  const F = SA.F, R = SA.siparis.filter(p => (F.dur === "tum" || (F.dur === "acik" ? saPoOpen(p) : F.dur === "gec" ? saPoLate(p) : p.durum === F.dur)) && (!F.cari || p.cariId === F.cari)
+    && saQ([p.no, p.cariAd, p.talepNo, p.teklifNo, p.proformaNo, ...(p.kalemler || []).flatMap(x => [x.kod, x.ad])]));
+  const tot = R.filter(p => p.durum !== "iptal").reduce((s, p) => s + saPoTRY(p), 0);
+  $("#saInfo").textContent = `${R.length} sipariş · ${moneyR(tot)} (KDV hariç)`;
+  $("#saList").innerHTML = `<div class="ledger saled" role="table"><div class="lhead" role="row"><div>Sipariş no</div><div>Tedarikçi / kalemler</div><div>Tarih</div><div>Termin</div><div>Toplam (KDV dahil)</div><div>Durum</div></div>
+    ${R.length ? R.map(saPoRow).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtreye uyan sipariş yok.</div>'}</div>`;
+  saBindOpen($("#saList"));
+  $("#saCsv").onclick = () => saCsvPO(R);
+  $("#saQ").oninput = e => { F.q = e.target.value; saSiparisView(v); const i = $("#saQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); };
+}
+function saCsvPO(R) {
+  const H = ["Sipariş no", "Tarih", "Tedarikçi", "Durum", "Termin", "Talep no", "Fiyat talep no", "Proforma no", "Stok kodu", "Ürün", "Miktar", "Birim", "Birim fiyat", "İskonto %", "KDV %", "Tutar (KDV hariç)", "Para birimi", "Gelen", "Kalan"];
+  const rows = []; R.forEach(p => (p.kalemler || []).forEach(k => rows.push([p.no, fmtS(p.tarih), p.cariAd, (SA_SDUR[p.durum] || [p.durum])[0], p.termin ? fmtS(p.termin) : "", p.talepNo, p.teklifNo, p.proformaNo, k.kod, k.ad, k.miktar, k.birim, k.fiyat, k.isk || 0, k.kdv ?? 20, Math.round(saLine(k).net * 100) / 100, p.pb, k.gelen || 0, saKalan(k)])));
+  const csv = "﻿" + [H, ...rows].map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  saveFile(new Blob([csv], { type: "text/csv;charset=utf-8" }), "satinalma-siparisleri-" + TODAY + ".csv");
+}
+/* Mal kabul: açık siparişlerin bekleyen kalemleri */
+function saKabulView(v) {
+  const P = SA.siparis.filter(p => ["gonderildi", "kismi", "hazir"].includes(p.durum)).filter(p => (p.kalemler || []).some(k => saKalan(k) > 0))
+    .sort((a, b) => String(a.termin || "9").localeCompare(String(b.termin || "9")));
+  const q = skNorm(SA.F.q.trim()), R = P.filter(p => !q || skNorm([p.no, p.cariAd, ...(p.kalemler || []).flatMap(k => [k.kod, k.ad])].join(" ")).includes(q));
+  v.innerHTML = `<div class="pkbar"><div class="filters"><input class="f" id="saQ" type="search" placeholder="Sipariş no, tedarikçi, ürün ara…" aria-label="Ara" value="${esc(SA.F.q)}"></div><div class="filters"><span class="sortinfo">${R.length} sipariş teslim bekliyor</span></div></div>
+    ${R.length ? R.map(p => { const late = saPoLate(p); return `<section class="plcard kabc" style="margin-bottom:12px;border-left:4px solid ${late ? "var(--k-izinsiz)" : "var(--line)"}">
+      <div class="sipt"><b class="num">${esc(p.no)}</b><span>${esc(p.cariAd || "")}</span>${p.termin ? `<span class="${late ? "late" : "note"}">Termin ${fmtS(p.termin)}${late ? " · " + (dnum(TODAY) - dnum(p.termin)) + " gün gecikti" : ""}</span>` : ""}${p.durum === "hazir" ? '<span class="kst" style="--tc:var(--brand)">Tedarikçiye gönderilmedi</span>' : ""}<button type="button" class="btn sm" data-kab="${esc(p.id)}" style="margin-left:auto">Mal kabul yap</button></div>
+      ${(p.kalemler || []).filter(k => saKalan(k) > 0).map(k => `<div class="nowr" style="cursor:default"><span class="lk num">${esc(k.kod || "—")}</span><div><b>${esc(k.ad)}</b>${k.tedKod ? `<div class="note">Tedarikçi kodu ${esc(k.tedKod)}</div>` : ""}</div><span class="num">${nf(saKalan(k))} / ${nf(k.miktar)} ${esc(k.birim || "")}</span></div>`).join("")}</section>`; }).join("")
+    : '<div class="empty"><h3>Teslim bekleyen sipariş yok</h3><p>Tedarikçiye gönderilen siparişler burada görünür; gelen malzeme sayılıp kabul edilince stoğa giriş otomatik yapılır.</p></div>'}`;
+  v.querySelectorAll("[data-kab]").forEach(b => b.onclick = () => saOpenKabul(b.dataset.kab));
+  const i = $("#saQ"); i.oninput = e => { SA.F.q = e.target.value; saKabulView(v); const j = $("#saQ"); j.focus(); j.setSelectionRange(j.value.length, j.value.length); };
+}
+/* Faturalar */
+function saFaturaView(v) {
+  saBar(v, [["acik", "Son 90 gün"], ["sapma", "Fiyat farkı olanlar"], ["tum", "Tümü"]], { ph: "Fatura no, tedarikçi, ürün ara…", cari: true, extra: SA.siparis.some(p => p.deneme) && can("sa.fatura") ? '<button type="button" class="btn ghost sm" id="saDemoF">Örnek e-Fatura ile dene</button>' : "" });
+  const d = $("#saDemoF"); if (d) d.onclick = () => saOpenFaturaYukle([{ name: "ornek-efatura.xml", text: saDemoXml(), deneme: true }]);
+  const F = SA.F, R = SA.fatura.filter(f => (F.dur === "tum" || (F.dur === "sapma" ? (f.sapma || []).length : dnum(f.tarih) >= dnum(TODAY) - 90)) && (!F.cari || f.cariId === F.cari)
+    && saQ([f.no, f.ettn, f.cariAd, ...(f.siparisNolar || []), ...(f.satirlar || []).flatMap(x => [x.ad, x.kod, x.tedKod])]));
+  $("#saInfo").textContent = R.length + " fatura";
+  $("#saList").innerHTML = R.length ? `<div class="ledger saled" role="table"><div class="lhead" role="row"><div>Fatura no</div><div>Tedarikçi</div><div>Tarih</div><div>Sipariş</div><div>Toplam</div><div>Eşleşme</div></div>
+    ${R.map(f => { const S = f.satirlar || [], es = S.filter(x => x.sid).length; return `<div class="row" role="row" tabindex="0" data-fa="${esc(f.id)}" style="--stripe:${(f.sapma || []).length ? "var(--k-gec)" : "transparent"}">
+      <div class="skc"><span class="num">${esc(f.no)}</span>${f.deneme ? '<span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}</div>
+      <div class="ska"><b>${esc(f.cariAd || "")}</b><div class="desc">${S.length} satır${(f.sapma || []).length ? ` · ${f.sapma.length} fiyat farkı` : ""}</div></div>
+      <div class="date">${fmtS(f.tarih)}</div><div class="num">${esc((f.siparisNolar || []).join(", ") || "—")}</div>
+      <div class="num">${money(f.genel, f.pb)}</div><div>${es === S.length ? '<span class="kst" style="--tc:var(--k-fabrikada)">Tümü eşleşti</span>' : `<span class="kst" style="--tc:var(--k-gec)">${es}/${S.length} stokta</span>`}</div></div>`; }).join("")}</div>`
+    : `<div class="empty"><h3>Fatura yok</h3><p>e-Fatura XML dosyasını (ya da GİB portalından inen .zip) yükleyin: satırlar okunur, tedarikçinin ürün koduyla stok kartlarına eşleştirilir (ilk seferde siz onaylarsınız, sonrası otomatik), eşleşmeyenler için yeni kart önerilir, fiyatlar fiyat arşivine işlenir ve sipariş fiyatından sapmalar gösterilir.</p>${can("sa.fatura") ? '<button class="btn" type="button" id="saFE">e-Fatura yükle</button>' : ""}</div>`;
+  const fe = $("#saFE"); if (fe) fe.onclick = () => saOpenFaturaYukle();
+  saBindOpen($("#saList"));
+  $("#saQ").oninput = e => { F.q = e.target.value; saFaturaView(v); const i = $("#saQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); };
+}
+/* Tedarikçi puanları */
+function saTedView(v) {
+  const L = crTeds().map(c => ({ c, s: saScore(c.id), sp: (saSpendByCari(365)[c.id] || 0) })).sort((a, b) => (b.s.toplam ?? -1) - (a.s.toplam ?? -1) || b.sp - a.sp);
+  const cell = x => x == null ? '<span class="date none">—</span>' : `<span class="num" style="color:${x >= 85 ? "var(--k-fabrikada)" : x >= 70 ? "var(--ink)" : "var(--k-izinsiz)"}">${x}</span>`;
+  v.innerHTML = `<p class="note" style="margin:0 0 12px">Son 6 ay. Termine uyum %35 (mal kabul tarihi ile termin; her gecikme günü −10) · Kalite %30 (red ve iade) · Fiyat %20 (aynı ürünün diğer tedarikçi fiyatlarına göre) · İletişim ve hizmet %15 (elle verilen puan). A 85+, B 70–84, C 70 altı.</p>
+    <div class="ledger tdled" role="table"><div class="lhead" role="row"><div>Tedarikçi</div><div>Puan</div><div>Termin</div><div>Kalite</div><div>Fiyat</div><div>İletişim</div><div>Sipariş</div><div>Son 12 ay</div></div>
+    ${L.length ? L.map(({ c, s, sp }) => `<div class="row" role="row" tabindex="0" data-cr="${esc(c.id)}" style="--stripe:${s.sinif ? SA_SINIF[s.sinif] : "transparent"}">
+      <div class="ska"><b>${esc(crAd(c))}</b><div class="desc">${esc(c.kategori || "")}</div></div>
+      <div>${s.toplam == null ? '<span class="date none">Veri yok</span>' : `<span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif} · ${s.toplam}</span>${s.trend ? `<small class="note"> ${s.trend > 0 ? "▲" : "▼"}${Math.abs(s.trend)}</small>` : ""}`}</div>
+      <div>${cell(s.termin)}${s.gecikme ? `<div class="note">${s.gecikme}/${s.teslim} geç</div>` : ""}</div><div>${cell(s.kalite)}</div><div>${cell(s.fiyat)}</div><div>${cell(s.iletisim)}</div>
+      <div class="num">${s.n}</div><div class="num">${sp ? moneyR(sp) : "—"}</div></div>`).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Tedarikçi kartı yok. Cari modülünden ekleyin.</div>'}</div>`;
+  v.querySelectorAll("[data-cr]").forEach(el => { const go = () => crOpen(el.dataset.cr); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+}
+
+/* Ayarlar */
+function saOpenCfg() {
+  if (!can("sa.cfg")) return;
+  const C = SA.cfg, F = C.firma, M = saMembers(), O = saOnaycilar();
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="sgT" style="width:min(680px,100%)">
+    <div class="dh"><h2 id="sgT">Satınalma ayarları</h2><button class="x" id="sgX" aria-label="Kapat">×</button></div>
+    <div class="db">
+      <section><h3 class="sec-t">Onay kuralı</h3><div class="fgrid">
+        <div class="field"><label for="gLim">Büyük sipariş sınırı (TL, KDV hariç)</label><input id="gLim" type="number" min="0" step="1000" value="${esc(C.limit)}"></div><div></div></div>
+        <div class="fgrid" style="margin-top:10px">
+          <div class="field"><label>Büyük talep/sipariş onaycıları (sınır ve üstü)</label><div class="onl">${M.map(m => `<label class="chk"><input type="checkbox" data-ob="${esc(m.email)}"${O.buyuk.includes(m.email) ? " checked" : ""}> ${esc(m.name)}</label>`).join("")}</div></div>
+          <div class="field"><label>Küçük talep/sipariş onaycıları (sınır altı)</label><div class="onl">${M.map(m => `<label class="chk"><input type="checkbox" data-ok="${esc(m.email)}"${O.kucuk.includes(m.email) ? " checked" : ""}> ${esc(m.name)}</label>`).join("")}</div></div></div>
+        <p class="note" style="margin:6px 0 0">Büyük onaycılar küçükleri de onaylayabilir. Onaycı kendi açtığı talebi açtığı anda onaylanmış sayılır. Sistem yöneticileri her seviyeyi onaylar.</p></section>
+      <section><h3 class="sec-t">Döviz kuru <small>tahmini tutar ve özetler için</small></h3><div class="fgrid">
+        <div class="field"><label for="gUsd">USD / TL</label><input id="gUsd" type="number" step="0.0001" min="0" value="${esc(C.kur.USD ?? "")}"></div>
+        <div class="field"><label for="gEur">EUR / TL</label><input id="gEur" type="number" step="0.0001" min="0" value="${esc(C.kur.EUR ?? "")}"></div></div>
+        <p class="note" style="margin:6px 0 0">Dövizli siparişte sipariş günündeki kur siparişin içine ayrıca yazılır.</p></section>
+      <section><h3 class="sec-t">Firma bilgileri <small>sipariş ve fiyat talep formlarında</small></h3><div class="fgrid">
+        <div class="field full"><label for="gUn">Unvan</label><input id="gUn" maxlength="160" value="${esc(F.unvan)}"></div>
+        <div class="field full"><label for="gAdr">Adres</label><textarea id="gAdr" maxlength="300">${esc(F.adres)}</textarea></div>
+        <div class="field"><label for="gTel">Telefon</label><input id="gTel" maxlength="40" value="${esc(F.tel)}"></div>
+        <div class="field"><label for="gMail">E-posta</label><input id="gMail" maxlength="100" value="${esc(F.eposta)}"></div>
+        <div class="field"><label for="gWeb">Web</label><input id="gWeb" maxlength="100" value="${esc(F.web)}"></div>
+        <div class="field"><label for="gMer">MERSİS no</label><input id="gMer" maxlength="20" value="${esc(F.mersis)}"></div>
+        <div class="field"><label for="gVd">Vergi dairesi</label><input id="gVd" maxlength="60" value="${esc(F.vd)}"></div>
+        <div class="field"><label for="gVn">Vergi no</label><input id="gVn" maxlength="11" value="${esc(F.vno)}"></div>
+        <div class="field full"><label for="gTy">Varsayılan teslim yeri</label><input id="gTy" maxlength="200" value="${esc(C.teslimYeri)}" placeholder="Örn. Fabrika, …"></div>
+        <div class="field full"><label for="gOd">Varsayılan ödeme şartı</label><input id="gOd" maxlength="120" value="${esc(C.odeme)}" placeholder="Örn. 60 gün vadeli, havale"></div>
+        <div class="field full"><label for="gSa">Standart sipariş şartları</label><textarea id="gSa" maxlength="3000" style="min-height:140px">${esc(C.sartlar)}</textarea></div></div></section>
+    </div>
+    <div class="df"><span></span><div class="r"><button class="btn ghost" id="sgC" type="button">Vazgeç</button><button class="btn" id="sgS" type="button">Kaydet</button></div></div>
+  </aside>`;
+  $("#scrim").onclick = closeDrawer; $("#sgX").onclick = closeDrawer; $("#sgC").onclick = closeDrawer;
+  $("#sgS").onclick = async () => {
+    const g = id => $("#" + id).value.trim(), num = id => { const x = $("#" + id).value; return x === "" ? null : Number(x); };
+    const data = { limit: Math.max(0, Number($("#gLim").value) || 100000), onayBuyuk: [...document.querySelectorAll("[data-ob]:checked")].map(x => x.dataset.ob), onayKucuk: [...document.querySelectorAll("[data-ok]:checked")].map(x => x.dataset.ok),
+      kur: { USD: num("gUsd"), EUR: num("gEur") }, firma: { unvan: g("gUn"), adres: g("gAdr"), tel: g("gTel"), eposta: g("gMail"), web: g("gWeb"), mersis: g("gMer"), vd: g("gVd"), vno: g("gVn") },
+      teslimYeri: g("gTy"), odeme: g("gOd"), sartlar: $("#gSa").value.trim(), updatedAt: Date.now(), updatedBy: ME.name };
+    $("#sgS").disabled = true;
+    try { await setDoc(doc(fs, "config", "satinalma"), data, { merge: true }); toast("Satınalma ayarları kaydedildi"); closeDrawer(); } catch (x) { $("#sgS").disabled = false; toast(writeErr(x)); }
+  };
+}
+
+/* --- kalem tablosu (talep / fiyat talebi / sipariş) --- */
+// mode: talep (miktar, not) · rfq (miktar) · po (fiyat, iskonto, KDV, tedarikçi kodu)
+function saKalemHtml(K, mode, ed, pb) {
+  const dis = ed ? "" : " disabled", po = mode === "po";
+  return `<div class="kled ${mode}" role="table"><div class="khead" role="row"><div>Ürün</div><div>Miktar</div><div>Birim</div>${po ? "<div>Birim fiyat</div><div>İsk. %</div><div>KDV %</div><div>Tutar</div>" : mode === "talep" ? "<div>Not</div>" : ""}<div></div></div>
+    ${K.length ? K.map((k, i) => { const l = saLine(k); return `<div class="krow" role="row">
+      <div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : '<span class="kst" style="--tc:var(--ink-3)">Serbest</span> '}<b>${esc(k.ad)}</b>${po ? `<input class="kin" id="kT${i}" maxlength="60" value="${esc(k.tedKod || "")}" placeholder="Tedarikçi ürün kodu"${dis}>` : ""}${k.yolda ? `<div class="note">Stok ${nf(k.stok)} · yolda ${nf(k.yolda)}</div>` : k.stok != null ? `<div class="note">Stok ${nf(k.stok)}${k.minStok ? " · min " + nf(k.minStok) : ""}</div>` : ""}</div>
+      <div><input class="kin num" id="kM${i}" type="number" step="any" min="0" value="${esc(k.miktar)}" aria-label="Miktar"${dis}></div>
+      <div><select class="kin" id="kB${i}" aria-label="Birim"${dis}>${[...new Set([...ST_BIRIM, k.birim].filter(Boolean))].map(b => opt(b, b, k.birim || "Adet")).join("")}</select></div>
+      ${po ? `<div><input class="kin num" id="kF${i}" type="number" step="any" min="0" value="${esc(k.fiyat ?? "")}" placeholder="0" aria-label="Birim fiyat"${dis}>${k.sonFiyat ? `<div class="note" title="${esc(k.sonFiyat.t)}">son ${money(k.sonFiyat.f, k.sonFiyat.pb)}</div>` : ""}</div>
+        <div><input class="kin num" id="kI${i}" type="number" step="any" min="0" max="100" value="${esc(k.isk || "")}" placeholder="0" aria-label="İskonto"${dis}></div>
+        <div><select class="kin" id="kK${i}" aria-label="KDV"${dis}>${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></div>
+        <div class="num" id="kTt${i}">${money(l.net, pb)}</div>` : mode === "talep" ? `<div><input class="kin" id="kN${i}" maxlength="120" value="${esc(k.not || "")}" placeholder="Ölçü, renk, kullanım…"${dis}></div>` : ""}
+      <div>${ed ? `<button type="button" class="btn ghost sm" data-krm="${i}" aria-label="Kalemi kaldır">×</button>` : ""}</div></div>`; }).join("") : '<div class="krow" style="display:block;color:var(--ink-3);padding:12px">Kalem yok. Aşağıdan stokta arayın ya da serbest kalem ekleyin.</div>'}</div>
+    ${ed ? `<div class="kara"><input id="kAra" type="search" placeholder="Stok kodu ya da ürün adı yazın (örn. M-0101, galvaniz sac 0,8)…" aria-label="Stokta ara" autocomplete="off"><button type="button" class="btn ghost sm" id="kSer">Serbest kalem ekle</button></div><div id="kAraR" class="karar"></div>` : ""}`;
+}
+function saKalemRead(K, mode) {
+  K.forEach((k, i) => { const g = id => { const el = $("#" + id + i); return el ? el.value : undefined; };
+    if (g("kM") !== undefined) k.miktar = Math.max(0, Number(g("kM")) || 0);
+    if (g("kB") !== undefined) k.birim = g("kB");
+    if (g("kN") !== undefined) k.not = g("kN").trim();
+    if (mode === "po") { const f = g("kF"); k.fiyat = f === "" || f === undefined ? null : Math.max(0, Number(f) || 0); k.isk = Math.min(100, Math.max(0, Number(g("kI")) || 0)); k.kdv = Number(g("kK") ?? 20); k.tedKod = (g("kT") || "").trim(); } });
+  return K;
+}
+function saKalemBind(K, mode, repaint, onPick) {
+  document.querySelectorAll("[data-krm]").forEach(b => b.onclick = () => { saKalemRead(K, mode); K.splice(Number(b.dataset.krm), 1); repaint(); });
+  if (mode === "po") K.forEach((k, i) => ["kM", "kF", "kI", "kK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { saKalemRead(K, mode); const t = $("#kTt" + i); if (t) t.textContent = money(saLine(K[i]).net, ($("#pPb") || {}).value || "TRY"); const s = $("#poSum"); if (s) s.innerHTML = saSumHtml(K, ($("#pPb") || {}).value || "TRY"); }); }));
+  const a = $("#kAra"), r = $("#kAraR"); if (!a) return;
+  let tm = null, seq = 0;
+  a.oninput = () => { clearTimeout(tm); const q = a.value.trim(); if (q.length < 2) { r.innerHTML = ""; return; }
+    r.innerHTML = '<div class="note">Aranıyor…</div>';
+    tm = setTimeout(async () => { const my = ++seq, L = await saStokAra(q); if (my !== seq) return;
+      r.innerHTML = L.length ? L.map((i, k) => `<button type="button" class="karr" data-kp="${k}"><span class="num skk">${esc(i.kod)}</span> ${esc(i.ad)} <small class="note">${nf(i.miktar)} ${esc(i.birim || "")}${i.minStok ? " · min " + nf(i.minStok) : ""}</small></button>`).join("") : `<div class="note">Stokta bulunamadı. "Serbest kalem ekle" ile yazdığınız adla ekleyebilirsiniz.</div>`;
+      r.querySelectorAll("[data-kp]").forEach(b => b.onclick = async () => { const it = L[Number(b.dataset.kp)]; saKalemRead(K, mode);
+        if (K.some(k => k.sid === it.id)) { toast("Bu ürün zaten listede"); return; }
+        const kk = saKalemFromStok(it, { stok: Number(it.miktar) || 0, minStok: it.minStok || 0 }); if (onPick) await onPick(kk, it); K.push(kk); repaint(); setTimeout(() => { const n = $("#kM" + (K.length - 1)); if (n) { n.focus(); n.select(); } }, 30); }); }, 300); };
+  $("#kSer").onclick = () => { const ad = a.value.trim(); if (!ad) { toast("Önce kalem adını yazın"); a.focus(); return; } saKalemRead(K, mode); K.push({ sid: null, kod: "", ad: ad.slice(0, 120), tanim: "", birim: "Adet", miktar: 1, kdv: 20 }); repaint(); };
+}
+function saSumHtml(K, pb, kur) {
+  const t = saTotals(K), k = saKur(pb, kur);
+  return `<div class="sasum"><div><span>Ara toplam</span><b class="num">${money(t.ara, pb)}</b></div>${t.isk ? `<div><span>İskonto</span><b class="num">−${money(t.isk, pb)}</b></div>` : ""}<div><span>KDV</span><b class="num">${money(t.kdv, pb)}</b></div><div class="g"><span>Genel toplam</span><b class="num">${money(t.genel, pb)}</b></div>${pb !== "TRY" && k ? `<div><span>TL karşılığı (KDV hariç)</span><b class="num">${moneyR(t.net * k)}</b></div>` : ""}</div>`;
+}
+// son alış fiyatı: önce bu tedarikçiden, yoksa genel alış fiyatı
+async function saSonFiyat(sid, cariId, pb) {
+  const f = await saFiyatGet(sid); if (!f) return null; const c = crFind(cariId), A = (f.arsiv || []).filter(a => !a.teklif);
+  const m = A.filter(a => (cariId && a.cariId === cariId) || (c && a.tedarikci && crFold(a.tedarikci) === crFold(c.unvan))).slice(-1)[0];
+  if (m) return { f: Number(m.fiyat), pb: m.pb || "TRY", t: "Bu tedarikçiden son fiyat · " + skTs(m.ts).split(" ")[0] };
+  if (f.alisFiyat != null) return { f: Number(f.alisFiyat), pb: f.pb || "TRY", t: "Güncel alış fiyatı" + (A.length ? " · " + (A[A.length - 1].tedarikci || "") : "") };
+  return null;
+}
+
+/* ===== Talep ===== */
+async function saKritikKalemler() {
+  const s = await getDocs(query(collection(fs, "stok"), where("seviye", "in", ["kritik", "yok"]), limit(150)));
+  return s.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => i.aktif !== false).map(i => {
+    const y = saYolda(i.id).miktar, hedef = Number(i.maxStok) || (Number(i.minStok) || 0) * 2, ihtiyac = Math.max(0, hedef - (Number(i.miktar) || 0) - y);
+    return ihtiyac > 0 ? saKalemFromStok(i, { miktar: Math.ceil(ihtiyac), stok: Number(i.miktar) || 0, minStok: i.minStok || 0, yolda: y, not: "Kritik seviye" }) : null; }).filter(Boolean);
+}
+const SA_DEPT = ["Üretim", "Depo", "Planlama", "Bakım-onarım", "Kalite", "Satış", "İdari işler", "Diğer"];
+async function saOpenTalepForm(id, opts = {}) {
+  const cur = id ? saFind("talep", id) : null;
+  if (!can("sa.talep") && !(cur && can("sa.siparis"))) return;
+  let K = cur ? JSON.parse(JSON.stringify(cur.kalemler || [])) : [], f = null;
+  if (opts.sid) { const it = await skGet(opts.sid); if (it) K.push(saKalemFromStok(it, { stok: Number(it.miktar) || 0, minStok: it.minStok || 0, yolda: saYolda(it.id).miktar })); }
+  const keep = () => { if (!$("#tDep")) return; f = { dep: $("#tDep").value, onc: $("#tOnc").value, ter: $("#tTer").value, ac: $("#tAc").value, ref: $("#tRef").value, ted: $("#tTed").value }; saKalemRead(K, "talep"); };
+  const paint = () => {
+    const v = (k, d) => f && k in f ? f[k] : d;
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="tfT" style="width:min(820px,100%)">
+      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> talebi düzenle` : "Yeni satın alma talebi"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
+      <div class="db"><div class="fgrid">
+        <div class="field"><label for="tDep">Talep eden birim</label><select id="tDep">${SA_DEPT.map(d => opt(d, d, v("dep", cur ? cur.departman : "Üretim"))).join("")}</select></div>
+        <div class="field"><label for="tOnc">Öncelik</label><select id="tOnc">${Object.entries(SA_ONC).map(([a, [l]]) => opt(a, l, v("onc", cur ? cur.oncelik || "normal" : "normal"))).join("")}</select></div>
+        <div class="field"><label for="tTer">İstenen teslim tarihi</label><input id="tTer" type="date" min="${TODAY}" value="${esc(v("ter", cur ? cur.termin || "" : ""))}"></div>
+        <div class="field"><label for="tRef">İş emri / proje / sipariş</label><input id="tRef" maxlength="60" value="${esc(v("ref", cur ? cur.ref || "" : ""))}" placeholder="Örn. İE-2026-0012, SP-2026-130"></div>
+        <div class="field full"><label for="tAc">Gerekçe / açıklama</label><textarea id="tAc" maxlength="1000" placeholder="Neden gerekli, nerede kullanılacak, özel istekler…">${esc(v("ac", cur ? cur.aciklama || "" : ""))}</textarea></div>
+        <div class="field full"><label for="tTed">Önerilen tedarikçi (isteğe bağlı)</label><select id="tTed"><option value="">—</option>${crTeds().map(c => opt(c.id, crAd(c) + (c.kategori ? " · " + c.kategori : ""), v("ted", cur ? cur.oneriCariId || "" : ""))).join("")}</select></div></div>
+        <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>${saKalemHtml(K, "talep", true)}
+          ${lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="tKrit" style="margin-top:8px">Kritik seviyedeki stokları ekle</button>' : ""}</section>
+        <p class="note" style="margin:0" id="tEst"></p>
+      </div>
+      <div class="df"><span class="note">Tahmini tutar son alış fiyatlarından hesaplanır; ${moneyR(SA.cfg.limit)} ve üstü büyük onaya gider.</span><div class="r"><button class="btn ghost" id="tfC" type="button">Vazgeç</button><button class="btn" id="tfS" type="button">${cur ? "Kaydet" : "Talebi gönder"}</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#tfX").onclick = closeDrawer; $("#tfC").onclick = closeDrawer;
+    saKalemBind(K, "talep", () => { keep(); paint(); });
+    const kb = $("#tKrit"); if (kb) kb.onclick = async () => { keep(); kb.disabled = true; kb.textContent = "Kritik stoklar okunuyor…";
+      try { const L = await saKritikKalemler(), add = L.filter(x => !K.some(k => k.sid === x.sid)); K.push(...add); toast(add.length ? `${add.length} kritik kalem eklendi (hedef: maksimum stok ya da minimumun 2 katı; yoldaki düşüldü)` : "Eklenecek kritik kalem yok"); } catch (x) { toast(writeErr(x)); }
+      paint(); };
+    est();
+    $("#tfS").onclick = save;
+  };
+  async function tahmin() { let t = 0, eksik = 0; for (const k of K) { if (!k.sid) { eksik++; continue; } const f0 = await saFiyatGet(k.sid); const v = f0 && f0.alisFiyat != null ? saTRY(f0.alisFiyat, f0.pb) : null; if (v == null) { eksik++; continue; } k.tahminiFiyat = Number(f0.alisFiyat); k.pb = f0.pb || "TRY"; t += v * (Number(k.miktar) || 0); } return { t, eksik }; }
+  async function est() { const e = $("#tEst"); if (!e || !K.length) return; const { t, eksik } = await tahmin(); if (!$("#tEst")) return;
+    e.innerHTML = `Tahmini tutar: <b>${moneyR(t)}</b>${eksik ? ` · ${eksik} kalemin fiyatı bilinmiyor` : ""} → <b>${saSeviye(t) === "buyuk" ? "büyük onay (" + esc(saOnayAd("buyuk")) + ")" : "küçük onay (" + esc(saOnayAd("kucuk")) + ")"}</b>`; }
+  async function save() {
+    keep(); const L = K.filter(k => Number(k.miktar) > 0);
+    if (!L.length) { toast("En az bir kalem ve miktar girin"); return; }
+    const b = $("#tfS"); b.disabled = true;
+    try {
+      K = L; const { t, eksik } = await tahmin(), sev = saSeviye(t), now = Date.now(), self = saCanOnay(sev);
+      const kal = K.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), not: k.not || "", tedKod: k.tedKod || "", tahminiFiyat: k.tahminiFiyat ?? null, pb: k.pb || "TRY" }));
+      const data = { departman: f.dep, oncelik: f.onc, termin: f.ter || "", aciklama: f.ac.trim(), ref: f.ref.trim(), oneriCariId: f.ted || "", kalemler: kal, tahmini: Math.round(t), eksikFiyat: eksik, updatedAt: now, updatedBy: ME.name };
+      if (cur) {
+        const reOnay = cur.durum === "red" || (cur.onay && cur.onay.seviye !== "buyuk" && sev === "buyuk");
+        if (reOnay) Object.assign(data, self ? { durum: "onaylandi", onay: { seviye: sev, by: ME.name, at: now, oto: true } } : { durum: "onay", onay: { seviye: sev } });
+        data.log = saLog(cur, reOnay ? "Talep düzenlendi, yeniden onaya gönderildi" : "Talep düzenlendi");
+        await updateDoc(doc(fs, "sa_talep", cur.id), data); toast("Talep güncellendi"); saOpenTalep(cur.id);
+      } else {
+        const ref = doc(collection(fs, "sa_talep")), no = saNextNo("ST", SA.talep);
+        await setDoc(ref, { ...data, no, tarih: TODAY, durum: self ? "onaylandi" : "onay", onay: self ? { seviye: sev, by: ME.name, at: now, oto: true } : { seviye: sev }, teklifIds: [], siparisIds: [], createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: self ? "Talep açıldı ve onaylandı (onaycı)" : `Talep açıldı · ${sev === "buyuk" ? "büyük" : "küçük"} onaya gönderildi` }] });
+        toast(self ? `${no} açıldı ve onaylandı` : `${no} onaya gönderildi · ${saOnayAd(sev)}`); SA.view = "talep"; closeDrawer(); renderSA();
+      }
+    } catch (x) { b.disabled = false; toast(writeErr(x)); }
+  }
+  paint();
+}
+function saOpenTalep(id) {
+  saDrawerRefresh = () => { const t = saFind("talep", id); if (t && $("#taT")) paint(); };
+  onDrawerClose = () => { saDrawerRefresh = null; };
+  const paint = () => {
+    const t = saFind("talep", id); if (!t) { closeDrawer(); toast("Talep bulunamadı"); return; }
+    const sev = t.onay && t.onay.seviye, myOnay = t.durum === "onay" && saCanOnay(sev), sip = can("sa.siparis") && ["onaylandi", "teklif", "siparis"].includes(t.durum);
+    const Tk = SA.teklif.filter(x => x.talepId === t.id), Po = SA.siparis.filter(p => p.talepId === t.id);
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="taT" style="width:min(860px,100%)">
+      <div class="dh"><h2 id="taT"><span class="num skk">${esc(t.no)}</span> Satın alma talebi</h2><button class="x" id="taX" aria-label="Kapat">×</button></div>
+      <div class="skhead"><div class="skbig" style="--tc:${(SA_TDUR[t.durum] || [])[1] || "var(--ink-3)"}"><b>${t.tahmini != null ? moneyR(t.tahmini) : "—"}</b><span>${(SA_TDUR[t.durum] || [t.durum])[0]}</span></div>
+        <div class="skhm"><span>${esc(t.createdBy || "")} · ${esc(t.departman || "")}</span><span>${fmtS(t.tarih)}${t.termin ? " · istenen " + fmtS(t.termin) : ""}${t.oncelik === "acil" ? " · ACİL" : ""}</span><span>${sev === "buyuk" ? "Büyük onay" : "Küçük onay"}${t.onay && t.onay.by ? ` · ${t.onay.red ? "reddeden" : "onaylayan"} ${esc(t.onay.by)}${t.onay.oto ? " (açarken)" : ""}` : " · " + esc(saOnayAd(sev))}${t.eksikFiyat ? ` · ${t.eksikFiyat} kalemin fiyatı bilinmiyor` : ""}</span></div>
+        <div class="skhb">${myOnay ? '<button type="button" class="qb ok" id="taOk">Onayla</button><button type="button" class="qb ba" id="taRed">Reddet</button>' : ""}</div></div>
+      <div class="db">
+        ${t.durum === "red" && t.onay && t.onay.not ? `<div class="izbal" style="--tc:var(--k-izinsiz)">Red gerekçesi: ${esc(t.onay.not)}</div>` : ""}
+        ${t.aciklama || t.ref || t.oneriCariId ? `<div class="izbal">${t.aciklama ? esc(t.aciklama) : ""}${t.ref ? `<div class="note">Referans: ${esc(t.ref)}</div>` : ""}${t.oneriCariId ? `<div class="note">Önerilen tedarikçi: ${esc(crAd(crFind(t.oneriCariId)))}</div>` : ""}</div>` : ""}
+        <section><h3 class="sec-t">Kalemler <small>${(t.kalemler || []).length}</small></h3>${saKalemHtml(t.kalemler || [], "talep", false)}</section>
+        ${sip ? `<div class="pkact"><button type="button" class="btn" id="taPo">Sipariş oluştur</button><button type="button" class="btn ghost" id="taRfq">Fiyat talebi gönder (birden çok firmaya)</button>${t.durum !== "kapandi" ? '<button type="button" class="btn ghost" id="taKap">Talebi kapat</button>' : ""}</div>` : ""}
+        ${Tk.length ? `<section><h3 class="sec-t">Teklif karşılaştırma <small>${Tk.length} fiyat talebi</small></h3>${saCompareHtml(t, Tk)}</section>` : ""}
+        ${Po.length ? `<section><h3 class="sec-t">Siparişler</h3><div class="ledger saled mini" role="table">${Po.map(saPoRow).join("")}</div></section>` : ""}
+        <section><h3 class="sec-t">Geçmiş</h3>${(t.log || []).slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>
+      </div>
+      <div class="df"><span>${can("sa.delete") && !Po.length ? '<button class="btn danger" id="taDel" type="button">Sil</button>' : ""}</span><div class="r">${["onay", "red"].includes(t.durum) && (can("sa.talep") || can("sa.siparis")) ? '<button class="btn ghost" id="taEd" type="button">Düzenle</button>' : ""}${["onay", "onaylandi", "teklif"].includes(t.durum) && (t.uid === ME.uid || can("sa.siparis")) ? '<button class="btn ghost dangerb" id="taIpt" type="button">İptal</button>' : ""}<button class="btn ghost" id="taC" type="button">Kapat</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#taX").onclick = closeDrawer; $("#taC").onclick = closeDrawer;
+    saBindOpen($("#drawerHost .db"));
+    const st = async (data, msg) => { try { await updateDoc(doc(fs, "sa_talep", t.id), { ...data, updatedAt: Date.now(), updatedBy: ME.name, log: saLog(t, msg) }); toast(msg); } catch (x) { toast(writeErr(x)); } };
+    const ok = $("#taOk"); if (ok) ok.onclick = () => st({ durum: "onaylandi", onay: { seviye: sev, by: ME.name, at: Date.now() } }, "Talep onaylandı");
+    const rd = $("#taRed"); if (rd) rd.onclick = () => { const n = prompt2("Red gerekçesi"); n.then(x => { if (x == null) return; st({ durum: "red", onay: { seviye: sev, by: ME.name, at: Date.now(), red: true, not: x } }, "Talep reddedildi" + (x ? ": " + x : "")); }); };
+    const po = $("#taPo"); if (po) po.onclick = () => saOpenPOForm(null, { talepId: t.id });
+    const rf = $("#taRfq"); if (rf) rf.onclick = () => saOpenRFQNew(t.id);
+    const kp = $("#taKap"); if (kp) kp.onclick = () => st({ durum: "kapandi" }, "Talep kapatıldı");
+    const ed = $("#taEd"); if (ed) ed.onclick = () => saOpenTalepForm(t.id);
+    const ip = $("#taIpt"); if (ip) { let a = false; ip.onclick = () => { if (!a) { a = true; ip.textContent = "İptal edilsin mi? Tekrar basın"; return; } st({ durum: "iptal" }, "Talep iptal edildi"); }; }
+    const dl = $("#taDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_talep", t.id)); toast("Talep silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+    document.querySelectorAll("[data-sec]").forEach(b => b.onclick = () => saOpenPOForm(null, { teklifId: b.dataset.sec }));
+  };
+  paint();
+}
+// Basit metin sorusu (tarayıcı penceresi açılmaz)
+function prompt2(label, def = "") {
+  return new Promise(res => {
+    const host = document.createElement("div"); host.className = "p2"; host.innerHTML = `<div class="p2b" role="dialog" aria-modal="true" aria-label="${esc(label)}"><label for="p2i">${esc(label)}</label><textarea id="p2i" maxlength="300">${esc(def)}</textarea><div class="r"><button type="button" class="btn ghost" id="p2c">Vazgeç</button><button type="button" class="btn" id="p2o">Tamam</button></div></div>`;
+    document.body.appendChild(host); const i = host.querySelector("#p2i"); setTimeout(() => i.focus(), 30);
+    const done = v => { host.remove(); res(v); };
+    host.querySelector("#p2c").onclick = () => done(null); host.querySelector("#p2o").onclick = () => done(i.value.trim());
+    host.onclick = e => { if (e.target === host) done(null); };
+  });
+}
+// Teklif karşılaştırma tablosu: kalem × tedarikçi, en ucuz vurgulu
+function saCompareHtml(t, Tk) {
+  const tv = tk => { const n = saTotals(tk.kalemler).net; return n > 0 ? n * (saKur(tk.pb, tk.kur) || 1) : Infinity; }, K = t.kalemler || [], cols = Tk.slice().sort((a, b) => tv(a) - tv(b));
+  const unit = (tk, k) => { const x = (tk.kalemler || []).find(y => (k.sid && y.sid === k.sid) || (!k.sid && y.ad === k.ad)); if (!x || x.fiyat == null || x.fiyat === "") return null; return { f: Number(x.fiyat) * (1 - (Number(x.isk) || 0) / 100), pb: tk.pb, gun: x.teslimGun }; };
+  const best = K.map(k => { const v = cols.map(tk => { const u = unit(tk, k); return u ? u.f * (saKur(u.pb, tk.kur) || 1) : null; }).filter(x => x != null); return v.length ? Math.min(...v) : null; });
+  const sel = can("sa.siparis") && ["onaylandi", "teklif"].includes(t.durum);
+  return `<div class="cmpw"><table class="cmp"><thead><tr><th>Kalem</th>${cols.map(tk => { const s = saScore(tk.cariId); return `<th><button type="button" class="linkbtn" data-rfq="${esc(tk.id)}">${esc(tk.cariAd || "")}</button><div class="note">${esc(tk.no)}${tk.proformaNo ? " · " + esc(tk.proformaNo) : ""}</div><div>${saChip(SA_FDUR, tk.durum)}${s.sinif ? ` <span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif}</span>` : ""}</div></th>`; }).join("")}</tr></thead>
+    <tbody>${K.map((k, i) => `<tr><td><b>${esc(k.ad)}</b><div class="note">${nf(k.miktar)} ${esc(k.birim || "")}</div></td>${cols.map(tk => { const u = unit(tk, k), v = u ? u.f * (saKur(u.pb, tk.kur) || 1) : null;
+      return `<td class="num${v != null && best[i] != null && Math.abs(v - best[i]) < 1e-6 ? " best" : ""}">${u ? money(u.f, u.pb) : '<span class="note">—</span>'}${u && u.gun ? `<div class="note">${u.gun} gün</div>` : ""}</td>`; }).join("")}</tr>`).join("")}</tbody>
+    <tfoot><tr><th>Toplam (KDV hariç)</th>${cols.map(tk => { const T = saTotals(tk.kalemler); return `<th class="num">${T.net ? money(T.net, tk.pb) : "—"}${tk.teslimGun ? `<div class="note">${tk.teslimGun} gün teslim</div>` : ""}${sel && tk.durum === "geldi" ? `<button type="button" class="btn sm" data-sec="${esc(tk.id)}" style="margin-top:6px">Seç → sipariş</button>` : ""}</th>`; }).join("")}</tr></tfoot></table></div>
+    <p class="note" style="margin:6px 0 0">Yeşil: kalemdeki en düşük fiyat (TL karşılığına göre). Sütunlar toplam tutara göre sıralı. Fiyatlar fiyat talebi açılıp tedarikçi yanıtı girilince dolar.</p>`;
+}
+
+/* ===== Fiyat talebi (birden çok tedarikçiye) ===== */
+function saOpenRFQNew(talepId) {
+  if (!can("sa.siparis")) return;
+  const t = talepId ? saFind("talep", talepId) : null; let K = t ? JSON.parse(JSON.stringify(t.kalemler || [])) : [], f = null;
+  const sel = new Set(t && t.oneriCariId ? [t.oneriCariId] : []);
+  const keep = () => { if (!$("#rqSon")) return; f = { son: $("#rqSon").value, not: $("#rqNot").value, q: ($("#rqQ") || {}).value || "" }; saKalemRead(K, "rfq"); };
+  const paint = () => {
+    const v = (k, d) => f && k in f ? f[k] : d, q = skNorm(v("q", "")), T = crTeds().filter(c => !q || skNorm([c.unvan, c.kisaAd, c.kategori].join(" ")).includes(q));
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="rqT" style="width:min(820px,100%)">
+      <div class="dh"><h2 id="rqT">Fiyat talebi${t ? ` · <span class="num skk">${esc(t.no)}</span>` : ""}</h2><button class="x" id="rqX" aria-label="Kapat">×</button></div>
+      <div class="db">
+        <section><h3 class="sec-t">Tedarikçiler <small>${sel.size} seçili · her birine ayrı numaralı form</small></h3>
+          <input class="f" id="rqQ" type="search" placeholder="Tedarikçi ya da kategori ara…" value="${esc(v("q", ""))}" style="width:100%;margin-bottom:8px">
+          <div class="onl" style="max-height:220px">${T.map(c => { const s = saScore(c.id); return `<label class="chk"><input type="checkbox" data-rc="${esc(c.id)}"${sel.has(c.id) ? " checked" : ""}> ${esc(crAd(c))} <small class="note">${esc(c.kategori || "")}${s.sinif ? " · " + s.sinif : ""}${!c.eposta && !c.whatsapp && !c.tel ? " · iletişim bilgisi yok" : ""}</small></label>`; }).join("") || '<p class="note">Tedarikçi bulunamadı.</p>'}</div></section>
+        <section><h3 class="sec-t">Kalemler</h3>${saKalemHtml(K, "rfq", true)}</section>
+        <div class="fgrid"><div class="field"><label for="rqSon">Son teklif tarihi</label><input id="rqSon" type="date" min="${TODAY}" value="${esc(v("son", ""))}"></div><div></div>
+          <div class="field full"><label for="rqNot">Tedarikçiye not</label><textarea id="rqNot" maxlength="600" placeholder="Teslim süresi, ödeme şartı ve geçerlilik süresini de belirtmenizi rica ederiz.">${esc(v("not", ""))}</textarea></div></div>
+      </div>
+      <div class="df"><span class="note">Kaydettikten sonra her formu PDF, WhatsApp ya da e-posta ile gönderebilirsiniz.</span><div class="r"><button class="btn ghost" id="rqC" type="button">Vazgeç</button><button class="btn" id="rqS" type="button">Fiyat taleplerini oluştur</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#rqX").onclick = closeDrawer; $("#rqC").onclick = closeDrawer;
+    document.querySelectorAll("[data-rc]").forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.rc) : sel.delete(c.dataset.rc); const h = $("#drawerHost .sec-t small"); if (h) h.textContent = sel.size + " seçili · her birine ayrı numaralı form"; });
+    let qt = null; $("#rqQ").oninput = () => { clearTimeout(qt); qt = setTimeout(() => { keep(); paint(); const i = $("#rqQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
+    saKalemBind(K, "rfq", () => { keep(); paint(); });
+    $("#rqS").onclick = async () => {
+      keep(); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size) { toast("En az bir tedarikçi seçin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
+      $("#rqS").disabled = true; const now = Date.now(), b = writeBatch(fs), ids = []; let L0 = SA.teklif.slice();
+      for (const cid of sel) { const c = crFind(cid), ref = doc(collection(fs, "sa_teklif")), no = saNextNo("FT", L0); L0.push({ no }); ids.push(ref.id);
+        b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: cid, cariAd: crAd(c), pb: c.pb || "TRY", sonTarih: f.son || "", not: f.not.trim(),
+          kalemler: L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), tedKod: k.tedKod || "", fiyat: null, isk: 0, kdv: 20, teslimGun: null })),
+          durum: "hazir", proformaNo: "", gonderim: [], createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, log: [{ at: now, by: ME.name, t: "Fiyat talebi oluşturuldu" }] }); }
+      if (t) b.update(doc(fs, "sa_talep", t.id), { durum: "teklif", teklifIds: [...(t.teklifIds || []), ...ids], updatedAt: now, updatedBy: ME.name, log: saLog(t, `${ids.length} firmaya fiyat talebi hazırlandı`) });
+      try { await b.commit(); toast(`${ids.length} fiyat talebi oluşturuldu; şimdi gönderin`); if (t) saOpenTalep(t.id); else { closeDrawer(); SA.view = "teklif"; renderSA(); } } catch (x) { $("#rqS").disabled = false; toast(writeErr(x)); }
+    };
+  };
+  paint();
+}
+function saOpenRFQ(id) {
+  saDrawerRefresh = () => { if ($("#rvT") && !document.activeElement.closest(".kled")) paint(); };
+  onDrawerClose = () => { saDrawerRefresh = null; };
+  let K = null;
+  const paint = () => {
+    const t = saFind("teklif", id); if (!t) { closeDrawer(); return; }
+    const ed = can("sa.siparis") && ["hazir", "gonderildi", "geldi"].includes(t.durum); K = JSON.parse(JSON.stringify(t.kalemler || []));
+    const c = crFind(t.cariId) || {}, tl0 = SA.talep.find(x => x.id === t.talepId), sib = SA.teklif.filter(x => x.talepId && x.talepId === t.talepId);
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="rvT" style="width:min(900px,100%)">
+      <div class="dh"><h2 id="rvT"><span class="num skk">${esc(t.no)}</span> Fiyat talebi · ${esc(t.cariAd || "")}</h2><button class="x" id="rvX" aria-label="Kapat">×</button></div>
+      <div class="skhead"><div class="skbig" style="--tc:${(SA_FDUR[t.durum] || [])[1]}"><b>${saTotals(t.kalemler).net ? money(saTotals(t.kalemler).net, t.pb) : "—"}</b><span>${(SA_FDUR[t.durum] || [t.durum])[0]}</span></div>
+        <div class="skhm"><span>${fmtS(t.tarih)}${t.sonTarih ? " · son teklif " + fmtS(t.sonTarih) : ""}</span><span>${t.talepNo ? "Talep " + esc(t.talepNo) : "Talepsiz"}${t.proformaNo ? " · proforma " + esc(t.proformaNo) : ""}</span><span>${(t.gonderim || []).length ? "Gönderildi: " + t.gonderim.map(g => SA_KANAL[g.kanal] + " " + skTs(g.at).split(" ")[0]).join(", ") : "Henüz gönderilmedi"}</span></div>
+        <div class="skhb">${saSendBtns()}</div></div>
+      <div class="db">
+        <section><h3 class="sec-t">Tedarikçinin fiyatları <small>yanıt gelince girin</small></h3>${saKalemHtml(K, "po", ed, t.pb).replace(/<div class="kara">[\s\S]*$/, "")}
+          <div class="fgrid" style="margin-top:10px">
+            <div class="field"><label for="rvPro">Proforma / teklif no</label><input id="rvPro" maxlength="40" value="${esc(t.proformaNo || "")}"${ed ? "" : " disabled"}></div>
+            <div class="field"><label for="pPb">Para birimi</label><select id="pPb"${ed ? "" : " disabled"}>${ST_PB.map(p => opt(p, p, t.pb || "TRY")).join("")}</select></div>
+            <div class="field"><label for="rvGun">Teslim süresi (gün)</label><input id="rvGun" type="number" min="0" max="365" value="${esc(t.teslimGun ?? "")}"${ed ? "" : " disabled"}></div>
+            <div class="field"><label for="rvGec">Teklif geçerlilik tarihi</label><input id="rvGec" type="date" value="${esc(t.gecerlilik || "")}"${ed ? "" : " disabled"}></div>
+            <div class="field full"><label for="rvOd">Ödeme şartı</label><input id="rvOd" maxlength="120" value="${esc(t.odeme || "")}"${ed ? "" : " disabled"}></div></div>
+          ${ed ? '<button type="button" class="btn" id="rvSv" style="margin-top:10px">Fiyatları kaydet</button>' : ""}</section>
+        ${sib.length > 1 && tl0 ? `<section><h3 class="sec-t">Karşılaştırma <small>${esc(tl0.no)}</small></h3>${saCompareHtml(tl0, sib)}</section>` : ""}
+        ${t.not ? `<div class="izbal">Tedarikçiye not: ${esc(t.not)}</div>` : ""}
+        <section><h3 class="sec-t">Geçmiş</h3>${(t.log || []).slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>
+      </div>
+      <div class="df"><span>${can("sa.delete") && t.durum !== "secildi" ? '<button class="btn danger" id="rvDel" type="button">Sil</button>' : ""}</span><div class="r">${tl0 ? '<button class="btn ghost" id="rvTl" type="button">Talebi aç</button>' : ""}${can("sa.siparis") && t.durum === "geldi" ? '<button class="btn" id="rvPo" type="button">Bu teklifle sipariş oluştur</button>' : ""}<button class="btn ghost" id="rvC" type="button">Kapat</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#rvX").onclick = closeDrawer; $("#rvC").onclick = closeDrawer;
+    saBindOpen($("#drawerHost .db"));
+    if (ed) saKalemBind(K, "po", paint);
+    saSendBind("teklif", t);
+    const sv = $("#rvSv"); if (sv) sv.onclick = async () => {
+      saKalemRead(K, "po"); const any = K.some(k => k.fiyat != null), now = Date.now();
+      const data = { kalemler: K.map(k => ({ ...k, teslimGun: k.teslimGun ?? null })), proformaNo: $("#rvPro").value.trim(), pb: $("#pPb").value, teslimGun: $("#rvGun").value === "" ? null : Number($("#rvGun").value), gecerlilik: $("#rvGec").value, odeme: $("#rvOd").value.trim(),
+        durum: any ? "geldi" : t.durum, toplam: saTotals(K), updatedAt: now, updatedBy: ME.name, log: saLog(t, any ? "Tedarikçi fiyatları girildi" : "Fiyat talebi güncellendi") };
+      sv.disabled = true;
+      try { await updateDoc(doc(fs, "sa_teklif", t.id), data);
+        for (const k of K) if (k.sid && k.fiyat != null) await saPriceLog(k.sid, { fiyat: k.fiyat * (1 - (Number(k.isk) || 0) / 100), pb: data.pb, kdv: k.kdv, tedarikci: t.cariAd, cariId: t.cariId, kaynak: "teklif", belge: data.proformaNo || t.no, not: "Teklif " + (data.proformaNo || t.no), teklif: true }).catch(() => {});
+        toast("Teklif fiyatları kaydedildi"); } catch (x) { sv.disabled = false; toast(writeErr(x)); }
+    };
+    const po = $("#rvPo"); if (po) po.onclick = () => saOpenPOForm(null, { teklifId: t.id });
+    const tl = $("#rvTl"); if (tl) tl.onclick = () => saOpenTalep(tl0.id);
+    const dl = $("#rvDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_teklif", t.id)); toast("Fiyat talebi silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+  };
+  paint();
+}
+
+/* ===== Sipariş ===== */
+async function saOpenPOForm(id, opts = {}) {
+  if (!can("sa.siparis")) return;
+  const cur = id ? saFind("siparis", id) : null, tk = opts.teklifId ? saFind("teklif", opts.teklifId) : null, tl = cur ? saFind("talep", cur.talepId) : opts.talepId ? saFind("talep", opts.talepId) : tk && tk.talepId ? saFind("talep", tk.talepId) : null;
+  let K = cur ? JSON.parse(JSON.stringify(cur.kalemler)) : tk ? JSON.parse(JSON.stringify(tk.kalemler)) : tl ? JSON.parse(JSON.stringify(tl.kalemler)).map(k => ({ ...k, fiyat: null, isk: 0, kdv: 20 })) : [];
+  let f = null, cariId = cur ? cur.cariId : tk ? tk.cariId : opts.cariId || (tl && tl.oneriCariId) || "";
+  const c0 = crFind(cariId) || {};
+  const def = { cari: cariId, tar: cur ? cur.tarih : TODAY, ter: cur ? cur.termin : tk && tk.teslimGun ? dayOf(Date.now() + tk.teslimGun * D_MS) : tl ? tl.termin || "" : "", ty: cur ? cur.teslimYeri : SA.cfg.teslimYeri, od: cur ? cur.odeme : tk && tk.odeme ? tk.odeme : c0.vade ? c0.vade + " gün vadeli" : SA.cfg.odeme,
+    pb: cur ? cur.pb : tk ? tk.pb : c0.pb || "TRY", kur: cur ? cur.kur ?? "" : tk && tk.kur ? tk.kur : "", pro: cur ? cur.proformaNo || "" : tk ? tk.proformaNo || "" : "", not: cur ? cur.not || "" : "", sart: cur ? cur.sartlar ?? SA.cfg.sartlar : SA.cfg.sartlar };
+  const fill = async () => { for (const k of K) if (k.sid && (k.fiyat == null || k.fiyat === "") && cariId) { const s = await saSonFiyat(k.sid, cariId, def.pb); if (s) { k.sonFiyat = s; if (s.pb === (f ? f.pb : def.pb)) k.fiyat = s.f; } } };
+  const keep = () => { if (!$("#pCari")) return; f = { cari: $("#pCari").value, tar: $("#pTar").value, ter: $("#pTer").value, ty: $("#pTy").value, od: $("#pOd").value, pb: $("#pPb").value, kur: $("#pKur") ? $("#pKur").value : "", pro: $("#pPro").value, not: $("#pNot").value, sart: $("#pSart").value }; saKalemRead(K, "po"); };
+  const paint = () => {
+    const v = k => f && k in f ? f[k] : def[k], pb = v("pb");
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="pfT" style="width:min(980px,100%)">
+      <div class="dh"><h2 id="pfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> siparişi düzenle` : "Yeni satın alma siparişi"}</h2><button class="x" id="pfX" aria-label="Kapat">×</button></div>
+      <div class="db">
+        ${tl || tk ? `<div class="izbal">${tl ? `Talep <b class="num">${esc(tl.no)}</b> (${esc(tl.createdBy || "")}, ${esc(saOnayDurum(tl))})` : ""}${tk ? `${tl ? " · " : ""}Fiyat talebi <b class="num">${esc(tk.no)}</b>${tk.proformaNo ? " · proforma " + esc(tk.proformaNo) : ""}` : ""}</div>` : ""}
+        <div class="fgrid">
+          <div class="field full"><label for="pCari">Tedarikçi *</label><select id="pCari"><option value="">Seçin</option>${crTeds().map(c => { const s = saScore(c.id); return opt(c.id, crAd(c) + (c.kategori ? " · " + c.kategori : "") + (s.sinif ? " · " + s.sinif + " sınıfı" : ""), v("cari")); }).join("")}</select></div>
+          <div class="field"><label for="pTar">Sipariş tarihi</label><input id="pTar" type="date" value="${esc(v("tar"))}"></div>
+          <div class="field"><label for="pTer">Termin (teslim tarihi)</label><input id="pTer" type="date" value="${esc(v("ter"))}"></div>
+          <div class="field"><label for="pPb">Para birimi</label><select id="pPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>
+          ${pb !== "TRY" ? `<div class="field"><label for="pKur">Kur (${esc(pb)}/TL)</label><input id="pKur" type="number" step="0.0001" min="0" value="${esc(v("kur") || (SA.cfg.kur || {})[pb] || "")}"></div>` : "<div></div>"}
+          <div class="field"><label for="pPro">Proforma / teklif no</label><input id="pPro" maxlength="40" value="${esc(v("pro"))}" placeholder="Tedarikçinin teklif numarası"></div>
+          <div class="field"><label for="pOd">Ödeme şartı</label><input id="pOd" maxlength="120" value="${esc(v("od"))}"></div>
+          <div class="field full"><label for="pTy">Teslim yeri</label><input id="pTy" maxlength="200" value="${esc(v("ty"))}"></div></div>
+        <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>${saKalemHtml(K, "po", true, pb)}<div id="poSum">${saSumHtml(K, pb, v("kur"))}</div></section>
+        <div class="fgrid"><div class="field full"><label for="pNot">Tedarikçiye not</label><textarea id="pNot" maxlength="1000" placeholder="Ambalaj, sertifika, teslimat saati…">${esc(v("not"))}</textarea></div>
+          <details class="field full"><summary class="note" style="cursor:pointer">Sipariş şartları (formun altına yazılır)</summary><textarea id="pSart" maxlength="3000" style="min-height:130px;margin-top:6px">${esc(v("sart"))}</textarea></details></div>
+        <p class="note" style="margin:0" id="pOnay"></p>
+      </div>
+      <div class="df"><span class="note">Fiyatlar KDV hariç birim fiyattır.</span><div class="r"><button class="btn ghost" id="pfC" type="button">Vazgeç</button><button class="btn" id="pfS" type="button">${cur ? "Kaydet" : "Siparişi oluştur"}</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#pfX").onclick = closeDrawer; $("#pfC").onclick = closeDrawer;
+    saKalemBind(K, "po", () => { keep(); paint(); }, async kk => { const cid = $("#pCari").value; if (cid) { const s = await saSonFiyat(kk.sid, cid); if (s) { kk.sonFiyat = s; if (s.pb === $("#pPb").value) kk.fiyat = s.f; } } kk.kdv = 20; });
+    $("#pCari").onchange = async () => { keep(); cariId = f.cari; const c = crFind(cariId); if (c && !cur) { f.pb = c.pb || f.pb; if (c.vade && !f.od) f.od = c.vade + " gün vadeli"; } K.forEach(k => { delete k.sonFiyat; }); await fill(); paint(); };
+    $("#pPb").onchange = () => { keep(); paint(); };
+    const onayInfo = () => { const n = saCalcOnay(K, $("#pPb").value, $("#pKur") ? $("#pKur").value : "", tl, cur); const e = $("#pOnay"); if (e) e.innerHTML = n.text; };
+    document.querySelectorAll(".kled input, .kled select, #pKur").forEach(el => el.addEventListener("input", onayInfo)); onayInfo();
+    $("#pfS").onclick = save;
+  };
+  async function save() {
+    keep(); const L = K.filter(k => Number(k.miktar) > 0);
+    if (!f.cari) { toast("Tedarikçi seçin"); $("#pCari").focus(); return; }
+    if (!L.length) { toast("Kalem ekleyin"); return; }
+    if (L.some(k => k.fiyat == null)) { toast("Tüm kalemlere birim fiyat girin"); return; }
+    if (f.pb !== "TRY" && !(Number(f.kur) > 0)) { toast("Döviz kuru girin"); $("#pKur").focus(); return; }
+    const b = $("#pfS"); b.disabled = true;
+    const c = crFind(f.cari), now = Date.now(), kal = L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), fiyat: Number(k.fiyat), isk: Number(k.isk) || 0, kdv: Number(k.kdv ?? 20), tedKod: k.tedKod || "", gelen: Number(k.gelen) || 0, red: Number(k.red) || 0, not: k.not || "" }));
+    const kur = f.pb === "TRY" ? null : Number(f.kur), n = saCalcOnay(kal, f.pb, kur, tl, cur);
+    const data = { cariId: f.cari, cariAd: crAd(c), tarih: f.tar || TODAY, termin: f.ter || "", teslimYeri: f.ty.trim(), odeme: f.od.trim(), pb: f.pb, kur, proformaNo: f.pro.trim(), not: f.not.trim(), sartlar: f.sart, kalemler: kal, toplam: saTotals(kal), updatedAt: now, updatedBy: ME.name };
+    try {
+      if (cur) {
+        if (cur.durum === "onay" || n.gerekli) Object.assign(data, n.gerekli ? { durum: "onay", onay: { seviye: n.seviye } } : { durum: "hazir", onay: n.onay });
+        data.log = saLog(cur, "Sipariş düzenlendi" + (n.gerekli && cur.durum !== "onay" ? ", yeniden onaya gönderildi" : ""));
+        await updateDoc(doc(fs, "sa_siparis", cur.id), data); if (data.durum === "hazir" && cur.durum === "onay") await saPoPrices({ ...cur, ...data });
+        toast("Sipariş güncellendi"); saOpenPO(cur.id); return;
+      }
+      const ref = doc(collection(fs, "sa_siparis")), no = saNextNo("SA", SA.siparis), B = writeBatch(fs);
+      Object.assign(data, { no, talepId: tl ? tl.id : "", talepNo: tl ? tl.no : "", teklifId: tk ? tk.id : "", teklifNo: tk ? tk.no : "", durum: n.gerekli ? "onay" : "hazir", onay: n.gerekli ? { seviye: n.seviye } : n.onay, kabuller: [], iadeler: [], gonderim: [], faturalar: [], createdAt: now, createdBy: ME.name, uid: ME.uid,
+        log: [{ at: now, by: ME.name, t: n.gerekli ? `Sipariş oluşturuldu · ${n.seviye === "buyuk" ? "büyük" : "küçük"} onaya gönderildi` : "Sipariş oluşturuldu" + (n.onay && n.onay.kaynak === "talep" ? " (talep onayı geçerli)" : n.onay ? " ve onaylandı" : "") }] });
+      B.set(ref, data);
+      if (tl) B.update(doc(fs, "sa_talep", tl.id), { durum: "siparis", siparisIds: [...(tl.siparisIds || []), ref.id], updatedAt: now, updatedBy: ME.name, log: saLog(tl, `${no} siparişi oluşturuldu (${data.cariAd})`) });
+      if (tk) { B.update(doc(fs, "sa_teklif", tk.id), { durum: "secildi", siparisId: ref.id, updatedAt: now, updatedBy: ME.name, log: saLog(tk, `Seçildi → ${no}`) });
+        SA.teklif.filter(x => x.id !== tk.id && x.talepId && x.talepId === tk.talepId && ["hazir", "gonderildi", "geldi"].includes(x.durum)).forEach(x => B.update(doc(fs, "sa_teklif", x.id), { durum: "red", updatedAt: now, updatedBy: ME.name, log: saLog(x, `Seçilmedi (${tk.cariAd} seçildi)`) })); }
+      await B.commit();
+      if (!n.gerekli) await saPoPrices({ ...data, id: ref.id });
+      toast(n.gerekli ? `${no} onaya gönderildi · ${saOnayAd(n.seviye)}` : `${no} oluşturuldu; şimdi tedarikçiye gönderin`); saOpenPO(ref.id);
+    } catch (x) { b.disabled = false; toast(writeErr(x)); }
+  }
+  await fill(); paint();
+}
+const saOnayDurum = t => t.durum === "onay" ? "onay bekliyor" : t.onay && t.onay.by ? `${t.onay.seviye === "buyuk" ? "büyük" : "küçük"} onay: ${t.onay.by}` : (SA_TDUR[t.durum] || [t.durum])[0];
+// Sipariş onayı: tutar seviyesinde onaylı talep varsa ek onay gerekmez; yoksa onaycıya gider (oluşturan onaycıysa kendiliğinden onaylanır)
+function saCalcOnay(K, pb, kur, tl, cur) {
+  const net = saTotals(K).net, tr = saTRY(net, pb, kur), sev = saSeviye(tr ?? Infinity);
+  const talepOk = tl && tl.onay && tl.onay.by && !tl.onay.red && (sev === "kucuk" || tl.onay.seviye === "buyuk");
+  const prevOk = cur && cur.onay && cur.onay.by && (sev === "kucuk" || cur.onay.seviye === "buyuk");
+  if (talepOk) return { gerekli: false, seviye: sev, onay: { seviye: sev, by: tl.onay.by, at: tl.onay.at, kaynak: "talep" }, text: `Tutar ${tr == null ? "?" : moneyR(tr)} · talep onayı (${esc(tl.onay.by)}) geçerli, ek onay gerekmez.` };
+  if (prevOk) return { gerekli: false, seviye: sev, onay: cur.onay, text: `Tutar ${moneyR(tr || 0)} · onay geçerli (${esc(cur.onay.by)}).` };
+  if (saCanOnay(sev)) return { gerekli: false, seviye: sev, onay: { seviye: sev, by: ME.name, at: Date.now(), oto: true }, text: `Tutar ${tr == null ? "?" : moneyR(tr)} · ${sev === "buyuk" ? "büyük" : "küçük"} onay yetkiniz olduğu için sipariş onaylı oluşturulur.` };
+  return { gerekli: true, seviye: sev, text: `Tutar ${tr == null ? "?" : moneyR(tr)} · <b>${sev === "buyuk" ? "büyük" : "küçük"} onay gerekir</b> (${esc(saOnayAd(sev))}). Onaydan sonra gönderilebilir.` };
+}
+// onaylı siparişin fiyatları fiyat arşivine (kaynak: sipariş)
+async function saPoPrices(p) { for (const k of p.kalemler || []) if (k.sid && Number(k.fiyat) > 0) await saPriceLog(k.sid, { fiyat: Number(k.fiyat) * (1 - (Number(k.isk) || 0) / 100), pb: p.pb, kdv: k.kdv, tedarikci: p.cariAd, cariId: p.cariId, kaynak: "siparis", belge: p.no, not: "Sipariş " + p.no + (p.proformaNo ? " · " + p.proformaNo : "") }).catch(e => console.warn("fiyat arşivi", e)); }
+
+function saOpenPO(id) {
+  saDrawerRefresh = () => { if ($("#poT")) paint(); };
+  onDrawerClose = () => { saDrawerRefresh = null; };
+  const paint = () => {
+    const p = saFind("siparis", id); if (!p) { closeDrawer(); toast("Sipariş bulunamadı"); return; }
+    const K = p.kalemler || [], T = p.toplam || saTotals(K), late = saPoLate(p), sev = p.onay && p.onay.seviye, myOnay = p.durum === "onay" && saCanOnay(sev);
+    const sendable = !["onay", "iptal"].includes(p.durum), kab = can("sa.kabul") && ["hazir", "gonderildi", "kismi"].includes(p.durum) && K.some(k => saKalan(k) > 0), iade = can("sa.kabul") && K.some(k => Number(k.gelen) > 0) && p.durum !== "iptal";
+    const top = K.reduce((s, k) => s + (Number(k.miktar) || 0), 0), gel = K.reduce((s, k) => s + Math.min(Number(k.miktar) || 0, Number(k.gelen) || 0), 0);
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="poT" style="width:min(940px,100%)">
+      <div class="dh"><h2 id="poT"><span class="num skk">${esc(p.no)}</span> ${esc(p.cariAd || "")}</h2><button class="x" id="poX" aria-label="Kapat">×</button></div>
+      <div class="skhead"><div class="skbig" style="--tc:${late ? "var(--k-izinsiz)" : (SA_SDUR[p.durum] || [])[1]}"><b>${money(T.genel, p.pb)}</b><span>${(SA_SDUR[p.durum] || [p.durum])[0]}${late ? " · " + (dnum(TODAY) - dnum(p.termin)) + " gün gecikti" : ""}</span></div>
+        <div class="skhm"><span>${fmtS(p.tarih)}${p.termin ? " · termin " + fmtS(p.termin) : ""}</span><span>${top ? `Teslim %${Math.round(gel / top * 100)} · ` : ""}${p.durum === "onay" ? `${sev === "buyuk" ? "Büyük" : "Küçük"} onay bekliyor · ${esc(saOnayAd(sev))}` : p.onay && p.onay.by ? `Onay: ${esc(p.onay.by)}${p.onay.kaynak === "talep" ? " (talep)" : ""}` : ""}</span><span>${(p.gonderim || []).length ? "Gönderildi: " + p.gonderim.map(g => SA_KANAL[g.kanal] + " " + skTs(g.at).split(" ")[0]).join(", ") : p.durum === "onay" ? "Onaydan sonra gönderilebilir" : "Henüz gönderilmedi"}</span></div>
+        <div class="skhb">${myOnay ? '<button type="button" class="qb ok" id="poOk">Onayla</button><button type="button" class="qb ba" id="poRed">Reddet</button>' : sendable ? saSendBtns() : ""}</div></div>
+      <div class="db">
+        ${kab || iade ? `<div class="pkact">${kab ? '<button type="button" class="btn" id="poKab">Mal kabul yap</button>' : ""}${iade ? '<button type="button" class="btn ghost" id="poIade">Tedarikçiye iade</button>' : ""}</div>` : ""}
+        <section><h3 class="sec-t">Kalemler</h3><div class="ledger poled" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Sipariş</div><div>Gelen</div><div>Kalan</div><div>Birim fiyat</div><div>Tutar</div></div>
+          ${K.map(k => { const l = saLine(k); return `<div class="row" role="row" style="cursor:default;--stripe:${saKalan(k) > 0 ? (late ? "var(--k-izinsiz)" : "transparent") : "var(--k-fabrikada)"}"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad)}</b>${k.tedKod ? `<div class="desc">Tedarikçi kodu ${esc(k.tedKod)}</div>` : ""}${k.red ? `<div class="desc late">${nf(k.red)} reddedildi</div>` : ""}</div>
+            <div class="num" data-l="Sipariş">${nf(k.miktar)} ${esc(k.birim || "")}</div><div class="num" data-l="Gelen">${nf(k.gelen || 0)}</div><div class="num${saKalan(k) > 0 ? "" : " note"}" data-l="Kalan">${nf(saKalan(k))}</div><div class="num" data-l="Birim fiyat">${money(k.fiyat, p.pb)}${k.isk ? `<div class="note">−%${nf(k.isk)}</div>` : ""}</div><div class="num">${money(l.net, p.pb)}<div class="note">KDV %${k.kdv ?? 20}</div></div></div>`; }).join("")}</div>
+          ${saSumHtml(K, p.pb, p.kur)}</section>
+        <div class="fgrid">
+          <div class="izbal"><b>Bağlantılar</b><div class="note">${p.talepNo ? `Talep <button type="button" class="linkbtn" data-talep="${esc(p.talepId)}">${esc(p.talepNo)}</button>` : "Talepsiz sipariş"}${p.teklifNo ? ` · Fiyat talebi <button type="button" class="linkbtn" data-rfq="${esc(p.teklifId)}">${esc(p.teklifNo)}</button>` : ""}${p.proformaNo ? " · Proforma " + esc(p.proformaNo) : ""}</div>
+            ${(p.faturalar || []).length ? `<div class="note">Faturalar: ${p.faturalar.map(x => `<button type="button" class="linkbtn" data-fa="${esc(x.id)}">${esc(x.no)}</button>`).join(", ")}</div>` : ""}</div>
+          <div class="izbal"><b>Teslim ve ödeme</b><div class="note">${esc(p.teslimYeri || "Teslim yeri yok")}</div><div class="note">${esc(p.odeme || "Ödeme şartı yok")}${p.pb !== "TRY" && p.kur ? ` · kur ${nf(p.kur, 4)}` : ""}</div></div></div>
+        ${p.not ? `<div class="izbal">Tedarikçiye not: ${esc(p.not)}</div>` : ""}
+        ${(p.kabuller || []).length ? `<section><h3 class="sec-t">Mal kabuller <small>${p.kabuller.length}</small></h3>${p.kabuller.slice().reverse().map(k => `<div class="nowr" style="cursor:default"><span class="lk num">${skTs(k.at).split(" ")[0]}</span><div><b>${k.irsaliye ? "İrsaliye " + esc(k.irsaliye) : "İrsaliye no yok"}</b><div class="note">${(k.satir || []).map(x => `${esc((K[x.k] || {}).ad || "")}: ${nf(x.miktar)}${x.red ? " (" + nf(x.red) + " red)" : ""}`).join(" · ")}</div></div><span class="note">${esc(k.by || "")}${k.gec > 0 ? ` · <span class="late">${k.gec} gün geç</span>` : ""}</span></div>`).join("")}</section>` : ""}
+        ${(p.iadeler || []).length ? `<section><h3 class="sec-t">İadeler</h3>${p.iadeler.map(x => `<div class="note">${skTs(x.at).split(" ")[0]} · ${esc((K[x.k] || {}).ad || "")} · ${nf(x.miktar)} · ${esc(x.neden || "")} · ${esc(x.by)}</div>`).join("")}</section>` : ""}
+        <section><h3 class="sec-t">Geçmiş</h3>${(p.log || []).slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>
+      </div>
+      <div class="df"><span>${can("sa.delete") && !(p.kabuller || []).length ? '<button class="btn danger" id="poDel" type="button">Sil</button>' : ""}</span><div class="r">
+        ${can("sa.siparis") && ["onay", "hazir", "gonderildi"].includes(p.durum) && !(p.kabuller || []).length ? '<button class="btn ghost" id="poEd" type="button">Düzenle</button>' : ""}
+        ${can("sa.siparis") && p.durum === "kismi" ? '<button class="btn ghost" id="poKap" type="button">Kalanı kapat</button>' : ""}
+        ${can("sa.siparis") && ["onay", "hazir", "gonderildi"].includes(p.durum) && !(p.kabuller || []).length ? '<button class="btn ghost dangerb" id="poIpt" type="button">İptal</button>' : ""}
+        <button class="btn ghost" id="poC" type="button">Kapat</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#poX").onclick = closeDrawer; $("#poC").onclick = closeDrawer;
+    saBindOpen($("#drawerHost .db"));
+    if (sendable && !myOnay) saSendBind("siparis", p);
+    const up = async (data, msg) => { try { await updateDoc(doc(fs, "sa_siparis", p.id), { ...data, updatedAt: Date.now(), updatedBy: ME.name, log: saLog(p, msg) }); toast(msg); return true; } catch (x) { toast(writeErr(x)); return false; } };
+    const ok = $("#poOk"); if (ok) ok.onclick = async () => { if (await up({ durum: "hazir", onay: { seviye: sev, by: ME.name, at: Date.now() } }, "Sipariş onaylandı")) saPoPrices(p); };
+    const rd = $("#poRed"); if (rd) rd.onclick = async () => { const n = await prompt2("Red gerekçesi"); if (n == null) return; up({ durum: "iptal", onay: { seviye: sev, by: ME.name, at: Date.now(), red: true, not: n } }, "Sipariş onayı reddedildi" + (n ? ": " + n : "")); };
+    const kb = $("#poKab"); if (kb) kb.onclick = () => saOpenKabul(p.id);
+    const ia = $("#poIade"); if (ia) ia.onclick = () => saOpenIade(p.id);
+    const ed = $("#poEd"); if (ed) ed.onclick = () => saOpenPOForm(p.id);
+    const kp = $("#poKap"); if (kp) { let a = false; kp.onclick = () => { if (!a) { a = true; kp.textContent = "Eksik teslim kabul edilsin mi? Tekrar basın"; return; } up({ durum: "tamam", kapatma: { by: ME.name, at: Date.now() } }, "Kalan miktar beklenmeyecek; sipariş kapatıldı"); }; }
+    const ip = $("#poIpt"); if (ip) { let a = false; ip.onclick = async () => { if (!a) { a = true; ip.textContent = "İptal edilsin mi? Tekrar basın"; return; } const n = await prompt2("İptal nedeni"); if (n == null) return; up({ durum: "iptal" }, "Sipariş iptal edildi" + (n ? ": " + n : "")); }; }
+    const dl = $("#poDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_siparis", p.id)); toast("Sipariş silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+  };
+  paint();
+}
+
+/* ===== Mal kabul ===== */
+function saOpenKabul(id) {
+  const p = saFind("siparis", id); if (!p || !can("sa.kabul")) return;
+  const K = p.kalemler || [], idx = K.map((k, i) => i).filter(i => saKalan(K[i]) > 0);
+  saDrawerRefresh = null;
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="mkT" style="width:min(820px,100%)">
+    <div class="dh"><h2 id="mkT">Mal kabul · <span class="num skk">${esc(p.no)}</span> ${esc(p.cariAd || "")}</h2><button class="x" id="mkX" aria-label="Kapat">×</button></div>
+    <div class="db"><div class="fgrid">
+      <div class="field"><label for="mkIrs">İrsaliye no</label><input id="mkIrs" maxlength="40" placeholder="Tedarikçi irsaliye numarası"></div>
+      <div class="field"><label for="mkTar">Teslim tarihi</label><input id="mkTar" type="date" max="${TODAY}" value="${TODAY}"></div></div>
+      <p class="note" style="margin:0">Gelen miktarı sayarak girin. Hatalı, hasarlı ya da şartnameye uymayanları <b>Red</b> sütununa yazın: stoğa girmez, tedarikçi kalite puanına işlenir. Sağlam miktar stoğa giriş hareketi olarak kaydedilir.</p>
+      <div class="kled kab" role="table"><div class="khead" role="row"><div>Ürün</div><div>Bekleyen</div><div>Gelen</div><div>Red</div><div>Not</div></div>
+        ${idx.map(i => { const k = K[i]; return `<div class="krow" role="row"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : '<span class="kst" style="--tc:var(--ink-3)">Stok dışı</span> '}<b>${esc(k.ad)}</b></div><div class="num">${nf(saKalan(k))} ${esc(k.birim || "")}</div>
+          <div><input class="kin num" id="mkG${i}" type="number" step="any" min="0" value="${saKalan(k)}" aria-label="Gelen"></div><div><input class="kin num" id="mkR${i}" type="number" step="any" min="0" value="" placeholder="0" aria-label="Red"></div><div><input class="kin" id="mkN${i}" maxlength="120" aria-label="Not"></div></div>`; }).join("")}</div>
+      <div style="display:flex;gap:8px"><button type="button" class="btn ghost sm" id="mkAll">Hepsi geldi</button><button type="button" class="btn ghost sm" id="mkNone">Hepsini sıfırla</button></div>
+    </div>
+    <div class="df"><span class="note" id="mkInfo"></span><div class="r"><button class="btn ghost" id="mkC" type="button">Vazgeç</button><button class="btn" id="mkS" type="button">Kabul et ve stoğa gir</button></div></div>
+  </aside>`;
+  const back = () => saOpenPO(id);
+  $("#scrim").onclick = back; $("#mkX").onclick = back; $("#mkC").onclick = back;
+  $("#mkAll").onclick = () => idx.forEach(i => { $("#mkG" + i).value = saKalan(K[i]); });
+  $("#mkNone").onclick = () => idx.forEach(i => { $("#mkG" + i).value = 0; $("#mkR" + i).value = ""; });
+  $("#mkS").onclick = async () => {
+    const S = idx.map(i => ({ k: i, miktar: Math.max(0, Number($("#mkG" + i).value) || 0), red: Math.max(0, Number($("#mkR" + i).value) || 0), not: $("#mkN" + i).value.trim() })).filter(x => x.miktar > 0);
+    if (!S.length) { toast("Gelen miktar girin"); return; }
+    const bad = S.find(x => x.red > x.miktar); if (bad) { toast("Red miktarı gelen miktardan büyük olamaz"); return; }
+    const fazla = S.find(x => x.miktar - x.red > saKalan(K[x.k]) + 1e-9); if (fazla) { toast(`${K[fazla.k].ad}: bekleyen ${nf(saKalan(K[fazla.k]))} ${K[fazla.k].birim || ""}; fazla geleni ayrı stok girişiyle yapın ya da siparişi düzenleyin`); return; }
+    const b = $("#mkS"); b.disabled = true; b.textContent = "Kaydediliyor…";
+    const irs = $("#mkIrs").value.trim(), tar = $("#mkTar").value || TODAY, now = Date.now(), ts = tar === TODAY ? now : Date.parse(tar + "T12:00:00+03:00");
+    try {
+      let n = 0; for (const x of S) { const k = K[x.k], ok = x.miktar - x.red; if (!k.sid || ok <= 0) continue; const it = await skGet(k.sid); if (!it) continue;
+        await skMove(it, "giris", ok, { ts, belge: irs || p.no, aciklama: `Mal kabul · ${p.no} · ${p.cariAd}${x.not ? " · " + x.not : ""}` }); n++; }
+      const NK = K.map((k, i) => { const x = S.find(y => y.k === i); return x ? { ...k, gelen: (Number(k.gelen) || 0) + x.miktar - x.red, red: (Number(k.red) || 0) + x.red } : k; });
+      const done = NK.every(k => saKalan(k) <= 0), gec = p.termin ? Math.max(0, dnum(tar) - dnum(p.termin)) : 0;
+      await updateDoc(doc(fs, "sa_siparis", p.id), { kalemler: NK, kabuller: [...(p.kabuller || []), { at: ts, by: ME.name, irsaliye: irs, satir: S, gec }], durum: done ? "tamam" : "kismi", updatedAt: now, updatedBy: ME.name,
+        log: saLog(p, `Mal kabul${irs ? " (" + irs + ")" : ""}: ${S.length} kalem${S.some(x => x.red) ? ", " + S.reduce((s, x) => s + x.red, 0) + " red" : ""}${done ? " · sipariş tamamlandı" : ""}`) });
+      toast(`Mal kabul kaydedildi · ${n} kalem stoğa girdi${done ? " · sipariş tamamlandı" : ""}`); saOpenPO(id);
+    } catch (x) { b.disabled = false; b.textContent = "Kabul et ve stoğa gir"; toast(writeErr(x)); }
+  };
+}
+function saOpenIade(id) {
+  const p = saFind("siparis", id); if (!p || !can("sa.kabul")) return;
+  const K = p.kalemler || [], idx = K.map((k, i) => i).filter(i => Number(K[i].gelen) > 0);
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="iaT" style="width:min(520px,100%)">
+    <div class="dh"><h2 id="iaT">Tedarikçiye iade · <span class="num skk">${esc(p.no)}</span></h2><button class="x" id="iaX" aria-label="Kapat">×</button></div>
+    <div class="db"><div class="fgrid">
+      <div class="field full"><label for="iaK">Ürün</label><select id="iaK">${idx.map(i => opt(String(i), `${K[i].kod ? K[i].kod + " · " : ""}${K[i].ad} (gelen ${nf(K[i].gelen)} ${K[i].birim || ""})`, "")).join("")}</select></div>
+      <div class="field"><label for="iaM">İade miktarı</label><input id="iaM" type="number" step="any" min="0"></div>
+      <div class="field"><label for="iaYe">Yenisi gelecek mi?</label><select id="iaYe"><option value="1">Evet, kalan miktara eklensin</option><option value="0">Hayır</option></select></div>
+      <div class="field full"><label for="iaN">Neden</label><input id="iaN" maxlength="160" placeholder="Örn. ölçü hatalı, yüzey çizik, yanlış ürün"></div></div>
+      <p class="note" style="margin:0">Stoktan çıkış hareketi ("Tedarikçiye iade") yazılır ve tedarikçinin kalite puanına işlenir.</p></div>
+    <div class="df"><span></span><div class="r"><button class="btn ghost" id="iaC" type="button">Vazgeç</button><button class="btn" id="iaS" type="button">İadeyi kaydet</button></div></div>
+  </aside>`;
+  const back = () => saOpenPO(id); $("#scrim").onclick = back; $("#iaX").onclick = back; $("#iaC").onclick = back;
+  $("#iaS").onclick = async () => {
+    const i = Number($("#iaK").value), k = K[i], m = Number($("#iaM").value) || 0, neden = $("#iaN").value.trim(), yeni = $("#iaYe").value === "1";
+    if (!(m > 0) || m > Number(k.gelen)) { toast("Geçerli miktar girin (en fazla gelen miktar)"); return; }
+    const b = $("#iaS"); b.disabled = true;
+    try {
+      if (k.sid) { const it = await skGet(k.sid); if (it) { if ((Number(it.miktar) || 0) < m) { toast(`Stokta yalnızca ${nf(it.miktar)} ${it.birim || ""} var`); b.disabled = false; return; } await skMove(it, "cikis", m, { belge: p.no, aciklama: `Tedarikçiye iade · ${p.cariAd}${neden ? " · " + neden : ""}` }); } }
+      const NK = K.map((x, j) => j === i ? { ...x, gelen: yeni ? Number(x.gelen) - m : Number(x.gelen), iade: (Number(x.iade) || 0) + m } : x), now = Date.now();
+      await updateDoc(doc(fs, "sa_siparis", p.id), { kalemler: NK, iadeler: [...(p.iadeler || []), { at: now, by: ME.name, k: i, miktar: m, neden, yeni }], durum: NK.every(x => saKalan(x) <= 0) ? "tamam" : "kismi", updatedAt: now, updatedBy: ME.name, log: saLog(p, `İade: ${k.ad} · ${nf(m)}${neden ? " · " + neden : ""}`) });
+      toast("İade kaydedildi"); saOpenPO(id);
+    } catch (x) { b.disabled = false; toast(writeErr(x)); }
+  };
+}
+
+/* ===== Gönderim: PDF, WhatsApp, e-posta ===== */
+const SA_KANAL = { pdf: "PDF", wa: "WhatsApp", mail: "E-posta", isaret: "Elle" };
+const saSendBtns = () => `<button type="button" class="qb" data-snd="pdf" title="PDF indir">PDF</button><button type="button" class="qb ok" data-snd="wa" title="WhatsApp ile gönder">WhatsApp</button><button type="button" class="qb mo" data-snd="mail" title="E-posta ile gönder">E-posta</button>`;
+function saSendBind(kind, d) {
+  document.querySelectorAll("#drawerHost [data-snd]").forEach(b => b.onclick = async () => { b.disabled = true; try { await saSend(kind, d.id, b.dataset.snd); } finally { b.disabled = false; } });
+}
+function saMsg(kind, d) {
+  const c = crFind(d.cariId) || {}, y = (c.yetkililer || [])[0], hit = y && y.ad ? `Sayın ${y.ad},` : `Sayın ${crAd(c) || "Yetkili"},`, F = SA.cfg.firma.unvan || "Kar-Men Airtech";
+  if (kind === "siparis") { const T = d.toplam || saTotals(d.kalemler);
+    return { konu: `${d.no} numaralı satın alma siparişi · ${F}`, metin: `${hit}\n\n${F} olarak ${d.no} numaralı satın alma siparişimizi ekte iletiyoruz.\n${d.termin ? `Termin: ${fmtS(d.termin)}\n` : ""}Toplam: ${money(T.genel, d.pb)} (KDV dahil)\n${d.proformaNo ? `Teklifiniz: ${d.proformaNo}\n` : ""}\nSipariş numaramızın irsaliye ve faturada belirtilmesini, siparişi aldığınızı teyit etmenizi rica ederiz.\n\nİyi çalışmalar,\n${ME.name}\n${F}${SA.cfg.firma.tel ? "\n" + SA.cfg.firma.tel : ""}` }; }
+  return { konu: `${d.no} numaralı fiyat talebi · ${F}`, metin: `${hit}\n\nEkteki ${d.no} numaralı fiyat talep formunda yer alan ürünler için birim fiyat, para birimi, teslim süresi, ödeme şartı ve teklif geçerlilik sürenizi ${d.sonTarih ? fmtS(d.sonTarih) + " tarihine kadar" : "en kısa sürede"} iletmenizi rica ederiz.\n\nİyi çalışmalar,\n${ME.name}\n${F}${SA.cfg.firma.tel ? "\n" + SA.cfg.firma.tel : ""}` };
+}
+async function saSend(kind, id, kanal) {
+  const col = kind === "siparis" ? "sa_siparis" : "sa_teklif", d = saFind(kind === "siparis" ? "siparis" : "teklif", id); if (!d) return;
+  const c = crFind(d.cariId) || {}, m = saMsg(kind, d), name = d.no + ".pdf";
+  try {
+    if (kanal !== "isaret") {
+      toast("PDF hazırlanıyor…");
+      const blob = await saPdf(kind, d), file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
+      const mobile = matchMedia("(pointer:coarse)").matches, canShare = mobile && file && navigator.canShare && navigator.canShare({ files: [file] });
+      if (kanal === "pdf") { await saveFile(blob, name); return; }
+      if (canShare) { try { await navigator.share({ files: [file], title: m.konu, text: m.metin }); } catch (e) { if (e && e.name === "AbortError") return; throw e; } }
+      else {
+        await saveFile(blob, name);
+        const y = (c.yetkililer || []).find(x => x.eposta || x.tel) || {};
+        if (kanal === "wa") { const ph = crPhone(c.whatsapp || c.tel || y.tel); window.open(`https://wa.me/${ph}?text=${encodeURIComponent(m.metin)}`, "_blank", "noopener"); toast(`PDF indirildi · WhatsApp${ph ? "" : " (numara yok, kişiyi seçin)"} açıldı: PDF'i sohbete sürükleyin`); }
+        else { const to = c.eposta || y.eposta || "", a = document.createElement("a"); a.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(m.konu)}&body=${encodeURIComponent(m.metin)}`; document.body.appendChild(a); a.click(); a.remove(); toast(`PDF indirildi · e-posta taslağı açıldı${to ? "" : " (e-posta adresi yok)"}: PDF'i ekleyin`); }
+      }
+    }
+    const now = Date.now(), up = { gonderim: [...(d.gonderim || []), { at: now, by: ME.name, kanal }], updatedAt: now, updatedBy: ME.name, log: saLog(d, `${SA_KANAL[kanal]} ile gönderildi`) };
+    if (d.durum === "hazir") up.durum = "gonderildi";
+    await updateDoc(doc(fs, col, d.id), up);
+  } catch (x) { console.error(x); toast("Gönderilemedi: " + (x.message || x.code || x)); }
+}
+
+/* PDF: A4 dikey, canvas üzerinde çizilir (Türkçe karakterler sorunsuz) */
+async function saPdf(kind, d) {
+  try { await document.fonts.ready; } catch (e) {}
+  const W = 1240, H = 1754, M = 64, CW = W - 2 * M, po = kind === "siparis";
+  const F = { b: "'IBM Plex Sans', 'Segoe UI', Roboto, Arial, sans-serif", d: "'Rubik', 'Segoe UI', Roboto, Arial, sans-serif", m: "'IBM Plex Mono', Consolas, monospace" };
+  const C = { ink: "#0d1118", ink2: "#4a5466", ink3: "#7d8799", line: "#d8dee9", soft: "#eef2f8", brand: "#1747c9" };
+  const FI = SA.cfg.firma, c = crFind(d.cariId) || { unvan: d.cariAd }, y = (c.yetkililer || [])[0] || {};
+  let logo = null; try { logo = await loadSrc(LOGO_SRC); } catch (e) {}
+  const pages = []; let cv, x, Y;
+  const font = (w, s, f = F.b) => { x.font = `${w} ${s}px ${f}`; };
+  const wrap = (t, maxW) => { const out = []; String(t || "").split("\n").forEach(par => { let line = ""; par.split(/\s+/).filter(Boolean).forEach(w => { const tt = line ? line + " " + w : w; if (x.measureText(tt).width <= maxW) { line = tt; return; } if (line) out.push(line); while (x.measureText(w).width > maxW) { let k = w.length; while (k > 1 && x.measureText(w.slice(0, k)).width > maxW) k--; out.push(w.slice(0, k)); w = w.slice(k); } line = w; }); out.push(line); }); return out.length ? out : [""]; };
+  const newPage = () => {
+    cv = document.createElement("canvas"); cv.width = W; cv.height = H; x = cv.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.textBaseline = "top"; pages.push(cv); Y = M;
+    if (logo) { const lh = 58, lw = logo.naturalWidth * lh / logo.naturalHeight; x.fillStyle = "#000"; x.fillRect(M, Y, lw + 20, lh + 16); x.drawImage(logo, M + 10, Y + 8, lw, lh); }
+    x.textAlign = "right"; font(700, 30, F.d); x.fillStyle = C.ink; x.fillText(po ? "SATIN ALMA SİPARİŞİ" : "FİYAT TALEP FORMU", W - M, Y);
+    font(600, 24, F.m); x.fillStyle = C.brand; x.fillText(d.no, W - M, Y + 42); font(400, 18); x.fillStyle = C.ink2; x.fillText("Tarih: " + fmtS(d.tarih), W - M, Y + 74); x.textAlign = "left";
+    Y += 108; x.fillStyle = C.brand; x.fillRect(M, Y, CW, 4); Y += 20;
+  };
+  const ensure = h => { if (Y + h > H - M - 50) { newPage(); return true; } return false; };
+  newPage();
+  // firma blokları
+  const bw = (CW - 20) / 2, block = (bx, title, lines) => { const pad = 16; font(400, 17); const L = []; lines.forEach(([t, w]) => { font(w || 400, w === 700 ? 19 : 16); wrap(t, bw - 2 * pad).forEach(s => L.push([s, w || 400])); });
+    const h = 30 + L.length * 22 + pad; x.fillStyle = C.soft; x.fillRect(bx, Y, bw, h); font(600, 13); x.fillStyle = C.ink3; x.fillText(title, bx + pad, Y + 12);
+    let yy = Y + 34; L.forEach(([s, w]) => { font(w, w === 700 ? 19 : 16); x.fillStyle = w === 700 ? C.ink : C.ink2; x.fillText(s, bx + pad, yy); yy += 22; }); return h; };
+  const fl = [[FI.unvan || "KAR-MEN AIRTECH", 700], [FI.adres], [[FI.tel && "Tel " + FI.tel, FI.eposta].filter(Boolean).join(" · ")], [FI.web], [[FI.vd && FI.vd + " VD", FI.vno && "VKN " + FI.vno].filter(Boolean).join(" · ")], [FI.mersis && "MERSİS " + FI.mersis]].filter(l => l[0]);
+  const tl = [[c.unvan || d.cariAd || "", 700], [[c.adres, [c.ilce, c.il].filter(Boolean).join(" / ")].filter(Boolean).join(" ")], [[c.vd && c.vd + " VD", c.vergiNo && "VKN " + c.vergiNo].filter(Boolean).join(" · ")], [y.ad && "Yetkili: " + y.ad + (y.gorev ? " (" + y.gorev + ")" : "")], [[c.tel || y.tel, c.eposta || y.eposta].filter(Boolean).join(" · ")]].filter(l => l[0]);
+  const h1 = block(M, po ? "ALICI" : "TALEP EDEN", fl), h2 = block(M + bw + 20, "TEDARİKÇİ", tl); Y += Math.max(h1, h2) + 18;
+  // bilgi kutuları
+  const info = po ? [["Sipariş no", d.no], ["Sipariş tarihi", fmtS(d.tarih)], ["Termin", d.termin ? fmtS(d.termin) : "—"], ["Para birimi", d.pb + (d.pb !== "TRY" && d.kur ? " · kur " + nf(d.kur, 4) : "")], ["Talep no", d.talepNo || "—"], ["Fiyat talep no", d.teklifNo || "—"], ["Proforma / teklif no", d.proformaNo || "—"], ["Ödeme", d.odeme || "—"]]
+    : [["Fiyat talep no", d.no], ["Tarih", fmtS(d.tarih)], ["Son teklif tarihi", d.sonTarih ? fmtS(d.sonTarih) : "—"], ["Talep no", d.talepNo || "—"]];
+  const iw = CW / 4; info.forEach(([k, v], i) => { const ix = M + (i % 4) * iw, iy = Y + Math.floor(i / 4) * 58; x.strokeStyle = C.line; x.lineWidth = 1; x.strokeRect(ix, iy, iw, 58); font(600, 13); x.fillStyle = C.ink3; x.fillText(k.toLocaleUpperCase("tr"), ix + 12, iy + 9); font(600, 17); x.fillStyle = C.ink; x.fillText(String(v), ix + 12, iy + 29, iw - 24); });
+  Y += Math.ceil(info.length / 4) * 58 + 10;
+  if (po && d.teslimYeri) { font(400, 16); x.fillStyle = C.ink2; const L = wrap("Teslim yeri: " + d.teslimYeri, CW); L.forEach(s => { x.fillText(s, M, Y); Y += 22; }); }
+  Y += 12;
+  // kalem tablosu
+  const cols = po ? [["#", 40, "c"], ["Stok kodu", 150], ["Ürün / açıklama", 0], ["Miktar", 96, "r"], ["Birim", 74], ["Birim fiyat", 130, "r"], ["İsk.%", 62, "r"], ["KDV%", 62, "r"], ["Tutar", 148, "r"]]
+    : [["#", 40, "c"], ["Stok kodu", 150], ["Ürün / açıklama", 0], ["Miktar", 110, "r"], ["Birim", 80], ["Birim fiyat", 170, "r"], ["Teslim süresi", 150, "r"]];
+  const fixed = cols.reduce((s, c0) => s + c0[1], 0); cols.forEach(c0 => { if (!c0[1]) c0[1] = CW - fixed; });
+  const head = () => { x.fillStyle = C.ink; x.fillRect(M, Y, CW, 36); font(600, 14); x.fillStyle = "#fff"; let cx = M; cols.forEach(([t, w, a]) => { x.textAlign = a === "r" ? "right" : a === "c" ? "center" : "left"; x.fillText(t, a === "r" ? cx + w - 10 : a === "c" ? cx + w / 2 : cx + 10, Y + 11); cx += w; }); x.textAlign = "left"; Y += 36; };
+  head();
+  (d.kalemler || []).forEach((k, i) => {
+    const pw = cols[2][1] - 20; font(600, 16); const L1 = wrap(k.ad, pw); font(400, 14); const L2 = [...(k.tanim ? wrap(k.tanim, pw) : []), ...(k.tedKod ? ["Tedarikçi kodu: " + k.tedKod] : []), ...(k.not ? wrap("Not: " + k.not, pw) : [])];
+    const h = Math.max(44, 14 + L1.length * 22 + L2.length * 19 + 8);
+    if (ensure(h + 4)) head();
+    if (i % 2) { x.fillStyle = "#f7f9fc"; x.fillRect(M, Y, CW, h); }
+    x.strokeStyle = C.line; x.beginPath(); x.moveTo(M, Y + h); x.lineTo(M + CW, Y + h); x.stroke();
+    let cx = M; const l = saLine(k);
+    const vals = po ? [String(i + 1), k.kod || "—", null, nf(k.miktar), k.birim || "", money(k.fiyat, d.pb), k.isk ? nf(k.isk) : "—", String(k.kdv ?? 20), money(l.net, d.pb)] : [String(i + 1), k.kod || "—", null, nf(k.miktar), k.birim || "", "", ""];
+    cols.forEach(([t, w, a], j) => {
+      if (j === 2) { let yy = Y + 10; font(600, 16); x.fillStyle = C.ink; L1.forEach(s => { x.fillText(s, cx + 10, yy); yy += 22; }); font(400, 14); x.fillStyle = C.ink2; L2.forEach(s => { x.fillText(s, cx + 10, yy); yy += 19; }); }
+      else { font(j === 1 ? 500 : 400, j === 1 ? 14 : 16, j === 1 || a === "r" ? F.m : F.b); x.fillStyle = C.ink; x.textAlign = a === "r" ? "right" : a === "c" ? "center" : "left"; x.fillText(vals[j], a === "r" ? cx + w - 10 : a === "c" ? cx + w / 2 : cx + 10, Y + 12, w - 16); x.textAlign = "left";
+        if (!po && j >= 5) { x.strokeStyle = C.ink3; x.setLineDash([4, 4]); x.beginPath(); x.moveTo(cx + 12, Y + h - 12); x.lineTo(cx + w - 12, Y + h - 12); x.stroke(); x.setLineDash([]); } }
+      cx += w; });
+    Y += h;
+  });
+  Y += 16;
+  if (po) { const T = d.toplam || saTotals(d.kalemler), rows = [["Ara toplam", money(T.ara, d.pb)], ...(T.isk ? [["İskonto", "−" + money(T.isk, d.pb)]] : []), ["KDV", money(T.kdv, d.pb)], ["GENEL TOPLAM", money(T.genel, d.pb)]];
+    ensure(rows.length * 34 + 20); const bx = M + CW - 420; rows.forEach(([k, v], i) => { const last = i === rows.length - 1; if (last) { x.fillStyle = C.soft; x.fillRect(bx, Y - 4, 420, 38); }
+      font(last ? 700 : 500, last ? 18 : 16); x.fillStyle = last ? C.ink : C.ink2; x.fillText(k, bx + 14, Y + 4); x.textAlign = "right"; font(last ? 700 : 500, last ? 20 : 16, F.m); x.fillStyle = C.ink; x.fillText(v, bx + 406, Y + 4); x.textAlign = "left"; Y += 34; });
+    Y += 14; }
+  const para = (title, text, size = 15) => { if (!text) return; font(400, size); const L = wrap(text, CW); ensure(30 + Math.min(L.length, 6) * 21); font(600, 15); x.fillStyle = C.ink; x.fillText(title, M, Y); Y += 24; font(400, size); x.fillStyle = C.ink2; L.forEach(s => { ensure(21); x.fillText(s, M, Y); Y += 21; }); Y += 12; };
+  para("Not", d.not);
+  if (po) para("Sipariş şartları", d.sartlar ?? SA.cfg.sartlar, 14);
+  else para("Açıklama", "Lütfen her kalem için birim fiyat (KDV hariç), para birimi, teslim süresi, ödeme şartı ve teklif geçerlilik sürenizi belirterek formu kaşe ve imzalı olarak ya da teklifinizle birlikte gönderiniz. Teklifinizde " + d.no + " numarasını belirtmenizi rica ederiz.", 14);
+  // imzalar
+  ensure(130); Y = Math.max(Y + 10, Y); const sw = CW / 3;
+  [[po ? "Hazırlayan" : "Talep eden", d.createdBy || ME.name], ...(po ? [["Onaylayan", d.onay && d.onay.by ? d.onay.by : ""]] : [["", ""]]), ["Tedarikçi onayı (kaşe / imza)", ""]].forEach(([k, v], i) => { if (!k) return; const sx = M + i * sw; font(600, 14); x.fillStyle = C.ink3; x.fillText(k.toLocaleUpperCase("tr"), sx, Y); font(500, 16); x.fillStyle = C.ink; x.fillText(v, sx, Y + 24); x.strokeStyle = C.ink3; x.beginPath(); x.moveTo(sx, Y + 96); x.lineTo(sx + sw - 30, Y + 96); x.stroke(); });
+  // alt bilgi
+  const stamp = new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "short", timeStyle: "short" });
+  pages.forEach((p, i) => { const g = p.getContext("2d"); g.textBaseline = "top"; g.font = `400 13px ${F.b}`; g.fillStyle = C.ink3; g.fillText(`${FI.unvan || "Kar-Men Airtech"} · ${d.no} · ${stamp}`, M, H - M + 10); g.textAlign = "right"; g.fillText(`Sayfa ${i + 1} / ${pages.length}`, W - M, H - M + 10); g.textAlign = "left"; });
+  return jpegPagesToPdf(pages.map(p => p.toDataURL("image/jpeg", 0.9)), W, H);
+}
+
+/* ===== e-Fatura (UBL-TR XML) ===== */
+const UBL_BIRIM = { C62: "Adet", NIU: "Adet", H87: "Adet", EA: "Adet", KGM: "Kg", GRM: "Gram", TNE: "Ton", MTR: "Metre", MTK: "m²", MTQ: "m³", LTR: "Litre", PR: "Çift", SET: "Takım", PK: "Paket", PA: "Paket", BX: "Kutu", CT: "Koli", RO: "Rulo", SH: "Levha", HUR: "Saat", DAY: "Gün", KWH: "kWh", "26": "Ton" };
+function saParseUbl(txt) {
+  const X = new DOMParser().parseFromString(txt, "application/xml");
+  if (X.getElementsByTagName("parsererror").length) throw new Error("XML okunamadı");
+  const R = X.documentElement; if (R.localName !== "Invoice") throw new Error("Bu dosya e-Fatura (UBL Invoice) değil");
+  const ch = (el, n) => el ? [...el.children].filter(c => c.localName === n) : [];
+  const c1 = (el, ...p) => { let e = el; for (const n of p) { e = ch(e, n)[0]; if (!e) return null; } return e; };
+  const tx = (el, ...p) => { const e = c1(el, ...p); return e ? e.textContent.trim() : ""; };
+  const num = s => { const n = Number(String(s || "").trim()); return isFinite(n) ? n : 0; };
+  const sup = c1(R, "AccountingSupplierParty", "Party");
+  const ids = ch(sup, "PartyIdentification").map(p => c1(p, "ID")).filter(Boolean);
+  const vkn = (ids.find(i => /^(VKN|TCKN)$/i.test(i.getAttribute("schemeID") || "")) || {}).textContent || "";
+  const adr = c1(sup, "PostalAddress"), kdvOf = L => { const S = ch(c1(L, "TaxTotal"), "TaxSubtotal"); const k = S.find(s => tx(s, "TaxCategory", "TaxScheme", "TaxTypeCode") === "0015") || S[0]; return k ? num(tx(k, "Percent")) : 0; };
+  const sat = ch(R, "InvoiceLine").map(L => {
+    const qe = c1(L, "InvoicedQuantity"), q = num(qe && qe.textContent), uc = qe ? qe.getAttribute("unitCode") || "" : "", net = num(tx(L, "LineExtensionAmount")), it = c1(L, "Item"), brut = num(tx(L, "Price", "PriceAmount"));
+    const isk = ch(L, "AllowanceCharge").filter(a => tx(a, "ChargeIndicator") === "false").reduce((s, a) => s + num(tx(a, "Amount")), 0);
+    return { ad: (tx(it, "Name") || tx(it, "Description") || "Kalem").slice(0, 160), aciklama: tx(it, "Description"), tedKod: tx(it, "SellersItemIdentification", "ID"), aliciKod: tx(it, "BuyersItemIdentification", "ID"), uretici: tx(it, "ManufacturersItemIdentification", "ID"),
+      miktar: q, birimKod: uc, birim: UBL_BIRIM[uc] || uc || "Adet", brutFiyat: brut, iskonto: isk, fiyat: q ? Math.round(net / q * 10000) / 10000 : brut, kdv: kdvOf(L), tutar: net };
+  });
+  const lm = c1(R, "LegalMonetaryTotal");
+  return { no: tx(R, "ID"), ettn: tx(R, "UUID"), tarih: tx(R, "IssueDate"), tip: tx(R, "InvoiceTypeCode"), profil: tx(R, "ProfileID"), pb: tx(R, "DocumentCurrencyCode") || "TRY",
+    satici: { ad: tx(sup, "PartyName", "Name") || [tx(sup, "Person", "FirstName"), tx(sup, "Person", "FamilyName")].filter(Boolean).join(" "), vkn, vd: tx(sup, "PartyTaxScheme", "TaxScheme", "Name"),
+      adres: [tx(adr, "StreetName"), tx(adr, "BuildingNumber") && "No:" + tx(adr, "BuildingNumber")].filter(Boolean).join(" "), ilce: tx(adr, "CitySubdivisionName"), il: tx(adr, "CityName"), tel: tx(sup, "Contact", "Telephone"), eposta: tx(sup, "Contact", "ElectronicMail"), web: tx(sup, "WebsiteURI") },
+    siparisRef: ch(R, "OrderReference").map(o => tx(o, "ID")).filter(Boolean), irsaliye: ch(R, "DespatchDocumentReference").map(o => tx(o, "ID")).filter(Boolean),
+    satirlar: sat, ara: num(tx(lm, "TaxExclusiveAmount")) || sat.reduce((s, l) => s + l.tutar, 0), kdv: num(tx(R, "TaxTotal", "TaxAmount")), genel: num(tx(lm, "PayableAmount")) || num(tx(lm, "TaxInclusiveAmount")) };
+}
+const saTok = s => skNorm(s).split(/[^0-9a-zçğıöşü]+/).filter(w => w.length > 1);
+function saSim(a, b) { const A = new Set(saTok(a)), B = new Set(saTok(b)); if (!A.size || !B.size) return 0; let n = 0; A.forEach(w => { if (B.has(w) || [...B].some(v => v.length > 3 && w.length > 3 && (v.startsWith(w) || w.startsWith(v)))) n++; }); return n / Math.max(A.size, B.size); }
+const saMapKey = l => l.tedKod ? "k_" + trFold(l.tedKod) : "a_" + trFold(l.ad).slice(0, 80);
+
+function saOpenFaturaYukle(preset) {
+  if (!can("sa.fatura")) return;
+  const run = async files => {
+    const Q = [], err = [];
+    for (const f of files) {
+      try {
+        if (f.text != null) { Q.push({ ad: f.name, inv: saParseUbl(f.text), deneme: !!f.deneme }); continue; }
+        if (/\.zip$/i.test(f.name)) { const z = await skUnzip(await f.arrayBuffer()); for (const n of z.names.filter(n => /\.xml$/i.test(n))) { try { Q.push({ ad: n, inv: saParseUbl(await z.get(n)) }); } catch (e) { err.push(n + ": " + e.message); } } }
+        else Q.push({ ad: f.name, inv: saParseUbl(await f.text()) });
+      } catch (e) { err.push(f.name + ": " + e.message); }
+    }
+    if (err.length) toast(err.slice(0, 2).join(" · "));
+    if (Q.length) saFaturaEsle(Q, 0);
+  };
+  if (preset) { run(preset); return; }
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="fyT" style="width:min(560px,100%)">
+    <div class="dh"><h2 id="fyT">e-Fatura yükle</h2><button class="x" id="fyX" aria-label="Kapat">×</button></div>
+    <div class="db"><p class="note" style="margin:0">Tedarikçiden gelen e-Fatura XML dosyasını ya da GİB portalı / muhasebe programından indirilen .zip dosyasını seçin. Birden çok dosya seçilebilir; her fatura sırayla eşleştirilir.</p>
+      <div style="display:flex;gap:8px;align-items:center"><button class="btn" type="button" id="fyB">Dosya seç (.xml, .zip)</button><input type="file" id="fyF" accept=".xml,.zip,application/xml,text/xml" multiple hidden></div>
+      <div class="izbal"><b>Nasıl çalışır?</b><div class="note">1. Tedarikçi vergi numarasıyla bulunur; yoksa faturadaki bilgilerle kart açılır.<br>2. Satırlar önce tedarikçinin ürün koduyla, sonra siparişteki kalemlerle, sonra adla stok kartlarına eşleştirilir. İlk seferde siz onaylarsınız; eşleşme öğrenilir, sonraki faturalar kendiliğinden eşleşir.<br>3. Eşleşmeyenler için yeni stok kartı önerilir.<br>4. Fiyatlar fiyat arşivine işlenir; sipariş fiyatından farklıysa uyarı verilir.<br>5. Stok girişi mal kabulde yapılır; mal kabul yapılmadıysa isteğe bağlı olarak buradan yapılabilir.</div></div></div>
+    <div class="df"><span></span><div class="r"><button class="btn ghost" id="fyC" type="button">Kapat</button></div></div></aside>`;
+  $("#scrim").onclick = closeDrawer; $("#fyX").onclick = closeDrawer; $("#fyC").onclick = closeDrawer;
+  $("#fyB").onclick = () => $("#fyF").click();
+  $("#fyF").onchange = e => { const L = [...e.target.files]; e.target.value = ""; if (L.length) { $("#fyB").textContent = "Okunuyor…"; run(L); } };
+}
+async function saFaturaEsle(Q, qi) {
+  const { inv } = Q[qi];
+  $("#drawerHost").innerHTML = `<div class="scrim"></div><aside class="drawer" style="width:min(1000px,100%)"><div class="dh"><h2>e-Fatura eşleştiriliyor…</h2></div><div class="db"><p class="note">Fatura ${esc(inv.no)} okunuyor, stok kartlarıyla karşılaştırılıyor.</p></div></aside>`;
+  let cari = crByVkn(inv.satici.vkn) || crByName(inv.satici.ad), map = {};
+  if (cari) { try { const d = await getDoc(doc(fs, "cari_eslesme", cari.id)); if (d.exists()) map = d.data().m || {}; } catch (e) {} }
+  const dup = SA.fatura.find(f => (inv.ettn && f.ettn === inv.ettn) || (f.no === inv.no && cari && f.cariId === cari.id));
+  let poIds = SA.siparis.filter(p => inv.siparisRef.includes(p.no)).map(p => p.id);
+  if (!poIds.length && cari) { const P = SA.siparis.filter(p => p.cariId === cari.id && ["gonderildi", "kismi", "tamam"].includes(p.durum) && dnum(p.tarih) >= dnum(inv.tarih || TODAY) - 120); const best = P.map(p => ({ p, s: inv.satirlar.filter(l => (p.kalemler || []).some(k => (l.tedKod && k.tedKod === l.tedKod) || saSim(k.ad, l.ad) >= .5)).length })).filter(x => x.s).sort((a, b) => b.s - a.s)[0]; if (best) poIds = [best.p.id]; }
+  // satır eşleştirme
+  const L = inv.satirlar.map(l => ({ ...l, sid: null, kod: "", stokAd: "", durum: "yok", aday: [] }));
+  const POK = () => poIds.flatMap(id => (saFind("siparis", id) || { kalemler: [] }).kalemler.map(k => ({ ...k, poId: id })));
+  const used = new Set();
+  for (const l of L) {
+    const set = (it, durum, neden) => { l.sid = it.id || it.sid; l.kod = it.kod; l.stokAd = it.ad; l.durum = durum; l.neden = neden; };
+    if (l.aliciKod) { try { const s = await getDocs(query(collection(fs, "stok"), where("kod", "==", l.aliciKod.toLocaleUpperCase("tr")), limit(1))); if (s.docs[0]) { set({ id: s.docs[0].id, ...s.docs[0].data() }, "oto", "Faturada bizim stok kodumuz yazıyor"); continue; } } catch (e) {} }
+    const mk = map[saMapKey(l)]; if (mk) { const it = await skGet(mk).catch(() => null); if (it) { set(it, "oto", "Daha önce eşleştirildi"); continue; } }
+    const pk = POK().filter(k => k.sid && !used.has(k.poId + k.sid)).map(k => ({ k, s: l.tedKod && k.tedKod && trFold(k.tedKod) === trFold(l.tedKod) ? 1 : saSim(k.ad, l.ad) })).sort((a, b) => b.s - a.s)[0];
+    if (pk && pk.s >= .6) { used.add(pk.k.poId + pk.k.sid); set(pk.k, pk.s === 1 ? "oto" : "oneri", pk.s === 1 ? "Siparişteki tedarikçi koduyla" : "Siparişteki kalemle benzer"); l.poFiyat = { f: Number(pk.k.fiyat) * (1 - (Number(pk.k.isk) || 0) / 100), pb: (saFind("siparis", pk.k.poId) || {}).pb, po: (saFind("siparis", pk.k.poId) || {}).no }; continue; }
+    const A = (await saStokAra(l.ad)).map(i => ({ i, s: saSim(i.ad, l.ad) })).sort((a, b) => b.s - a.s).slice(0, 5); l.aday = A.map(x => x.i);
+    if (A[0] && A[0].s >= .6) set(A[0].i, "oneri", `Ad benzerliği %${Math.round(A[0].s * 100)}`);
+    else if (/nakliye|kargo|navlun|hizmet|montaj|işçilik|fiyat farkı|kur farkı|ambalaj bedeli/.test(skNorm(l.ad))) l.durum = "atla";
+    else l.durum = "yeni";
+  }
+  L.forEach(l => { if (l.sid && !l.poFiyat) { const k = POK().find(k => k.sid === l.sid); if (k) l.poFiyat = { f: Number(k.fiyat) * (1 - (Number(k.isk) || 0) / 100), pb: (saFind("siparis", k.poId) || {}).pb, po: (saFind("siparis", k.poId) || {}).no }; } });
+  const kodlar = []; Object.entries(SK.cfg.kodlar || {}).forEach(([t, A]) => Object.entries(A || {}).forEach(([a, x]) => Object.entries((x || {}).alt || {}).forEach(([al, ad]) => kodlar.push({ v: `${t}-${a}${al}`, l: `${t}-${a}${al} · ${x.ad} › ${ad}`, tip: t, ana: a, alt: al, anaAd: x.ad, altAd: ad }))));
+  kodlar.sort((a, b) => (a.tip === "H" ? 0 : 1) - (b.tip === "H" ? 0 : 1) || a.v.localeCompare(b.v));
+  let opt0 = { cari: cari ? cari.id : "__yeni", fiyat: can("s.price") || can("sa.fatura"), giris: false, grup: (kodlar.find(k => k.tip === "H") || kodlar[0] || { v: "" }).v };
+  let araI = -1;
+  const paint = () => {
+    const nYeni = L.filter(l => l.durum === "yeni").length, nOk = L.filter(l => l.sid && l.durum !== "atla").length, P = poIds.map(id => saFind("siparis", id)).filter(Boolean);
+    const curCari = opt0.cari === "__yeni" ? null : crFind(opt0.cari), candP = SA.siparis.filter(p => curCari && p.cariId === curCari.id && p.durum !== "iptal" && p.durum !== "onay").slice(0, 30);
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer noanim" role="dialog" aria-modal="true" aria-labelledby="feT" style="width:min(1060px,100%)">
+      <div class="dh"><h2 id="feT">e-Fatura <span class="num skk">${esc(inv.no)}</span>${Q.length > 1 ? ` <small class="note">${qi + 1} / ${Q.length}</small>` : ""}</h2><button class="x" id="feX" aria-label="Kapat">×</button></div>
+      <div class="db">
+        ${dup ? `<div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu fatura daha önce işlendi</b> (${esc(dup.no)} · ${fmtS(dup.tarih)}). Tekrar işlenirse fiyat arşivine ve stoğa ikinci kez yazılabilir.</div>` : ""}
+        <div class="fgrid">
+          <div class="izbal"><b>${esc(inv.satici.ad)}</b><div class="note">VKN ${esc(inv.satici.vkn || "—")}${inv.satici.vd ? " · " + esc(inv.satici.vd) : ""} · ${esc([inv.satici.ilce, inv.satici.il].filter(Boolean).join(" / "))}</div>
+            <div class="field" style="margin-top:8px"><label for="feCari">Tedarikçi kartı</label><select id="feCari"><option value="__yeni"${!curCari ? " selected" : ""}>＋ Faturadaki bilgilerle yeni tedarikçi aç</option>${crTeds().map(c => opt(c.id, crAd(c) + (c.vergiNo ? " · " + c.vergiNo : ""), opt0.cari)).join("")}</select></div></div>
+          <div class="izbal"><b>${fmtS(inv.tarih)} · ${money(inv.genel, inv.pb)}</b><div class="note">KDV hariç ${money(inv.ara, inv.pb)} · KDV ${money(inv.kdv, inv.pb)}${inv.irsaliye.length ? " · irsaliye " + esc(inv.irsaliye.join(", ")) : ""}${inv.siparisRef.length ? " · sipariş ref. " + esc(inv.siparisRef.join(", ")) : ""}</div>
+            <div class="field" style="margin-top:8px"><label for="fePo">Bağlı sipariş</label><select id="fePo"><option value="">— Siparişsiz —</option>${[...new Set([...P, ...candP])].map(p => opt(p.id, `${p.no} · ${fmtS(p.tarih)} · ${(SA_SDUR[p.durum] || [""])[0]}`, poIds[0] || "")).join("")}</select></div></div></div>
+        <section><h3 class="sec-t">Satırlar <small>${nOk} eşleşti · ${nYeni} yeni kart · ${L.filter(l => l.durum === "atla").length} işlenmeyecek</small></h3>
+          <div class="ledger feled" role="table"><div class="lhead" role="row"><div>Faturadaki kalem</div><div>Miktar</div><div>Birim fiyat</div><div>Stok kartı</div></div>
+          ${L.map((l, i) => { const sap = l.poFiyat && l.poFiyat.pb === inv.pb && l.poFiyat.f ? (l.fiyat - l.poFiyat.f) / l.poFiyat.f * 100 : null;
+            return `<div class="row" role="row" style="cursor:default;--stripe:${{ oto: "var(--k-fabrikada)", oneri: "var(--k-gec)", yeni: "var(--brand)", atla: "var(--ink-3)", yok: "var(--k-izinsiz)", elle: "var(--k-fabrikada)" }[l.durum]}">
+              <div class="ska"><b>${esc(l.ad)}</b><div class="desc">${l.tedKod ? "Tedarikçi kodu " + esc(l.tedKod) : "Tedarikçi kodu yok"}${l.aliciKod ? " · bizim kod " + esc(l.aliciKod) : ""}</div></div>
+              <div class="num">${nf(l.miktar)} ${esc(l.birim)}</div>
+              <div class="num">${money(l.fiyat, inv.pb)}<div class="note">KDV %${nf(l.kdv)}${l.iskonto ? " · isk. " + money(l.iskonto, inv.pb) : ""}</div>${sap != null && Math.abs(sap) >= 0.5 ? `<div class="note ${sap > 0 ? "late" : ""}">Sipariş ${money(l.poFiyat.f, l.poFiyat.pb)} · ${sap > 0 ? "+" : ""}%${nf(sap, 1)}</div>` : ""}</div>
+              <div><div class="fesel"><select data-fl="${i}" aria-label="Stok kartı">${l.sid ? `<option value="${esc(l.sid)}" selected>${esc(l.kod)} · ${esc(l.stokAd)}</option>` : ""}${l.aday.filter(a => a.id !== l.sid).map(a => `<option value="${esc(a.id)}">${esc(a.kod)} · ${esc(a.ad)}</option>`).join("")}
+                <option value="__yeni"${l.durum === "yeni" ? " selected" : ""}>＋ Yeni stok kartı aç</option><option value="__atla"${l.durum === "atla" ? " selected" : ""}>Stoğa işleme (hizmet, nakliye…)</option>${!l.sid && l.durum === "yok" ? '<option value="" selected>— Seçin —</option>' : ""}</select>
+                <button type="button" class="btn ghost sm" data-fa2="${i}">Ara</button></div>
+                <div class="note">${{ oto: "Otomatik", oneri: "Öneri, kontrol edin", yeni: "Yeni kart açılacak", atla: "İşlenmeyecek", yok: "Eşleşmedi", elle: "Elle seçildi" }[l.durum]}${l.neden ? " · " + esc(l.neden) : ""}</div>
+                ${araI === i ? `<div class="kara" style="margin-top:6px"><input id="feAra" type="search" placeholder="Stokta ara…" value="${esc(l.ad.split(/\s+/).slice(0, 3).join(" "))}" autocomplete="off"></div><div id="feAraR" class="karar"></div>` : ""}</div></div>`; }).join("")}</div></section>
+        <div class="fgrid">
+          ${nYeni ? `<div class="field"><label for="feGrup">Yeni kartların kod grubu</label><select id="feGrup">${kodlar.map(k => opt(k.v, k.l, opt0.grup)).join("")}<option value="__ftr"${opt0.grup === "__ftr" ? " selected" : ""}>Kod sistemi dışı (FTR-0001)</option></select></div>` : "<div></div>"}
+          <div class="field"><label>Seçenekler</label><label class="chk"><input type="checkbox" id="feFi"${opt0.fiyat ? " checked" : ""}> Fiyatları stok fiyat arşivine işle</label>${can("s.move") || can("sa.kabul") ? `<label class="chk"><input type="checkbox" id="feGi"${opt0.giris ? " checked" : ""}> Stoğa giriş de yap (mal kabul yapılmadıysa)</label>` : ""}</div></div>
+      </div>
+      <div class="df"><span class="note">${Q.length > qi + 1 ? `Sonra: ${Q.length - qi - 1} fatura daha` : ""}</span><div class="r">${Q.length > qi + 1 ? '<button class="btn ghost" id="feSkip" type="button">Bu faturayı atla</button>' : ""}<button class="btn ghost" id="feC" type="button">Vazgeç</button><button class="btn" id="feS" type="button">Faturayı işle</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#feX").onclick = closeDrawer; $("#feC").onclick = closeDrawer;
+    const sk = $("#feSkip"); if (sk) sk.onclick = () => saFaturaEsle(Q, qi + 1);
+    $("#feCari").onchange = async e => { opt0.cari = e.target.value; const c = crFind(opt0.cari); map = {}; if (c) { try { const d = await getDoc(doc(fs, "cari_eslesme", c.id)); if (d.exists()) map = d.data().m || {}; } catch (x) {} } paint(); };
+    $("#fePo").onchange = e => { poIds = e.target.value ? [e.target.value] : []; L.forEach(l => { l.poFiyat = null; const k = POK().find(k => k.sid && k.sid === l.sid); if (k) l.poFiyat = { f: Number(k.fiyat) * (1 - (Number(k.isk) || 0) / 100), pb: (saFind("siparis", k.poId) || {}).pb, po: (saFind("siparis", k.poId) || {}).no }; }); paint(); };
+    const g = $("#feGrup"); if (g) g.onchange = e => { opt0.grup = e.target.value; };
+    $("#feFi").onchange = e => { opt0.fiyat = e.target.checked; }; const gi = $("#feGi"); if (gi) gi.onchange = e => { opt0.giris = e.target.checked; };
+    document.querySelectorAll("[data-fl]").forEach(s => s.onchange = () => { const l = L[Number(s.dataset.fl)], v = s.value;
+      if (v === "__yeni") { l.sid = null; l.durum = "yeni"; l.neden = ""; } else if (v === "__atla") { l.sid = null; l.durum = "atla"; l.neden = ""; } else if (v) { const a = l.aday.find(x => x.id === v) || { id: v, kod: l.kod, ad: l.stokAd }; l.sid = a.id; l.kod = a.kod; l.stokAd = a.ad; l.durum = "elle"; l.neden = ""; }
+      paint(); });
+    document.querySelectorAll("[data-fa2]").forEach(b => b.onclick = () => { araI = araI === Number(b.dataset.fa2) ? -1 : Number(b.dataset.fa2); paint(); const i = $("#feAra"); if (i) { i.focus(); i.dispatchEvent(new Event("input")); } });
+    const ai = $("#feAra"); if (ai) { let tm = null; ai.oninput = () => { clearTimeout(tm); tm = setTimeout(async () => { const R = await saStokAra(ai.value), r = $("#feAraR"); if (!r) return;
+      r.innerHTML = R.length ? R.map((it, k) => `<button type="button" class="karr" data-fp="${k}"><span class="num skk">${esc(it.kod)}</span> ${esc(it.ad)}</button>`).join("") : '<div class="note">Bulunamadı.</div>';
+      r.querySelectorAll("[data-fp]").forEach(b => b.onclick = () => { const it = R[Number(b.dataset.fp)], l = L[araI]; l.sid = it.id; l.kod = it.kod; l.stokAd = it.ad; l.durum = "elle"; l.neden = ""; if (!l.aday.some(a => a.id === it.id)) l.aday.unshift(it); araI = -1; paint(); }); }, 300); }; }
+    $("#feS").onclick = save;
+  };
+  async function save() {
+    if (L.some(l => !l.sid && l.durum === "yok")) { toast("Eşleşmeyen satırlar için stok kartı seçin, yeni kart açın ya da 'Stoğa işleme' seçin"); return; }
+    const b = $("#feS"); b.disabled = true; b.textContent = "İşleniyor…";
+    const now = Date.now();
+    try {
+      // 1) tedarikçi
+      let c = opt0.cari === "__yeni" ? null : crFind(opt0.cari);
+      if (!c) { const S = inv.satici, ref = doc(collection(fs, "cari")), data = { kod: crNextKod(), unvan: S.ad || "Tedarikçi", kisaAd: "", tedarikci: true, musteri: false, kategori: "", vd: S.vd, vergiNo: S.vkn, adres: S.adres, il: S.il, ilce: S.ilce, tel: S.tel, whatsapp: "", eposta: S.eposta, web: S.web, vade: null, pb: inv.pb || "TRY", yetkililer: [], aktif: true, kaynak: "efatura", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, ...(Q[qi].deneme ? { deneme: true } : {}) };
+        await setDoc(ref, data); c = { id: ref.id, ...data }; CR.list.push(c); }
+      // 2) yeni stok kartları
+      const yeni = L.filter(l => l.durum === "yeni");
+      if (yeni.length) {
+        const G = opt0.grup === "__ftr" || !opt0.grup ? null : (() => { const m = opt0.grup.match(/^([A-Z]{1,2})-(\d{2})(\d{2})$/); if (!m) return null; const A = ((SK.cfg.kodlar || {})[m[1]] || {})[m[2]] || {}; return { tip: m[1], ana: m[2], alt: m[3], anaAd: A.ad || "", altAd: (A.alt || {})[m[3]] || "" }; })();
+        let kod = G ? await skSuggestCode({ tip: G.tip, ana: G.ana, alt: G.alt }) : await skSuggestCode({ anaAd: "FTR" });
+        const B = writeBatch(fs);
+        for (const l of yeni) {
+          const ref = doc(collection(fs, "stok")), K = skKodParts(kod), d0 = { kod, ad: l.ad.toLocaleUpperCase("tr").slice(0, 120), barkod: "", tanim: l.aciklama && l.aciklama !== l.ad ? l.aciklama.slice(0, 500) : "", anaGrup: G ? G.anaAd : "", altGrup: G ? G.altAd : "", depo: "", adres: "", birim: ST_BIRIM.includes(l.birim) ? l.birim : "Adet", miktar: 0, minStok: 0, maxStok: null, not: `e-Fatura ${inv.no} ile açıldı`,
+            ted: { firma: crAd(c), cariId: c.id, kod: l.tedKod || "" }, tip: G ? G.tip : (K.tip || ""), anaKod: G ? G.ana : "", altKod: G ? G.alt : "", aktif: true, createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, sonHareket: null, ...(Q[qi].deneme ? { deneme: true } : {}) };
+          B.set(ref, { ...d0, seviye: "bos", kelimeler: skWords(d0) }); l.sid = ref.id; l.kod = kod; l.stokAd = d0.ad; SK.cache.set(ref.id, { id: ref.id, ...d0, seviye: "bos" });
+          const m = kod.match(/^(.*?)(\d+)$/); kod = m[1] + String(Number(m[2]) + 1).padStart(m[2].length, "0");
+        }
+        await B.commit();
+      }
+      // 3) eşleşmeleri öğren
+      const M = {}; L.filter(l => l.sid).forEach(l => { M[saMapKey(l)] = l.sid; });
+      if (Object.keys(M).length) await setDoc(doc(fs, "cari_eslesme", c.id), { m: M, updatedAt: now, updatedBy: ME.name, ...(Q[qi].deneme ? { deneme: true } : {}) }, { merge: true });
+      // 4) fiyat arşivi ve isteğe bağlı stok girişi
+      if (opt0.fiyat) for (const l of L.filter(l => l.sid)) await saPriceLog(l.sid, { fiyat: l.fiyat, pb: inv.pb, kdv: l.kdv, tedarikci: crAd(c), cariId: c.id, kaynak: "fatura", belge: inv.no, not: "e-Fatura " + inv.no }).catch(e => console.warn(e));
+      if (opt0.giris) for (const l of L.filter(l => l.sid && l.miktar > 0)) { const it = await skGet(l.sid); if (it) await skMove(it, "giris", l.miktar, { belge: inv.no, aciklama: `e-Fatura ile giriş · ${crAd(c)}` }); }
+      // 5) fatura kaydı ve sipariş bağlantısı
+      const P = poIds.map(id => saFind("siparis", id)).filter(Boolean), sapma = L.filter(l => l.poFiyat && l.poFiyat.pb === inv.pb && l.poFiyat.f && Math.abs((l.fiyat - l.poFiyat.f) / l.poFiyat.f) >= 0.005).map(l => ({ ad: l.ad, kod: l.kod, poNo: l.poFiyat.po, poFiyat: l.poFiyat.f, fiyat: l.fiyat, oran: Math.round((l.fiyat - l.poFiyat.f) / l.poFiyat.f * 1000) / 10 }));
+      const ref = doc(collection(fs, "sa_fatura"));
+      await setDoc(ref, { no: inv.no, ettn: inv.ettn, tarih: inv.tarih, tip: inv.tip, pb: inv.pb, cariId: c.id, cariAd: crAd(c), vkn: inv.satici.vkn, siparisIds: P.map(p => p.id), siparisNolar: P.map(p => p.no), irsaliye: inv.irsaliye,
+        satirlar: L.map(l => ({ ad: l.ad, tedKod: l.tedKod, miktar: l.miktar, birim: l.birim, fiyat: l.fiyat, kdv: l.kdv, tutar: l.tutar, sid: l.sid || null, kod: l.kod || "", durum: l.durum })), ara: inv.ara, kdv: inv.kdv, genel: inv.genel, sapma, fiyatIslendi: !!opt0.fiyat, stokGiris: !!opt0.giris,
+        dosya: Q[qi].ad, createdAt: now, createdBy: ME.name, ...(Q[qi].deneme ? { deneme: true } : {}) });
+      for (const p of P) await updateDoc(doc(fs, "sa_siparis", p.id), { faturalar: [...(p.faturalar || []), { id: ref.id, no: inv.no }], updatedAt: now, updatedBy: ME.name, log: saLog(p, `e-Fatura ${inv.no} bağlandı${sapma.length ? " · " + sapma.length + " fiyat farkı" : ""}`) });
+      toast(`Fatura işlendi · ${L.filter(l => l.sid).length} satır stokla eşleşti${yeni.length ? " · " + yeni.length + " yeni kart" : ""}${sapma.length ? " · " + sapma.length + " fiyat farkı" : ""}`);
+      if (Q.length > qi + 1) saFaturaEsle(Q, qi + 1); else saOpenFatura(ref.id);
+    } catch (x) { console.error(x); b.disabled = false; b.textContent = "Faturayı işle"; toast(writeErr(x)); }
+  }
+  paint();
+}
+function saOpenFatura(id) {
+  const f = saFind("fatura", id); if (!f) { setTimeout(() => { if (saFind("fatura", id)) saOpenFatura(id); else { closeDrawer(); } }, 400); return; }
+  saDrawerRefresh = null; onDrawerClose = null;
+  const S = f.satirlar || [];
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="fvT" style="width:min(900px,100%)">
+    <div class="dh"><h2 id="fvT">e-Fatura <span class="num skk">${esc(f.no)}</span> ${esc(f.cariAd || "")}</h2><button class="x" id="fvX" aria-label="Kapat">×</button></div>
+    <div class="skhead"><div class="skbig" style="--tc:${(f.sapma || []).length ? "var(--k-gec)" : "var(--k-fabrikada)"}"><b>${money(f.genel, f.pb)}</b><span>KDV dahil</span></div>
+      <div class="skhm"><span>${fmtS(f.tarih)} · VKN ${esc(f.vkn || "—")}</span><span>${(f.siparisNolar || []).length ? "Sipariş " + f.siparisNolar.map((n, i) => `<button type="button" class="linkbtn" data-po="${esc(f.siparisIds[i])}">${esc(n)}</button>`).join(", ") : "Siparişsiz"}${(f.irsaliye || []).length ? " · irsaliye " + esc(f.irsaliye.join(", ")) : ""}</span><span>${f.fiyatIslendi ? "Fiyatlar arşive işlendi" : "Fiyatlar işlenmedi"}${f.stokGiris ? " · stok girişi yapıldı" : ""} · ${esc(f.createdBy || "")}</span></div><div class="skhb"></div></div>
+    <div class="db">
+      ${(f.sapma || []).length ? `<div class="izbal" style="--tc:var(--k-gec)"><b>Sipariş fiyatından farklı ${f.sapma.length} satır</b>${f.sapma.map(s => `<div class="note">${esc(s.ad)} · sipariş ${esc(s.poNo || "")} ${money(s.poFiyat, f.pb)} → fatura ${money(s.fiyat, f.pb)} (<span class="${s.oran > 0 ? "late" : ""}">${s.oran > 0 ? "+" : ""}%${nf(s.oran, 1)}</span>)</div>`).join("")}</div>` : ""}
+      <div class="ledger feled" role="table"><div class="lhead" role="row"><div>Kalem</div><div>Miktar</div><div>Birim fiyat</div><div>Stok kartı</div></div>
+        ${S.map(l => `<div class="row" role="row" ${l.sid ? `data-sk="${esc(l.sid)}"` : 'style="cursor:default"'}><div class="ska"><b>${esc(l.ad)}</b><div class="desc">${l.tedKod ? "Tedarikçi kodu " + esc(l.tedKod) : ""}</div></div><div class="num">${nf(l.miktar)} ${esc(l.birim || "")}</div><div class="num">${money(l.fiyat, f.pb)}<div class="note">KDV %${nf(l.kdv)}</div></div><div>${l.sid ? `<span class="num skk">${esc(l.kod)}</span>${l.durum === "yeni" ? ' <span class="kst" style="--tc:var(--brand)">Yeni kart</span>' : ""}` : '<span class="note">Stoğa işlenmedi</span>'}</div></div>`).join("")}</div>
+      <div class="sasum"><div><span>KDV hariç</span><b class="num">${money(f.ara, f.pb)}</b></div><div><span>KDV</span><b class="num">${money(f.kdv, f.pb)}</b></div><div class="g"><span>Toplam</span><b class="num">${money(f.genel, f.pb)}</b></div></div>
+      <p class="note" style="margin:0">ETTN ${esc(f.ettn || "—")} · ${esc(f.dosya || "")}</p></div>
+    <div class="df"><span>${can("sa.delete") ? '<button class="btn danger" id="fvDel" type="button">Kaydı sil</button>' : ""}</span><div class="r"><button class="btn ghost" id="fvC" type="button">Kapat</button></div></div></aside>`;
+  $("#scrim").onclick = closeDrawer; $("#fvX").onclick = closeDrawer; $("#fvC").onclick = closeDrawer;
+  saBindOpen($("#drawerHost .skhead"));
+  document.querySelectorAll("#drawerHost [data-sk]").forEach(el => el.onclick = () => { if (lvl("stok") === "none") return; closeDrawer(); location.hash = "stok"; setTimeout(() => skOpenCard(el.dataset.sk, "fiy"), 120); });
+  const dl = $("#fvDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Kayıt silinsin mi? (fiyat ve stok değişmez) Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_fatura", f.id)); toast("Fatura kaydı silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+}
+
+/* ===== Stok kartı bağlantıları ===== */
+function saStokHead(it) {
+  if (lvl("satinalma") === "none" || !it) return "";
+  const y = saYolda(it.id);
+  return y.miktar > 0 ? `<span class="skyol">Yolda: <b>${nf(y.miktar)} ${esc(it.birim || "")}</b> · ${y.L.map(x => `<button type="button" class="linkbtn" data-skpo="${esc(x.id)}">${esc(x.no)}</button>${x.termin ? " (" + fmtS(x.termin) + ")" : ""}`).join(", ")}</span>` : "";
+}
+function saPriceSummary(f) {
+  const A = (f.arsiv || []).filter(a => a.tedarikci || a.cariId); if (!A.length) return "";
+  const by = {}; A.forEach(a => { const k = a.cariId || crFold(a.tedarikci); const x = by[k] = by[k] || { ad: a.tedarikci, son: null, teklif: null, n: 0 }; if (a.teklif) { if (!x.teklif || a.ts > x.teklif.ts) x.teklif = a; } else { x.n++; if (!x.son || a.ts > x.son.ts) x.son = a; } });
+  const L = Object.values(by).sort((a, b) => ((a.son || a.teklif).fiyat * (saKur((a.son || a.teklif).pb) || 1)) - ((b.son || b.teklif).fiyat * (saKur((b.son || b.teklif).pb) || 1)));
+  return `<section><h3 class="sec-t">Tedarikçiye göre fiyatlar <small>en ucuzdan pahalıya</small></h3><div class="ledger fled mini" role="table"><div class="lhead" role="row"><div>Tedarikçi</div><div>Son alış</div><div>Tarih</div><div>Son teklif</div><div>Alım</div></div>
+    ${L.map(x => `<div class="row" role="row" style="cursor:default"><div class="izs"><b>${esc(x.ad || "—")}</b></div><div class="num">${x.son ? money(x.son.fiyat, x.son.pb) : "—"}</div><div class="date">${x.son ? skTs(x.son.ts).split(" ")[0] : "—"}</div><div class="num">${x.teklif ? money(x.teklif.fiyat, x.teklif.pb) + `<div class="note">${skTs(x.teklif.ts).split(" ")[0]}</div>` : "—"}</div><div class="num">${x.n}</div></div>`).join("")}</div></section>`;
+}
+const SA_KAYNAK = { siparis: "Sipariş", kabul: "Mal kabul", fatura: "e-Fatura", teklif: "Teklif" };
+
+/* ===== Deneme verileri ===== */
+async function saSeedDemo() {
+  if (!can("sa.siparis")) return;
+  if (SA.siparis.some(p => p.deneme) || CR.list.some(c => c.deneme)) { toast("Deneme verileri zaten ekli"); return; }
+  try {
+    toast("Deneme verileri hazırlanıyor…");
+    if (lvl("stok") !== "none" && can("s.edit") && !(SK.cnt.deneme > 0 || SK.items.some(i => i.deneme))) await skSeed();
+    const S = {}; try { const s = await getDocs(query(collection(fs, "stok"), where("kod", "in", ["HAM-0001", "HAM-0002", "YAR-0001", "SRF-0001"]))); s.docs.forEach(d => { S[d.data().kod] = { id: d.id, ...d.data() }; }); } catch (e) {}
+    const now = Date.now(), D = D_MS, iso = n => dayOf(now + n * D), ts = n => now + n * D, by = ME.name, B = writeBatch(fs), K = (kod, ad, birim, miktar, fiyat, x = {}) => ({ sid: S[kod] ? S[kod].id : null, kod: S[kod] ? kod : "", ad: S[kod] ? S[kod].ad : ad, tanim: S[kod] ? S[kod].tanim || "" : "", birim, miktar, fiyat, isk: 0, kdv: 20, tedKod: (S[kod] && S[kod].ted && S[kod].ted.kod) || x.tedKod || "", gelen: 0, red: 0, ...x });
+    const C = [["Örnek Sac Ticaret A.Ş.", "Sac", "1111111111", "Konya", 60, 5, "Ahmet Sac"], ["Örnek Metal Ltd.", "Sac", "2222222222", "Konya", 45, 3, "Mehmet Metal"], ["Örnek Alüminyum San.", "Alüminyum profil", "3333333333", "İstanbul", 30, 4, "Ayşe Profil"], ["Örnek Elektrik Motor Ltd.", "Elektrik / motor", "4444444444", "İstanbul", 30, 2, "Can Motor"], ["Örnek Fan Sistemleri", "Elektrik / motor", "5555555555", "Bursa", 60, 4, "Elif Fan"], ["Örnek Hırdavat", "Bağlantı elemanı", "6666666666", "Konya", 0, 5, "Mağaza"], ["Örnek Boya Kimya", "Boya", "7777777777", "Kocaeli", 45, null, "Deniz Boya"]];
+    const cid = {}; C.forEach(([u, kat, vkn, il, vade, p, y], i) => { const ref = doc(collection(fs, "cari")); cid[u] = ref.id;
+      B.set(ref, { kod: "C-" + String(901 + i).padStart(4, "0"), unvan: u, kisaAd: "", tedarikci: true, musteri: i === 1, kategori: kat, vd: "Örnek", vergiNo: vkn, adres: "Örnek Organize Sanayi Bölgesi " + (i + 1) + ". Cadde No: " + (10 + i), il, ilce: "Merkez", tel: `0332 000 00 0${i + 1}`, whatsapp: `0532 000 00 0${i + 1}`, eposta: `satis@ornek${i + 1}.com`, web: "", vade, pb: "TRY", iban: "",
+        yetkililer: [{ ad: y, gorev: "Satış", tel: `0532 000 00 0${i + 1}`, eposta: `satis@ornek${i + 1}.com` }], aktif: true, deneme: true, ...(p ? { puan: { iletisim: p, by, at: ts(-20), not: "", log: [{ at: ts(-20), by, iletisim: p, not: "" }] } } : {}), createdAt: now, createdBy: by, updatedAt: now, updatedBy: by }); });
+    [["Örnek Hastane Projesi", "Ankara"], ["Örnek Otel", "Antalya"], ["Örnek AVM Projesi", "İstanbul"], ["Örnek Fabrika Binası", "Konya"]].forEach(([u, il], i) => B.set(doc(collection(fs, "cari")), { kod: "C-" + String(921 + i).padStart(4, "0"), unvan: u, kisaAd: "", tedarikci: false, musteri: true, kategori: "", vd: "", vergiNo: "", adres: "", il, ilce: "", tel: "", whatsapp: "", eposta: "", web: "", vade: 90, pb: "TRY", iban: "", yetkililer: [], aktif: true, deneme: true, createdAt: now, createdBy: by, updatedAt: now, updatedBy: by }));
+    const cad = u => u, PO = [], y = TODAY.slice(0, 4);
+    const po = (n, cari, tarih, termin, kal, durum, x = {}) => { const ref = doc(collection(fs, "sa_siparis")), no = `SA-${y}-${String(900 + n).padStart(4, "0")}`, pb = x.pb || "TRY";
+      const d = { no, cariId: cid[cari], cariAd: cad(cari), tarih: iso(tarih), termin: termin == null ? "" : iso(termin), teslimYeri: "Fabrika", odeme: (C.find(c => c[0] === cari) || [])[4] ? C.find(c => c[0] === cari)[4] + " gün vadeli" : "Peşin", pb, kur: x.kur || null, proformaNo: x.pro || "", not: "", sartlar: SA_SARTLAR, kalemler: kal, toplam: saTotals(kal), durum,
+        onay: x.onay || { seviye: saSeviye(saTRY(saTotals(kal).net, pb, x.kur)), by: "Vildan", at: ts(tarih) }, talepId: "", talepNo: "", teklifId: "", teklifNo: "", kabuller: x.kabuller || [], iadeler: x.iadeler || [], gonderim: durum === "onay" || durum === "hazir" ? [] : [{ at: ts(tarih) + 3600e3, by, kanal: "wa" }], faturalar: [],
+        createdAt: ts(tarih), createdBy: x.by || "Hasan Hüseyin ERGUN", uid: ME.uid, updatedAt: ts(Math.min(0, (termin ?? tarih) + 1)), updatedBy: by, deneme: true, log: [{ at: ts(tarih), by: x.by || "Hasan Hüseyin ERGUN", t: "Sipariş oluşturuldu" }, ...(durum !== "onay" && durum !== "hazir" ? [{ at: ts(tarih) + 3600e3, by, t: "WhatsApp ile gönderildi" }] : [])] };
+      PO.push({ ref, d }); return { ref, d }; };
+    const kab = (gun, satir, irs, gec = 0) => ({ at: ts(gun), by: "Depo", irsaliye: irs, satir, gec });
+    const P1 = po(1, "Örnek Sac Ticaret A.Ş.", -120, -113, [K("HAM-0001", "Galvaniz sac 0,8 mm 1000×2000", "Levha", 100, 1120, { gelen: 100 })], "tamam", { kabuller: [kab(-112, [{ k: 0, miktar: 100, red: 0 }], "İRS-5521", 1)], pro: "TKL-2026-311" });
+    po(2, "Örnek Sac Ticaret A.Ş.", -60, -55, [K("HAM-0001", "Galvaniz sac 0,8 mm 1000×2000", "Levha", 80, 1180, { gelen: 78, red: 2 })], "tamam", { kabuller: [kab(-55, [{ k: 0, miktar: 80, red: 2, not: "2 levha köşesi ezik" }], "İRS-5604")] });
+    po(3, "Örnek Metal Ltd.", -40, -35, [K("HAM-0001", "Galvaniz sac 0,8 mm 1000×2000", "Levha", 60, 1260, { gelen: 60 })], "tamam", { kabuller: [kab(-30, [{ k: 0, miktar: 60, red: 0 }], "M-8812", 5)] });
+    po(4, "Örnek Alüminyum San.", -75, -65, [K("HAM-0002", "Alüminyum menfez kanat profili 6 m", "Boy", 200, 3.45, { gelen: 200 })], "tamam", { pb: "USD", kur: 41.2, kabuller: [kab(-64, [{ k: 0, miktar: 150, red: 0 }], "AL-1201", 1), kab(-58, [{ k: 0, miktar: 50, red: 0 }], "AL-1255", 7)] });
+    po(5, "Örnek Elektrik Motor Ltd.", -20, -6, [K("YAR-0001", "Fan motoru 220 V 0,37 kW", "Adet", 10, 3900)], "gonderildi", { pro: "EM-PR-0912" });
+    po(6, "Örnek Hırdavat", -10, -8, [K("SRF-0001", "Alüminyum perçin 4×10 (1000'lik kutu)", "Kutu", 6, 465, { gelen: 5, iade: 1 }), K("", "Matkap ucu HSS 4,2 mm (10'lu)", "Paket", 5, 180, { gelen: 5 })], "kismi", { kabuller: [kab(-8, [{ k: 0, miktar: 6, red: 0 }, { k: 1, miktar: 5, red: 0 }], "")], iadeler: [{ at: ts(-6), by: "Depo", k: 0, miktar: 1, neden: "Kutu ıslanmış, perçinler paslı", yeni: true }] });
+    po(7, "Örnek Fan Sistemleri", -3, 7, [K("YAR-0001", "Fan motoru 220 V 0,37 kW", "Adet", 6, 3750), K("", "Fan kanadı Ø250 alüminyum", "Adet", 6, 420, { tedKod: "FK-250-AL" })], "gonderildi", { pro: "FS-2026-77" });
+    po(8, "Örnek Boya Kimya", -1, 9, [K("", "Elektrostatik toz boya RAL 9016 (25 kg)", "Paket", 8, 2350, { tedKod: "TB-9016-25" })], "onay", { onay: { seviye: "kucuk" }, by: "Abdullah" });
+    po(9, "Örnek Alüminyum San.", -2, 12, [K("HAM-0002", "Alüminyum menfez kanat profili 6 m", "Boy", 120, 3.5), K("", "Alüminyum köşebent 20×20×2 mm 6 m", "Boy", 40, 2.1, { tedKod: "KB-2020-6" })], "gonderildi", { pb: "USD", kur: 41.6, pro: "AL-TKL-0455" });
+    // talepler
+    const TL = [], tal = (n, kal, durum, x = {}) => { const ref = doc(collection(fs, "sa_talep")), no = `ST-${y}-${String(900 + n).padStart(4, "0")}`, t = Math.round(kal.reduce((s, k) => s + (k.tahminiFiyat || 0) * k.miktar, 0)), sev = saSeviye(t);
+      const d = { no, tarih: iso(x.gun || -1), departman: x.dep || "Üretim", oncelik: x.onc || "normal", termin: x.termin != null ? iso(x.termin) : "", aciklama: x.ac || "", ref: x.ref || "", oneriCariId: x.ted ? cid[x.ted] : "", kalemler: kal, tahmini: t, eksikFiyat: kal.filter(k => !k.tahminiFiyat).length, durum,
+        onay: x.onay || (durum === "onay" ? { seviye: sev } : { seviye: sev, by: sev === "buyuk" ? "Feyzullah KILIÇ" : "Vildan", at: ts((x.gun || -1) + 0.2) }), teklifIds: [], siparisIds: [], createdAt: ts(x.gun || -1), createdBy: x.by || "Abdullah", uid: ME.uid, updatedAt: ts(x.gun || -1), updatedBy: by, deneme: true,
+        log: [{ at: ts(x.gun || -1), by: x.by || "Abdullah", t: "Talep açıldı" }] }; TL.push({ ref, d }); return { ref, d }; };
+    const TK = (kod, ad, birim, miktar, tf, x = {}) => ({ sid: S[kod] ? S[kod].id : null, kod: S[kod] ? kod : "", ad: S[kod] ? S[kod].ad : ad, tanim: "", birim, miktar, not: x.not || "", tedKod: "", tahminiFiyat: tf, pb: "TRY" });
+    tal(1, [TK("SRF-0001", "Alüminyum perçin 4×10", "Kutu", 10, 465), TK("", "Matkap ucu HSS 4,2 mm (10'lu)", "Paket", 3, 180)], "onay", { gun: -1, dep: "Üretim", ac: "Montaj hattı için; stok kritik seviyede.", by: "Abdullah" });
+    tal(2, [TK("HAM-0001", "Galvaniz sac", "Levha", 150, 1240)], "onay", { gun: -1, dep: "Planlama", onc: "acil", termin: 10, ac: "SP-2026-130 hastane projesi menfez gövdeleri.", ref: "SP-2026-130", by: "Hasan Hüseyin ERGUN", ted: "Örnek Sac Ticaret A.Ş." });
+    tal(3, [TK("YAR-0001", "Fan motoru", "Adet", 12, 3900)], "onaylandi", { gun: -2, dep: "Depo", ac: "Fan coil siparişleri için.", by: "Vildan", termin: 14 });
+    const T4 = tal(4, [TK("HAM-0002", "Alüminyum menfez kanat profili 6 m", "Boy", 300, 143.5)], "teklif", { gun: -5, dep: "Planlama", ac: "Önümüzdeki ay TSK/ÇSK üretimi için.", by: "Hasan Hüseyin ERGUN", termin: 20 });
+    const T5 = tal(5, [TK("HAM-0001", "Galvaniz sac", "Levha", 100, 1120)], "siparis", { gun: -121, by: "Abdullah" });
+    tal(6, [TK("", "Akü şarjlı vidalama makinesi", "Adet", 2, 9500)], "red", { gun: -12, dep: "Bakım-onarım", by: "Abdullah", onay: { seviye: "kucuk", by: "Vildan", at: ts(-11), red: true, not: "Mevcut makineler bakıma gönderilsin, sonra tekrar değerlendirelim." } });
+    T5.d.siparisIds = [P1.ref.id]; P1.d.talepId = T5.ref.id; P1.d.talepNo = T5.d.no; P1.d.onay = { seviye: "kucuk", by: "Vildan", at: ts(-121), kaynak: "talep" };
+    // fiyat talepleri (T4)
+    const rq = (n, cari, durum, fiyat, gun, pro) => { const ref = doc(collection(fs, "sa_teklif")), no = `FT-${y}-${String(900 + n).padStart(4, "0")}`; const kal = T4.d.kalemler.map(k => ({ ...k, fiyat, isk: 0, kdv: 20, teslimGun: gun }));
+      B.set(ref, { no, tarih: iso(-4), talepId: T4.ref.id, talepNo: T4.d.no, cariId: cid[cari], cariAd: cari, pb: "USD", kur: 41.6, sonTarih: iso(2), not: "", kalemler: kal, durum, proformaNo: pro || "", teslimGun: gun, odeme: durum === "geldi" ? "45 gün vadeli" : "", toplam: saTotals(kal), gonderim: [{ at: ts(-4), by, kanal: n === 1 ? "mail" : "wa" }], createdAt: ts(-4), createdBy: by, updatedAt: ts(-2), updatedBy: by, deneme: true, log: [{ at: ts(-4), by, t: "Fiyat talebi oluşturuldu" }] }); return ref.id; };
+    T4.d.teklifIds = [rq(1, "Örnek Alüminyum San.", "geldi", 3.42, 10, "AL-TKL-0471"), rq(2, "Örnek Metal Ltd.", "geldi", 3.6, 6, "MT-2026-118"), rq(3, "Örnek Sac Ticaret A.Ş.", "gonderildi", null, null)];
+    PO.forEach(({ ref, d }) => B.set(ref, d)); TL.forEach(({ ref, d }) => B.set(ref, d));
+    // işlenmiş fatura (P1)
+    const fRef = doc(collection(fs, "sa_fatura")); P1.d.faturalar = [{ id: fRef.id, no: "OSA2026000000412" }];
+    B.set(fRef, { no: "OSA2026000000412", ettn: "demo-0412", tarih: iso(-111), tip: "SATIS", pb: "TRY", cariId: cid["Örnek Sac Ticaret A.Ş."], cariAd: "Örnek Sac Ticaret A.Ş.", vkn: "1111111111", siparisIds: [P1.ref.id], siparisNolar: [P1.d.no], irsaliye: ["İRS-5521"],
+      satirlar: [{ ad: "GALVANİZ SAC 0,80X1000X2000", tedKod: "GLV-08-1020", miktar: 100, birim: "Levha", fiyat: 1120, kdv: 20, tutar: 112000, sid: P1.d.kalemler[0].sid, kod: P1.d.kalemler[0].kod, durum: "oto" }], ara: 112000, kdv: 22400, genel: 134400, sapma: [], fiyatIslendi: false, stokGiris: false, dosya: "deneme", createdAt: ts(-110), createdBy: by, deneme: true });
+    await B.commit();
+    toast("Deneme verileri eklendi: 7 tedarikçi, 4 müşteri, 6 talep, 3 fiyat talebi, 9 sipariş, 1 fatura"); SA.view = "genel"; renderSA();
+  } catch (x) { console.error(x); toast(writeErr(x)); }
+}
+async function saUnseedDemo() {
+  try {
+    const cols = ["sa_talep", "sa_teklif", "sa_siparis", "sa_fatura", "cari", "cari_eslesme"]; let n = 0;
+    for (const c of cols) { const s = await getDocs(query(collection(fs, c), where("deneme", "==", true))); for (let i = 0; i < s.docs.length; i += 400) { const b = writeBatch(fs); s.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); } n += s.docs.length; }
+    toast(n + " deneme kaydı silindi");
+  } catch (x) { toast(writeErr(x)); }
+}
+// Örnek e-Fatura: deneme siparişine (Örnek Alüminyum) ait, biri sipariş fiyatından farklı, biri yeni ürün, biri nakliye
+function saDemoXml() {
+  const p = SA.siparis.filter(x => x.deneme && x.cariAd === "Örnek Alüminyum San." && x.durum === "gonderildi")[0];
+  const L = [{ ad: "AL. MENFEZ KANAT PROFİLİ AK-24 6000MM ELOKSAL", tk: "AK-24-6000", q: 120, u: "C62", f: p && p.pb === "USD" ? 3.62 : 148 }, { ad: "ALÜMİNYUM KÖŞEBENT 20X20X2 6M", tk: "KB-2020-6", q: 40, u: "C62", f: p && p.pb === "USD" ? 2.1 : 87 }, { ad: "ALÜMİNYUM U PROFİL 15X15X1,5 6M", tk: "UP-1515-6", q: 25, u: "C62", f: p && p.pb === "USD" ? 2.45 : 101 }, { ad: "NAKLİYE BEDELİ", tk: "", q: 1, u: "C62", f: p && p.pb === "USD" ? 35 : 1450 }];
+  const pb = p ? p.pb : "TRY", r = n => (Math.round(n * 100) / 100).toFixed(2), ara = L.reduce((s, l) => s + l.q * l.f, 0), kdv = ara * 0.2;
+  return `<?xml version="1.0" encoding="UTF-8"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+<cbc:UBLVersionID>2.1</cbc:UBLVersionID><cbc:CustomizationID>TR1.2</cbc:CustomizationID><cbc:ProfileID>TICARIFATURA</cbc:ProfileID><cbc:ID>OAL2026000001093</cbc:ID><cbc:UUID>demo-${Date.now()}</cbc:UUID><cbc:IssueDate>${TODAY}</cbc:IssueDate><cbc:InvoiceTypeCode>SATIS</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>${pb}</cbc:DocumentCurrencyCode>
+${p ? `<cac:OrderReference><cbc:ID>${p.no}</cbc:ID><cbc:IssueDate>${p.tarih}</cbc:IssueDate></cac:OrderReference>` : ""}<cac:DespatchDocumentReference><cbc:ID>AL-1302</cbc:ID><cbc:IssueDate>${TODAY}</cbc:IssueDate></cac:DespatchDocumentReference>
+<cac:AccountingSupplierParty><cac:Party><cac:PartyIdentification><cbc:ID schemeID="VKN">3333333333</cbc:ID></cac:PartyIdentification><cac:PartyName><cbc:Name>Örnek Alüminyum San.</cbc:Name></cac:PartyName><cac:PostalAddress><cbc:StreetName>Örnek OSB 3. Cadde</cbc:StreetName><cbc:BuildingNumber>12</cbc:BuildingNumber><cbc:CitySubdivisionName>Merkez</cbc:CitySubdivisionName><cbc:CityName>İstanbul</cbc:CityName><cac:Country><cbc:Name>Türkiye</cbc:Name></cac:Country></cac:PostalAddress><cac:PartyTaxScheme><cac:TaxScheme><cbc:Name>Örnek</cbc:Name></cac:TaxScheme></cac:PartyTaxScheme><cac:Contact><cbc:Telephone>0332 000 00 03</cbc:Telephone><cbc:ElectronicMail>satis@ornek3.com</cbc:ElectronicMail></cac:Contact></cac:Party></cac:AccountingSupplierParty>
+<cac:AccountingCustomerParty><cac:Party><cac:PartyName><cbc:Name>${esc(SA.cfg.firma.unvan || "KAR-MEN AIRTECH")}</cbc:Name></cac:PartyName></cac:Party></cac:AccountingCustomerParty>
+<cac:TaxTotal><cbc:TaxAmount currencyID="${pb}">${r(kdv)}</cbc:TaxAmount></cac:TaxTotal>
+<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${pb}">${r(ara)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${pb}">${r(ara)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${pb}">${r(ara + kdv)}</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="${pb}">${r(ara + kdv)}</cbc:PayableAmount></cac:LegalMonetaryTotal>
+${L.map((l, i) => `<cac:InvoiceLine><cbc:ID>${i + 1}</cbc:ID><cbc:InvoicedQuantity unitCode="${l.u}">${l.q}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${pb}">${r(l.q * l.f)}</cbc:LineExtensionAmount><cac:TaxTotal><cbc:TaxAmount currencyID="${pb}">${r(l.q * l.f * .2)}</cbc:TaxAmount><cac:TaxSubtotal><cbc:TaxableAmount currencyID="${pb}">${r(l.q * l.f)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${pb}">${r(l.q * l.f * .2)}</cbc:TaxAmount><cbc:Percent>20</cbc:Percent><cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal><cac:Item><cbc:Name>${l.ad}</cbc:Name>${l.tk ? `<cac:SellersItemIdentification><cbc:ID>${l.tk}</cbc:ID></cac:SellersItemIdentification>` : ""}</cac:Item><cac:Price><cbc:PriceAmount currencyID="${pb}">${l.f}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`).join("\n")}
+</Invoice>`;
 }
