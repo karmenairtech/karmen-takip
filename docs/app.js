@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "23";
+const APP_V = "24";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -52,7 +52,7 @@ let ME = null;            // {uid,email,name,role}
 let unsubs = [];
 /* ================= Yetki modeli ================= */
 // Modül seviyesi: none (erişim yok) · view (gözlemci) · use (kullanıcı) · edit (düzenleyici). Sistem yöneticisi her şeyi yapar.
-const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "planlama", "siparis"];
+const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis"];
 const PERM_LEVELS = [["none", "Erişim yok"], ["view", "Gözlemci"], ["use", "Kullanıcı"], ["edit", "Düzenleyici"]];
 const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
@@ -61,6 +61,7 @@ const PERM_ACTS = {
   planlama: [["pl.ie", "İş emri oluşturma ve düzenleme"], ["pl.op", "Operasyon başlatma / bitirme (üretim)"], ["pl.akis", "İş akış şemalarını düzenleme"], ["pl.ist", "İş istasyonlarını ve ayarları düzenleme"], ["pl.delete", "İş emri silme"]],
   personel: [["k.yoklama", "Günlük yoklama girme (geldi, geç, gelmedi)"], ["k.izin", "İzin kaydı girme, düzenleme ve silme"], ["k.list", "Personel listesini ve ayarları düzenleme"], ["k.ozel", "Kişisel bilgileri görme (TC, adres, telefon)"]],
   satinalma: [["sa.talep", "Satın alma talebi açma"], ["sa.siparis", "Fiyat talebi ve sipariş oluşturma, gönderme"], ["sa.kabul", "Mal kabul ve tedarikçiye iade (stok girişi)"], ["sa.fatura", "e-Fatura yükleme ve stok eşleştirme"], ["sa.cfg", "Firma bilgileri, onay limiti ve onaycılar"], ["sa.delete", "Talep, sipariş ve fatura silme"]],
+  cv: [["cv.edit", "Aday kaydı ekleme, düzenleme ve CV dosyası"], ["cv.gorusme", "Görüşme notu, puan ve durum girme"], ["cv.delete", "Aday kaydı ve CV silme"]],
   cari: [["c.edit", "Cari kart ekleme ve düzenleme"], ["c.puan", "Tedarikçiye iletişim/hizmet puanı verme"], ["c.delete", "Cari kart silme"]]
 };
 // Modülden bağımsız genel yetkiler
@@ -72,14 +73,15 @@ const PERM_DEF = {
   planlama: { none: [], view: [], use: ["pl.op"], edit: PERM_ACTS.planlama.map(a => a[0]) },
   personel: { none: [], view: [], use: ["k.yoklama"], edit: PERM_ACTS.personel.map(a => a[0]) },
   satinalma: { none: [], view: [], use: ["sa.talep"], edit: PERM_ACTS.satinalma.map(a => a[0]) },
-  cari: { none: [], view: [], use: [], edit: PERM_ACTS.cari.map(a => a[0]) }
+  cari: { none: [], view: [], use: [], edit: PERM_ACTS.cari.map(a => a[0]) },
+  cv: { none: [], view: [], use: ["cv.gorusme"], edit: PERM_ACTS.cv.map(a => a[0]) }
 };
 function effPerms(e) {
   if (!e) return null;
   if (e.role === "admin") return { role: "admin", mods: {}, acts: {} };
   if (e.mods && typeof e.mods === "object") return { role: "user", mods: { ...e.mods }, acts: { ...(e.acts || {}) } };
   const L = e.role === "viewer" ? "view" : "use", mods = {}, acts = {};   // eski kayıt (üye / izleyici)
-  PERM_MODS.forEach(m => { if (m === "personel") { mods[m] = "none"; return; } mods[m] = L; if (!["stok", "planlama", "satinalma", "cari"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
+  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (!["stok", "planlama", "satinalma", "cari"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
   return { role: "user", mods, acts };
 }
 const isAdmin = () => !!ME && ME.role === "admin";
@@ -222,6 +224,7 @@ function startData() {
   if (lvl("stok") !== "none") startStok(); else { SK.page = []; SK.stocked = []; SK.cache.clear(); SK.ready = true; }
   if (lvl("cari") !== "none" || lvl("satinalma") !== "none") startCari(); else { CR.list = []; CR.ready = true; }
   if (lvl("satinalma") !== "none") startSA(); else { SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true; }
+  if (lvl("cv") !== "none") startCV(); else { CV.list = []; CV.ready = true; }
   if (lvl("personel") !== "none") startPersonel(); else { PT.people = []; PT.izin = []; PT.ozel = {}; PT.ready = true; }
   if (lvl("proje") === "none") { state.ready = true; render(); return; }
   let got = 0; const first = () => { if (++got === 2) { state.ready = true; render(); } };
@@ -954,6 +957,7 @@ const ICONS = {
   planlama: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M7 13h6M10 17h7"/>',
   siparis: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>',
   cari: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.5 17c.6-1.9 2-3 3.5-3s2.9 1.1 3.5 3"/><path d="M14.5 9.5h4M14.5 13h4"/>',
+  cv: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><circle cx="11" cy="11.5" r="2.2"/><path d="M7.8 17.5c.5-1.7 1.7-2.7 3.2-2.7s2.7 1 3.2 2.7"/>',
   personel: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4.6a3.2 3.2 0 010 6.3"/><path d="M18 14.4c1.8.8 3 2.9 3 5.6"/>'
 };
 const svgIco = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
@@ -964,6 +968,7 @@ const MODULES = [
   { id: "cari", name: "CARİ MODÜLÜ", desc: "Müşteri ve tedarikçi kartları, iletişim, vade ve geçmiş", active: true },
   { id: "disis", name: "DIŞ İŞ TAKİP MODÜLÜ", desc: "Dışarı çıkan personel, araç, çıkış–dönüş saatleri ve masraflar", active: true },
   { id: "personel", name: "PERSONEL TAKİP MODÜLÜ", desc: "Günlük devam, geç kalma, izinler ve personel listesi", active: true },
+  { id: "cv", name: "CV ARŞİVİ", desc: "İş başvuruları: mavi yaka ve beyaz yaka adaylar, görüşmeler ve CV dosyaları", active: true },
   { id: "planlama", name: "PLANLAMA MODÜLÜ", desc: "İş istasyonları, ürün iş akış şemaları ve iş emirleri", active: true },
   { id: "siparis", name: "SİPARİŞ TAKİP MODÜLÜ", desc: "Müşteri siparişleri ve termin takibi",
     scope: ["Müşteri siparişleri", "Termin takibi", "Acil sipariş görünürlüğü"], tasks: [9] }
@@ -984,6 +989,7 @@ function route() {
   $("#modPlan").hidden = r !== "planlama";
   $("#modSA").hidden = r !== "satinalma";
   $("#modCari").hidden = r !== "cari";
+  $("#modCV").hidden = r !== "cv";
   $("#modYetki").hidden = r !== "yetki";
   $("#modPh").hidden = !(mod && !mod.active);
   $("#crumb").innerHTML = r === "home" ? "<b>Ana ekran</b>" : `<a href="#home">‹ <span>Ana ekran</span></a><b>${esc(mod ? mod.name : "YETKİLENDİRME")}</b>`;
@@ -996,6 +1002,7 @@ function route() {
   if (r === "planlama") renderPlan();
   if (r === "satinalma") renderSA();
   if (r === "cari") renderCari();
+  if (r === "cv") renderCV();
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
@@ -1015,6 +1022,7 @@ function renderHome() {
     if (m.id === "planlama") return planTile(m);
     if (m.id === "satinalma") return saTile(m);
     if (m.id === "cari") return cariTile(m);
+    if (m.id === "cv") return cvTile(m);
     if (m.active) return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
@@ -1879,7 +1887,7 @@ function wireDisisToolbar() {
 wireDisisToolbar();
 
 /* ================= YETKİLENDİRME (yalnızca yönetici) ================= */
-const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
+const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
 const LV_SHORT = { none: "Yok", view: "Gözlemci", use: "Kullanıcı", edit: "Düzenleyici" };
 const YT = { rows: [], dirty: false, msg: "" };
 function yetkiTile() {
@@ -6272,4 +6280,363 @@ ${p ? `<cac:OrderReference><cbc:ID>${p.no}</cbc:ID><cbc:IssueDate>${p.tarih}</cb
 <cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="${pb}">${r(ara)}</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="${pb}">${r(ara)}</cbc:TaxExclusiveAmount><cbc:TaxInclusiveAmount currencyID="${pb}">${r(ara + kdv)}</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="${pb}">${r(ara + kdv)}</cbc:PayableAmount></cac:LegalMonetaryTotal>
 ${L.map((l, i) => `<cac:InvoiceLine><cbc:ID>${i + 1}</cbc:ID><cbc:InvoicedQuantity unitCode="${l.u}">${l.q}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="${pb}">${r(l.q * l.f)}</cbc:LineExtensionAmount><cac:TaxTotal><cbc:TaxAmount currencyID="${pb}">${r(l.q * l.f * .2)}</cbc:TaxAmount><cac:TaxSubtotal><cbc:TaxableAmount currencyID="${pb}">${r(l.q * l.f)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="${pb}">${r(l.q * l.f * .2)}</cbc:TaxAmount><cbc:Percent>20</cbc:Percent><cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal><cac:Item><cbc:Name>${l.ad}</cbc:Name>${l.tk ? `<cac:SellersItemIdentification><cbc:ID>${l.tk}</cbc:ID></cac:SellersItemIdentification>` : ""}</cac:Item><cac:Price><cbc:PriceAmount currencyID="${pb}">${l.f}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`).join("\n")}
 </Invoice>`;
+}
+
+/* ================= CV ARŞİVİ (iş başvuruları) ================= */
+const CV = { list: [], ready: false, view: "mavi", F: { q: "", dur: "aktif", poz: "", alt: "", puan: "" } };
+const CV_DUR = { yeni: ["Yeni başvuru", "var(--brand)"], planlandi: ["Görüşme planlandı", "var(--k-gunluk)"], gorusuldu: ["Görüşüldü · karar bekliyor", "var(--k-gec)"], havuz: ["Olumlu · havuzda", "var(--k-fabrikada)"],
+  teklif: ["Teklif verildi", "var(--k-gunluk)"], alindi: ["İşe alındı", "var(--k-fabrikada)"], olumsuz: ["Olumsuz", "var(--k-izinsiz)"], vazgecti: ["Aday vazgeçti", "var(--ink-3)"] };
+const CV_AKTIF = ["yeni", "planlandi", "gorusuldu", "havuz", "teklif"];
+const CV_KAYNAK = ["Doğrudan başvuru (fabrikaya geldi)", "Kariyer.net", "İŞKUR", "LinkedIn", "Secretcv / Yenibiris", "Sosyal medya", "Referans (çalışan önerisi)", "Okul / staj", "Diğer"];
+const CV_EGITIM = ["İlkokul", "Ortaokul", "Lise", "Meslek lisesi", "Ön lisans", "Lisans", "Yüksek lisans", "Doktora"];
+const CV_MESLEK = ["Kaynakçı (gazaltı / MIG-MAG)", "Kaynakçı (argon / TIG)", "Lazer kesim operatörü", "Plazma operatörü", "Abkant (büküm) operatörü", "Giyotin makas operatörü", "Punch / turret operatörü", "CNC operatörü", "Montajcı", "Elektrostatik boyacı", "Sacçı / kanalcı", "Paketleme", "Depo / sevkiyat", "Forklift operatörü", "Bakım (elektrik)", "Bakım (mekanik)", "Kalite kontrol", "Şoför", "Düz işçi / yardımcı"];
+const CV_BELGE = ["MYK mesleki yeterlilik belgesi", "Ustalık belgesi", "Kalfalık belgesi", "Kaynakçı sertifikası", "Forklift operatör belgesi", "Vinç operatör belgesi", "Yüksekte çalışma eğitimi", "İSG temel eğitim belgesi", "Sağlık raporu (işe giriş)", "SRC / psikoteknik"];
+const CV_YAZILIM = ["Excel", "Word / Office", "AutoCAD", "SolidWorks", "Inventor", "ERP / MRP", "Bilsoft", "Logo / Mikro / Netsis", "SAP", "Photoshop / Illustrator", "Python / yazılım"];
+const CV_MUSAIT = ["Hemen başlayabilir", "1 hafta içinde", "2 hafta içinde (ihbar)", "1 ay içinde", "Daha sonra"];
+const CV_GTUR = ["Yüz yüze", "Telefon", "Online", "Uygulama / deneme işi"];
+let cvDrawerRefresh = null;
+const cvPhone = t => String(t || "").replace(/\D/g, "").replace(/^90/, "").replace(/^0/, "");
+const cvAge = y => y ? Number(TODAY.slice(0, 4)) - Number(y) : null;
+const cvExpired = c => c.saklamaSonu && c.saklamaSonu < TODAY;
+function startCV() {
+  CV.ready = false;
+  dataUnsubs.push(onSnapshot(collection(fs, "cv"), s => { CV.list = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.basvuru || "").localeCompare(String(a.basvuru || "")) || (b.createdAt || 0) - (a.createdAt || 0)); CV.ready = true; cvChanged(); },
+    e => { CV.ready = true; cvChanged(); toast("CV arşivi okunamadı: " + (e.code || e.message)); }));
+}
+function cvChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "cv") renderCV(); if (cvDrawerRefresh) cvDrawerRefresh(); }
+function cvTile(m) {
+  const L = CV.list, ay = L.filter(c => String(c.basvuru).slice(0, 7) === TODAY.slice(0, 7)).length, pl = L.filter(c => c.durum === "planlandi").length, hv = L.filter(c => c.durum === "havuz").length, ex = L.filter(cvExpired).length;
+  const ak = L.filter(c => CV_AKTIF.includes(c.durum)).length, pct = L.length ? Math.round(L.filter(c => !["yeni", "planlandi"].includes(c.durum)).length / L.length * 100) : 0;
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div>
+        <div class="meter" title="Değerlendirilen başvurular %${pct}"><i style="width:${pct}%"></i></div>
+        <div class="stats"><span>${ak} açık aday</span><span>Bu ay ${ay} başvuru</span>${pl ? `<span>${pl} görüşme planlı</span>` : ""}${hv ? `<span>${hv} havuzda</span>` : ""}${ex ? `<span class="alert">${ex} saklama süresi doldu</span>` : ""}</div>
+      </div></a>`;
+}
+function cvNextGorusme(c) { const G = (c.gorusmeler || []).filter(g => g.plan && g.tarih >= TODAY).sort((a, b) => (a.tarih + (a.saat || "")).localeCompare(b.tarih + (b.saat || ""))); return G[0] || null; }
+function cvPuan(c) { const G = (c.gorusmeler || []).filter(g => Number(g.puan) > 0); return c.puan ? Number(c.puan) : G.length ? Math.round(G.reduce((s, g) => s + Number(g.puan), 0) / G.length * 10) / 10 : null; }
+const cvStars = p => p == null ? '<span class="date none">—</span>' : `<span class="cvst" title="${nf(p, 1)} / 5">${"★".repeat(Math.round(p))}<i>${"★".repeat(5 - Math.round(p))}</i></span>`;
+
+function renderCV() {
+  if (!ME || $("#modCV").hidden) return;
+  const L = CV.list, ay = TODAY.slice(0, 7), y = TODAY.slice(0, 4);
+  const pl = L.filter(c => c.durum === "planlandi").map(c => ({ c, g: cvNextGorusme(c) })).sort((a, b) => String(a.g ? a.g.tarih + a.g.saat : "9").localeCompare(String(b.g ? b.g.tarih + b.g.saat : "9")));
+  const ex = L.filter(cvExpired);
+  $("#cvKpis").innerHTML = [
+    ["Açık aday", L.filter(c => CV_AKTIF.includes(c.durum)).length, `${L.filter(c => c.tur === "mavi" && CV_AKTIF.includes(c.durum)).length} mavi yaka · ${L.filter(c => c.tur === "beyaz" && CV_AKTIF.includes(c.durum)).length} beyaz yaka`, ""],
+    ["Bu ay başvuru", L.filter(c => String(c.basvuru).slice(0, 7) === ay).length, `Toplam arşiv ${L.length} kayıt`, ""],
+    ["Görüşme planlı", pl.length, pl[0] && pl[0].g ? `İlki: ${pl[0].c.ad} · ${fmtS(pl[0].g.tarih)}${pl[0].g.saat ? " " + pl[0].g.saat : ""}` : "Planlı görüşme yok", ""],
+    ["Havuzda (olumlu)", L.filter(c => c.durum === "havuz").length, "İhtiyaç olunca ilk aranacaklar", "ok"],
+    ex.length ? ["Saklama süresi dolan", ex.length, "KVKK: silinmeli ya da süre uzatılmalı", "bad"] : [y + " işe alınan", L.filter(c => c.durum === "alindi" && String(c.karar && c.karar.tarih || c.updatedAt && dayOf(c.updatedAt) || "").startsWith(y)).length, "Bu yıl işe alındı olarak işaretlenen", ""]
+  ].map(([k, v, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  document.querySelectorAll("#cvTabs [data-cv]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.cv === CV.view ? "true" : "false"); const n = L.filter(c => c.tur === b.dataset.cv && CV_AKTIF.includes(c.durum)).length; b.innerHTML = (b.dataset.cv === "mavi" ? "Mavi yaka" : "Beyaz yaka") + (n ? ` <span class="acount num">${n}</span>` : ""); b.onclick = () => { CV.view = b.dataset.cv; CV.F.poz = ""; CV.F.alt = ""; closeDrawer(); renderCV(); }; });
+  const add = $("#cvAdd"); add.hidden = !can("cv.edit"); add.textContent = CV.view === "mavi" ? "+ Mavi yaka aday" : "+ Beyaz yaka aday"; add.onclick = () => cvOpen(null, CV.view);
+  const v = $("#cvView");
+  if (!CV.ready) { v.innerHTML = '<div class="empty"><h3>CV arşivi yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
+  const mavi = CV.view === "mavi", L0 = L.filter(c => c.tur === CV.view);
+  if (!L0.length) {
+    v.innerHTML = `<div class="empty"><h3>Henüz ${mavi ? "mavi yaka" : "beyaz yaka"} aday kaydı yok</h3><p>İş görüşmesine gelen ya da başvuru yapan adayları kaydedin; varsa PDF CV'yi (ya da telefonla çekilmiş CV fotoğrafını) kayda ekleyin. Görüşme notları ve puanlar kayıt içinde tutulur, olumlu adaylar havuzda bekler, işe alınan aday tek tuşla Personel Takip'e aktarılır.</p>
+      ${can("cv.edit") ? `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="cvE1" type="button">+ Aday ekle</button>${!L.some(c => c.deneme) ? '<button class="btn ghost" id="cvE2" type="button">Deneme adayları ekle</button>' : ""}</div>` : ""}</div>`;
+    const b1 = $("#cvE1"); if (b1) b1.onclick = () => cvOpen(null, CV.view);
+    const b2 = $("#cvE2"); if (b2) b2.onclick = cvSeed; return;
+  }
+  const F = CV.F, poz = sortTr(L0.map(c => c.pozisyon)), alts = mavi ? sortTr(L0.map(c => c.meslek)) : CV_EGITIM.filter(e => L0.some(c => c.egitim === e));
+  v.innerHTML = `${pl.filter(x => x.c.tur === CV.view).length ? `<div class="cvplan">${pl.filter(x => x.c.tur === CV.view).slice(0, 6).map(({ c, g }) => `<button type="button" class="cvpl" data-cvid="${esc(c.id)}"><b>${g ? fmtS(g.tarih) + (g.saat ? " · " + esc(g.saat) : "") : "Tarih yok"}</b><span>${esc(c.ad)}</span><small>${esc(c.pozisyon || "")}${g && g.gorusmeci ? " · " + esc(g.gorusmeci) : ""}</small></button>`).join("")}</div>` : ""}
+    <div class="pkbar"><div class="filters">
+      <select class="f${F.dur !== "aktif" ? " on" : ""}" id="cvDur" aria-label="Durum">${[["aktif", "Açık adaylar"], ...Object.entries(CV_DUR).map(([k, [l]]) => [k, l]), ["sure", "Saklama süresi dolanlar"], ["tum", "Tümü"]].map(([a, l]) => opt(a, l, F.dur)).join("")}</select>
+      <select class="f${F.poz ? " on" : ""}" id="cvPoz" aria-label="Pozisyon"><option value="">Tüm pozisyonlar</option>${poz.map(p => opt(p, p, F.poz)).join("")}</select>
+      <select class="f${F.alt ? " on" : ""}" id="cvAlt" aria-label="${mavi ? "Meslek" : "Eğitim"}"><option value="">${mavi ? "Tüm meslekler" : "Tüm eğitim düzeyleri"}</option>${alts.map(p => opt(p, p, F.alt)).join("")}</select>
+      <select class="f${F.puan ? " on" : ""}" id="cvPu" aria-label="Puan">${[["", "Tüm puanlar"], ["4", "4 ve üstü"], ["3", "3 ve üstü"], ["0", "Puanlanmamış"]].map(([a, l]) => opt(a, l, F.puan)).join("")}</select>
+      <input class="f" id="cvQ" type="search" placeholder="Ad, telefon, pozisyon, ${mavi ? "makine, belge" : "okul, yazılım"} ara…" aria-label="Adaylarda ara" value="${esc(F.q)}"></div>
+    <div class="filters"><span class="sortinfo" id="cvInfo"></span><button type="button" class="btn ghost sm" id="cvCsv">Excel'e aktar</button>${ex.length && can("cv.delete") ? `<button type="button" class="btn ghost sm dangerb" id="cvExp">Süresi dolan ${ex.length} kaydı sil</button>` : ""}${L.some(c => c.deneme) && can("cv.delete") ? '<button type="button" class="btn ghost sm dangerb" id="cvUns">Deneme adaylarını sil</button>' : ""}</div></div>
+    <div id="cvList"></div>`;
+  const rowsOf = () => { const q = skNorm(F.q.trim());
+    return L0.filter(c => (F.dur === "tum" || (F.dur === "aktif" ? CV_AKTIF.includes(c.durum) : F.dur === "sure" ? cvExpired(c) : c.durum === F.dur))
+      && (!F.poz || c.pozisyon === F.poz) && (!F.alt || (mavi ? c.meslek === F.alt : c.egitim === F.alt))
+      && (!F.puan || (F.puan === "0" ? cvPuan(c) == null : (cvPuan(c) || 0) >= Number(F.puan)))
+      && (!q || skNorm([c.ad, c.tel, c.eposta, c.pozisyon, c.departman, c.meslek, c.okul, c.bolum, c.sonIsyeri, c.il, c.ilce, c.kaynak, c.referans, ...(c.makineler || []), ...(c.belgeler || []), ...(c.yazilim || []), c.dil1, c.dil2, c.not].join(" ")).includes(q) || cvPhone(c.tel).includes(cvPhone(F.q)) && cvPhone(F.q).length > 3)); };
+  const draw = () => {
+    const R = rowsOf(); $("#cvInfo").textContent = R.length + " aday";
+    $("#cvList").innerHTML = `<div class="ledger cvled" role="table"><div class="lhead" role="row"><div>Aday</div><div>${mavi ? "Meslek / deneyim" : "Eğitim / deneyim"}</div><div>İletişim</div><div>Başvuru</div><div>Durum</div><div>Puan</div><div>CV</div></div>
+      ${R.length ? R.map(c => { const g = cvNextGorusme(c), age = cvAge(c.dogumYili);
+        return `<div class="row" role="row" tabindex="0" data-cvid="${esc(c.id)}" style="--stripe:${cvExpired(c) ? "var(--k-izinsiz)" : (CV_DUR[c.durum] || [])[1] || "transparent"}">
+          <div class="ska"><b>${esc(c.ad)}</b>${c.deneme ? ' <span class="ttag" style="--tc:var(--warn)">DENEME</span>' : ""}<div class="desc">${esc(c.pozisyon || "")}${age ? " · " + age + " yaş" : ""}${c.il ? " · " + esc(c.il) : ""}</div></div>
+          <div class="izs">${esc(mavi ? c.meslek || "—" : [c.egitim, c.bolum].filter(Boolean).join(" · ") || "—")}<div class="note">${c.deneyimYil != null && c.deneyimYil !== "" ? nf(c.deneyimYil, 1) + " yıl deneyim" : "Deneyim girilmedi"}${mavi && (c.belgeler || []).length ? " · " + c.belgeler.length + " belge" : ""}${!mavi && c.dil1 ? " · " + esc(c.dil1) : ""}</div></div>
+          <div class="izs"><span class="num">${esc(c.tel || "—")}</span>${c.eposta ? `<div class="note">${esc(c.eposta)}</div>` : ""}</div>
+          <div><span class="date">${c.basvuru ? fmtS(c.basvuru) : "—"}</span><div class="note">${esc(c.kaynak || "")}</div></div>
+          <div><span class="kst" style="--tc:${(CV_DUR[c.durum] || [])[1]}">${esc((CV_DUR[c.durum] || [c.durum])[0])}</span>${g ? `<div class="note">${fmtS(g.tarih)}${g.saat ? " " + esc(g.saat) : ""}</div>` : ""}${cvExpired(c) ? '<div class="note late">Saklama süresi doldu</div>' : ""}</div>
+          <div>${cvStars(cvPuan(c))}</div>
+          <div>${c.dosya ? `<span class="kst" style="--tc:var(--brand)" title="${esc(c.dosya.ad)}">${/pdf/i.test(c.dosya.tip || c.dosya.ad) ? "PDF" : "Görsel"}</span>` : '<span class="date none">—</span>'}</div></div>`; }).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtrelere uyan aday yok.</div>'}</div>
+      <p class="note" style="margin:-18px 0 28px">Aday bilgileri kişisel veridir (KVKK). Yalnızca CV Arşivi yetkisi olanlar görür. Her kayıtta saklama süresi tutulur; süresi dolan kayıtlar kırmızı görünür ve silinmelidir.</p>`;
+    document.querySelectorAll("#cvView [data-cvid]").forEach(el => { const go = () => cvOpen(el.dataset.cvid); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+  };
+  draw();
+  $("#cvDur").onchange = e => { F.dur = e.target.value; renderCV(); };
+  $("#cvPoz").onchange = e => { F.poz = e.target.value; renderCV(); };
+  $("#cvAlt").onchange = e => { F.alt = e.target.value; renderCV(); };
+  $("#cvPu").onchange = e => { F.puan = e.target.value; renderCV(); };
+  $("#cvQ").oninput = e => { F.q = e.target.value; draw(); };
+  $("#cvCsv").onclick = () => cvCsv(rowsOf(), mavi);
+  const xb = $("#cvExp"); if (xb) { let a = false; xb.onclick = async () => { if (!a) { a = true; xb.textContent = `${ex.length} kayıt ve CV dosyaları kalıcı olarak silinsin mi? Tekrar basın`; return; } xb.disabled = true; let n = 0; for (const c of ex) { try { await cvDelete(c); n++; } catch (x) { toast(writeErr(x)); break; } } toast(n + " kayıt silindi"); }; }
+  const us = $("#cvUns"); if (us) { let a = false; us.onclick = async () => { if (!a) { a = true; us.textContent = "Silmek için tekrar basın"; return; } us.disabled = true; for (const c of L.filter(x => x.deneme)) await cvDelete(c).catch(() => {}); toast("Deneme adayları silindi"); }; }
+}
+function cvCsv(R, mavi) {
+  const H = ["Ad soyad", "Telefon", "E-posta", "Doğum yılı", "İl", "İlçe", "Pozisyon", "Departman", "Başvuru tarihi", "Kaynak", "Referans", "Eğitim", "Okul", "Bölüm", "Deneyim (yıl)", "Son işyeri", "Son pozisyon", ...(mavi ? ["Meslek", "Makineler", "Belgeler", "Vardiya", "Teknik resim", "Uygulama sonucu"] : ["Yabancı dil", "Yazılımlar", "Seyahat"]), "Askerlik", "Ehliyet", "Beklenen ücret (net)", "Müsaitlik", "Durum", "Puan", "Görüşme sayısı", "KVKK onayı", "Saklama sonu", "Not"];
+  const rows = R.map(c => [c.ad, c.tel, c.eposta, c.dogumYili, c.il, c.ilce, c.pozisyon, c.departman, c.basvuru, c.kaynak, c.referans, c.egitim, c.okul, c.bolum, c.deneyimYil, c.sonIsyeri, c.sonPozisyon,
+    ...(mavi ? [c.meslek, (c.makineler || []).join(", "), (c.belgeler || []).join(", "), c.vardiya, c.teknikResim, c.uygulama] : [[c.dil1 && c.dil1 + " " + (c.dil1s || ""), c.dil2 && c.dil2 + " " + (c.dil2s || "")].filter(Boolean).join(", "), (c.yazilim || []).join(", "), c.seyahat]),
+    c.askerlik, c.ehliyet, c.ucret, c.musait, (CV_DUR[c.durum] || [c.durum])[0], cvPuan(c) ?? "", (c.gorusmeler || []).filter(g => !g.plan).length, c.kvkk ? "Evet" : "Hayır", c.saklamaSonu, c.not]);
+  const csv = "﻿" + [H, ...rows].map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  saveFile(new Blob([csv], { type: "text/csv;charset=utf-8" }), `cv-arsivi-${mavi ? "mavi" : "beyaz"}-yaka-${TODAY}.csv`);
+}
+
+/* --- CV dosyası: Firestore'da 900 KB'lık parçalar halinde (Spark planında Storage yok) --- */
+const CV_PARCA = 900000, CV_MAX = 5 * 1024 * 1024;
+async function cvFileWrite(cvId, file, old) {
+  if (file.size > CV_MAX) throw new Error("Dosya 5 MB'tan büyük olamaz");
+  const buf = new Uint8Array(await file.arrayBuffer()); let bin = ""; for (let i = 0; i < buf.length; i += 32768) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 32768));
+  const b64 = btoa(bin), n = Math.ceil(b64.length / CV_PARCA);
+  for (let k = 0; k < n; k++) await setDoc(doc(fs, "cv_dosya", `${cvId}_${k}`), { cvId, k, d: b64.slice(k * CV_PARCA, (k + 1) * CV_PARCA) });
+  for (let k = n; k < ((old && old.parca) || 0); k++) await deleteDoc(doc(fs, "cv_dosya", `${cvId}_${k}`)).catch(() => {});
+  return { ad: file.name.slice(0, 120), tip: file.type || (/\.pdf$/i.test(file.name) ? "application/pdf" : ""), boyut: file.size, parca: n, at: Date.now(), by: ME.name };
+}
+async function cvFileBlob(c) {
+  const s = await getDocs(query(collection(fs, "cv_dosya"), where("cvId", "==", c.id)));
+  const P = s.docs.map(d => d.data()).sort((a, b) => a.k - b.k); if (!P.length) throw new Error("Dosya bulunamadı");
+  const bin = atob(P.map(p => p.d).join("")), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new Blob([u], { type: c.dosya.tip || "application/pdf" });
+}
+async function cvDelete(c) {
+  for (let k = 0; k < ((c.dosya && c.dosya.parca) || 0); k++) await deleteDoc(doc(fs, "cv_dosya", `${c.id}_${k}`)).catch(() => {});
+  await deleteDoc(doc(fs, "cv", c.id));
+}
+
+/* --- aday kartı --- */
+function cvOpen(id, tur) {
+  const it = id ? CV.list.find(c => c.id === id) : null; if (id && !it) { toast("Kayıt bulunamadı"); return; }
+  const ed = can("cv.edit"), dis = ed ? "" : " disabled", cid = it ? it.id : doc(collection(fs, "cv")).id;
+  let T = "bil", form = null, pend = null, url = null, dupOk = false;
+  cvDrawerRefresh = () => { if (T !== "bil" && $("#cvT")) paint(); };
+  onDrawerClose = () => { cvDrawerRefresh = null; if (url) URL.revokeObjectURL(url); };
+  const keep = () => { if (!$("#vAd")) return; form = {}; document.querySelectorAll("#cvForm [id]").forEach(el => { if ("value" in el) form[el.id] = el.type === "checkbox" ? el.checked : el.value; });
+    form._mak = [...document.querySelectorAll("#cvForm [data-mk]:checked")].map(x => x.dataset.mk); form._bel = [...document.querySelectorAll("#cvForm [data-bl]:checked")].map(x => x.dataset.bl); form._yaz = [...document.querySelectorAll("#cvForm [data-yz]:checked")].map(x => x.dataset.yz); };
+  function paint() {
+    const c = it ? CV.list.find(x => x.id === it.id) || it : null, mavi = (c ? c.tur : tur) === "mavi", G = c ? (c.gorusmeler || []) : [];
+    const tabs = c ? [["bil", "Aday bilgileri"], ["gor", `Görüşmeler <span class="acount num">${G.length}</span>`], ["cvd", `CV dosyası${c.dosya ? ' <span class="acount num">1</span>' : ""}`]] : [];
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="cvT" style="width:min(820px,100%)">
+      <div class="dh"><h2 id="cvT">${c ? esc(c.ad) : mavi ? "Yeni mavi yaka aday" : "Yeni beyaz yaka aday"}</h2><button class="x" id="cvX" aria-label="Kapat">×</button></div>
+      ${c ? head(c, mavi) : ""}
+      ${tabs.length ? `<div class="seg sktabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" data-ct2="${k}" aria-pressed="${T === k}">${l}</button>`).join("")}</div>` : ""}
+      <div class="db">${T === "bil" ? formHtml(c, mavi) : T === "gor" ? gorHtml(c) : dosyaHtml(c)}</div>
+      ${T === "bil" ? `<div class="df"><span>${c && can("cv.delete") ? '<button class="btn danger" id="vDel" type="button">Sil</button>' : ""}</span><div class="r"><button class="btn ghost" id="vC" type="button">${ed ? "Vazgeç" : "Kapat"}</button>${ed ? `<button class="btn" id="vS" type="button">${c ? "Kaydet" : "Adayı kaydet"}</button>` : ""}</div></div>` : ""}
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#cvX").onclick = closeDrawer;
+    document.querySelectorAll("[data-ct2]").forEach(b => b.onclick = () => { if (T === "bil") keep(); T = b.dataset.ct2; paint(); });
+    const ds = $("#vDurQ"); if (ds) ds.onchange = async () => { try { await updateDoc(doc(fs, "cv", c.id), { durum: ds.value, ...(["alindi", "olumsuz", "havuz", "teklif", "vazgecti"].includes(ds.value) ? { karar: { tarih: TODAY, by: ME.name } } : {}), updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, "Durum: " + CV_DUR[ds.value][0]) }); toast("Durum güncellendi"); } catch (x) { toast(writeErr(x)); } };
+    const pa = $("#vPer"); if (pa) pa.onclick = () => cvToPersonel(c);
+    if (T === "bil") bind(c, mavi); if (T === "gor") bindGor(c); if (T === "cvd") bindDosya(c);
+  }
+  function head(c, mavi) {
+    const p = cvPuan(c), age = cvAge(c.dogumYili), wa = crPhone(c.tel), prev = CV.list.filter(x => x.id !== c.id && ((cvPhone(x.tel) && cvPhone(x.tel) === cvPhone(c.tel)) || crFold(x.ad) === crFold(c.ad)));
+    return `<div class="skhead"><div class="skbig" style="--tc:${(CV_DUR[c.durum] || [])[1]}"><b>${p == null ? "—" : nf(p, 1)}</b><span>${p == null ? "Puan yok" : "/ 5 puan"}</span></div>
+      <div class="skhm"><span>${esc(c.pozisyon || "")}${c.departman ? " · " + esc(c.departman) : ""}</span><span>${mavi ? esc(c.meslek || "Meslek girilmedi") : esc([c.egitim, c.bolum].filter(Boolean).join(" · ") || "Eğitim girilmedi")}${c.deneyimYil ? " · " + nf(c.deneyimYil, 1) + " yıl" : ""}${age ? " · " + age + " yaş" : ""}</span><span>Başvuru ${c.basvuru ? fmtS(c.basvuru) : "—"}${c.kaynak ? " · " + esc(c.kaynak) : ""}${c.saklamaSonu ? (cvExpired(c) ? ` · <b class="late">saklama süresi doldu (${fmtS(c.saklamaSonu)})</b>` : ` · saklama ${fmtS(c.saklamaSonu)}`) : ""}</span>
+        ${prev.length ? `<span class="late">Önceki başvuru: ${prev.map(x => `${fmtS(x.basvuru)} ${esc(x.pozisyon || "")} (${(CV_DUR[x.durum] || [""])[0]})`).join(", ")}</span>` : ""}${c.personelId ? '<span>Personel Takip\'e aktarıldı</span>' : ""}</div>
+      <div class="skhb">${c.tel ? `<a class="qb" href="tel:${esc(String(c.tel).replace(/[^\d+]/g, ""))}">Ara</a>${wa ? `<a class="qb ok" href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a>` : ""}` : ""}
+        ${can("cv.edit") || can("cv.gorusme") ? `<select class="f" id="vDurQ" aria-label="Durum">${Object.entries(CV_DUR).map(([k, [l]]) => opt(k, l, c.durum)).join("")}</select>` : ""}
+        ${c.durum === "alindi" && !c.personelId && can("k.list") && lvl("personel") !== "none" ? '<button type="button" class="qb ok" id="vPer">Personel Takip\'e aktar</button>' : ""}</div></div>`;
+  }
+  function chips(list, sel, attr, extra = []) { const all = [...new Set([...list, ...extra, ...sel])]; return `<div class="cvchips">${all.map(x => `<label class="chk cvchip"><input type="checkbox" data-${attr}="${esc(x)}"${sel.includes(x) ? " checked" : ""}${dis}> ${esc(x)}</label>`).join("")}</div>`; }
+  function formHtml(c, mavi) {
+    const v = (k, d = "") => form && k in form ? form[k] : d, x = c || {};
+    const mak = form ? form._mak : x.makineler || [], bel = form ? form._bel : x.belgeler || [], yaz = form ? form._yaz : x.yazilim || [];
+    const istList = ["Lazer kesim", "Plazma kesim", "Abkant pres", "Giyotin makas", "Punch / turret", "CNC büküm", "Kaynak makinesi (gazaltı)", "TIG (argon) kaynak", "Punta kaynak", "Elektrostatik boya hattı", "Kumlama", "Torna", "Freze", "Forklift", "Köprülü vinç", "Kenet / kanal makinesi"];
+    return `<div id="cvForm">
+      <section><h3 class="sec-t">Kişisel bilgiler</h3><div class="fgrid">
+        <div class="field full"><label for="vAd">Ad soyad *</label><input id="vAd" maxlength="80" value="${esc(v("vAd", x.ad || ""))}"${dis}></div>
+        <div class="field"><label for="vTel">Telefon *</label><input id="vTel" type="tel" maxlength="20" value="${esc(v("vTel", x.tel || ""))}" placeholder="05xx xxx xx xx"${dis}></div>
+        <div class="field"><label for="vMail">E-posta</label><input id="vMail" type="email" maxlength="100" value="${esc(v("vMail", x.eposta || ""))}"${dis}></div>
+        <div class="field"><label for="vDy">Doğum yılı</label><input id="vDy" type="number" min="1950" max="${Number(TODAY.slice(0, 4)) - 15}" value="${esc(v("vDy", x.dogumYili || ""))}"${dis}></div>
+        <div class="field"><label for="vAsk">Askerlik durumu</label><select id="vAsk"${dis}>${["", "Yapıldı", "Muaf", "Tecilli", "Yapılmadı", "Uygulanmaz"].map(a => opt(a, a || "—", v("vAsk", x.askerlik || ""))).join("")}</select></div>
+        <div class="field"><label for="vIl">İl</label><input id="vIl" maxlength="40" value="${esc(v("vIl", x.il || "Konya"))}"${dis}></div>
+        <div class="field"><label for="vIlc">İlçe / semt</label><input id="vIlc" maxlength="40" value="${esc(v("vIlc", x.ilce || ""))}" placeholder="Ulaşım ve servis için"${dis}></div>
+        <div class="field"><label for="vEh">Ehliyet</label><input id="vEh" list="vEhL" maxlength="40" value="${esc(v("vEh", x.ehliyet || ""))}" placeholder="Örn. B, C, CE"${dis}><datalist id="vEhL">${["Yok", "B", "C", "CE", "D", "B + forklift", "C + SRC"].map(a => `<option value="${a}">`).join("")}</datalist></div>
+        <div class="field"><label for="vSer">Ulaşım</label><select id="vSer"${dis}>${["", "Servis kullanır", "Kendi aracıyla", "Toplu taşıma", "Yürüyerek"].map(a => opt(a, a || "—", v("vSer", x.ulasim || ""))).join("")}</select></div>
+      </div></section>
+      <section><h3 class="sec-t">Başvuru</h3><div class="fgrid">
+        <div class="field"><label for="vPoz">Başvurduğu pozisyon *</label><input id="vPoz" list="vPozL" maxlength="80" value="${esc(v("vPoz", x.pozisyon || ""))}"${dis}><datalist id="vPozL">${sortTr([...CV.list.filter(y => y.tur === (mavi ? "mavi" : "beyaz")).map(y => y.pozisyon), ...(mavi ? CV_MESLEK : ["Planlama uzmanı", "Satın alma uzmanı", "Satış temsilcisi", "Muhasebe", "Proje mühendisi", "Makine mühendisi", "Teknik ressam", "Kalite uzmanı", "İK uzmanı", "Ön muhasebe"])]).map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div class="field"><label for="vDep">Departman</label><input id="vDep" list="vDepL" maxlength="60" value="${esc(v("vDep", x.departman || ""))}"${dis}><datalist id="vDepL">${sortTr([...(typeof PT !== "undefined" ? PT.people.map(p => p.departman) : []), "Üretim", "Kaynakhane", "Boyahane", "Montaj", "Depo", "Planlama", "Satın alma", "Satış", "Muhasebe", "Kalite"]).map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div class="field"><label for="vBas">Başvuru tarihi *</label><input id="vBas" type="date" max="${TODAY}" value="${esc(v("vBas", x.basvuru || TODAY))}"${dis}></div>
+        <div class="field"><label for="vKay">Başvuru kaynağı</label><select id="vKay"${dis}>${["", ...CV_KAYNAK].map(a => opt(a, a || "—", v("vKay", x.kaynak || ""))).join("")}</select></div>
+        <div class="field full"><label for="vRef">Referans (kim önerdi / tanıdık)</label><input id="vRef" maxlength="100" value="${esc(v("vRef", x.referans || ""))}"${dis}></div>
+      </div></section>
+      <section><h3 class="sec-t">Eğitim ve deneyim</h3><div class="fgrid">
+        <div class="field"><label for="vEg">Eğitim durumu</label><select id="vEg"${dis}>${["", ...CV_EGITIM].map(a => opt(a, a || "—", v("vEg", x.egitim || ""))).join("")}</select></div>
+        <div class="field"><label for="vOk">Okul</label><input id="vOk" maxlength="100" value="${esc(v("vOk", x.okul || ""))}"${dis}></div>
+        <div class="field"><label for="vBol">Bölüm / alan</label><input id="vBol" maxlength="80" value="${esc(v("vBol", x.bolum || ""))}"${dis}></div>
+        <div class="field"><label for="vDen">Toplam deneyim (yıl)</label><input id="vDen" type="number" step="0.5" min="0" max="50" value="${esc(v("vDen", x.deneyimYil ?? ""))}"${dis}></div>
+        <div class="field"><label for="vSi">Son çalıştığı işyeri</label><input id="vSi" maxlength="100" value="${esc(v("vSi", x.sonIsyeri || ""))}"${dis}></div>
+        <div class="field"><label for="vSp">Son pozisyonu</label><input id="vSp" maxlength="80" value="${esc(v("vSp", x.sonPozisyon || ""))}"${dis}></div>
+        <div class="field full"><label for="vAyr">Ayrılış nedeni</label><input id="vAyr" maxlength="160" value="${esc(v("vAyr", x.ayrilis || ""))}"${dis}></div>
+      </div></section>
+      ${mavi ? `<section><h3 class="sec-t">Mesleki yetkinlik</h3><div class="fgrid">
+        <div class="field"><label for="vMes">Meslek / ustalık</label><input id="vMes" list="vMesL" maxlength="60" value="${esc(v("vMes", x.meslek || ""))}"${dis}><datalist id="vMesL">${CV_MESLEK.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
+        <div class="field"><label for="vSev">Seviye</label><select id="vSev"${dis}>${["", "Usta", "Kalfa", "Operatör", "Çırak / yardımcı", "Deneyimsiz"].map(a => opt(a, a || "—", v("vSev", x.seviye || ""))).join("")}</select></div>
+        <div class="field"><label for="vVar">Vardiyalı çalışabilir mi?</label><select id="vVar"${dis}>${["", "Evet", "Hayır", "Yalnız gündüz"].map(a => opt(a, a || "—", v("vVar", x.vardiya || ""))).join("")}</select></div>
+        <div class="field"><label for="vTr">Teknik resim okuyabilir mi?</label><select id="vTr"${dis}>${["", "Evet", "Kısmen", "Hayır"].map(a => opt(a, a || "—", v("vTr", x.teknikResim || ""))).join("")}</select></div>
+        <div class="field full"><label>Kullanabildiği makineler</label>${chips(istList, mak, "mk")}</div>
+        <div class="field full"><label>Belgeler</label>${chips(CV_BELGE, bel, "bl")}</div>
+        <div class="field full"><label for="vUyg">Uygulama / deneme işi sonucu</label><input id="vUyg" maxlength="200" value="${esc(v("vUyg", x.uygulama || ""))}" placeholder="Örn. 2 mm sac gazaltı kaynak: düzgün, çapak az"${dis}></div>
+      </div></section>` : `<section><h3 class="sec-t">Yetkinlikler</h3><div class="fgrid">
+        <div class="field"><label for="vD1">Yabancı dil</label><input id="vD1" list="vDilL" maxlength="30" value="${esc(v("vD1", x.dil1 || ""))}"${dis}></div>
+        <div class="field"><label for="vD1s">Seviye</label><select id="vD1s"${dis}>${["", "Başlangıç", "Orta", "İyi", "Çok iyi / akıcı"].map(a => opt(a, a || "—", v("vD1s", x.dil1s || ""))).join("")}</select></div>
+        <div class="field"><label for="vD2">İkinci dil</label><input id="vD2" list="vDilL" maxlength="30" value="${esc(v("vD2", x.dil2 || ""))}"${dis}><datalist id="vDilL">${["İngilizce", "Almanca", "Rusça", "Arapça", "Fransızca"].map(a => `<option value="${a}">`).join("")}</datalist></div>
+        <div class="field"><label for="vD2s">Seviye</label><select id="vD2s"${dis}>${["", "Başlangıç", "Orta", "İyi", "Çok iyi / akıcı"].map(a => opt(a, a || "—", v("vD2s", x.dil2s || ""))).join("")}</select></div>
+        <div class="field full"><label>Bilgisayar ve yazılımlar</label>${chips(CV_YAZILIM, yaz, "yz")}</div>
+        <div class="field"><label for="vSey">Seyahat engeli</label><select id="vSey"${dis}>${["", "Yok", "Var", "Kısa süreli olabilir"].map(a => opt(a, a || "—", v("vSey", x.seyahat || ""))).join("")}</select></div>
+        <div class="field"><label for="vLi">LinkedIn / portfolyo</label><input id="vLi" maxlength="160" value="${esc(v("vLi", x.linkedin || ""))}"${dis}></div>
+      </div></section>`}
+      <section><h3 class="sec-t">Ücret ve müsaitlik</h3><div class="fgrid">
+        <div class="field"><label for="vUc">Beklenen ücret (net, TL)</label><input id="vUc" type="number" min="0" step="500" value="${esc(v("vUc", x.ucret ?? ""))}"${dis}></div>
+        <div class="field"><label for="vMu">Ne zaman başlayabilir?</label><select id="vMu"${dis}>${["", ...CV_MUSAIT].map(a => opt(a, a || "—", v("vMu", x.musait || ""))).join("")}</select></div>
+      </div></section>
+      <section><h3 class="sec-t">Değerlendirme</h3><div class="fgrid">
+        <div class="field"><label for="vDur">Durum</label><select id="vDur"${dis}>${Object.entries(CV_DUR).map(([k, [l]]) => opt(k, l, v("vDur", x.durum || "yeni"))).join("")}</select></div>
+        <div class="field"><label for="vPu">Genel puan</label><select id="vPu"${dis}>${[["", "Görüşme puanlarının ortalaması"], ["5", "5 · Çok iyi"], ["4", "4 · İyi"], ["3", "3 · Orta"], ["2", "2 · Zayıf"], ["1", "1 · Uygun değil"]].map(([a, l]) => opt(a, l, String(v("vPu", x.puan || "")))).join("")}</select></div>
+        <div class="field full"><label for="vNot">Notlar</label><textarea id="vNot" maxlength="2000" placeholder="Genel izlenim, güçlü / zayıf yönler, hangi pozisyona daha uygun…"${dis}>${esc(v("vNot", x.not || ""))}</textarea></div>
+      </div></section>
+      ${!c ? `<section><h3 class="sec-t">CV dosyası <small>isteğe bağlı · PDF ya da fotoğraf · en fazla 5 MB</small></h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn ghost" id="vFb"${dis}>${pend ? "Dosyayı değiştir" : "Dosya seç"}</button><input type="file" id="vFi" accept="application/pdf,image/*" hidden><span class="note" id="vFn">${pend ? esc(pend.name) + " · " + nf(pend.size / 1024, 0) + " KB" : "Seçilmedi"}</span></div></section>` : ""}
+      <section><h3 class="sec-t">KVKK</h3><div class="fgrid">
+        <label class="chk field full"><input type="checkbox" id="vKv"${v("vKv", x.kvkk || false) ? " checked" : ""}${dis}> Adaya aday aydınlatma metni verildi; bilgilerinin değerlendirme için saklanmasına onay verdi</label>
+        <div class="field"><label for="vSak">Saklama süresi sonu</label><input id="vSak" type="date" value="${esc(v("vSak", x.saklamaSonu || dayOf(Date.now() + 730 * 864e5)))}"${dis}><span class="note">Varsayılan başvurudan itibaren 2 yıl. Süre dolunca kayıt silinmeli.</span></div>
+      </div></section>
+      ${c ? `<p class="note" style="margin:0">Kaydeden: ${esc(c.createdBy || "—")}${c.updatedBy ? " · son düzenleyen " + esc(c.updatedBy) : ""}</p>` : ""}</div>`;
+  }
+  function bind(c, mavi) {
+    $("#vC").onclick = closeDrawer;
+    const fb = $("#vFb"); if (fb) { fb.onclick = () => $("#vFi").click(); $("#vFi").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; if (f.size > CV_MAX) { toast("Dosya 5 MB'tan büyük olamaz"); return; } keep(); pend = f; paint(); }; }
+    const bas = $("#vBas"); if (bas && !c) bas.onchange = () => { const s = $("#vSak"); if (s && bas.value) s.value = dayOf(Date.parse(bas.value + "T12:00:00Z") + 730 * 864e5); };
+    const del = $("#vDel"); if (del) { let a = false; del.onclick = async () => { if (!a) { a = true; del.textContent = "Kayıt ve CV dosyası silinsin mi? Tekrar basın"; return; } del.disabled = true; try { await cvDelete(c); toast("Kayıt silindi"); closeDrawer(); } catch (x) { del.disabled = false; toast(writeErr(x)); } }; }
+    const sv = $("#vS"); if (!sv) return;
+    sv.onclick = async () => {
+      keep(); const g = k => String(form[k] ?? "").trim();
+      const ad = g("vAd").replace(/\s+/g, " "); if (!ad) { toast("Ad soyad girin"); $("#vAd").focus(); return; }
+      if (cvPhone(g("vTel")).length < 10) { toast("Geçerli bir telefon numarası girin"); $("#vTel").focus(); return; }
+      if (!g("vPoz")) { toast("Başvurduğu pozisyonu girin"); $("#vPoz").focus(); return; }
+      const dup = CV.list.filter(x => x.id !== (c && c.id) && ((cvPhone(x.tel) === cvPhone(g("vTel"))) || crFold(x.ad) === crFold(ad)));
+      if (dup.length && !c && !dupOk) { dupOk = true; toast(`Bu aday daha önce kayıtlı: ${dup.map(x => fmtS(x.basvuru) + " " + (x.pozisyon || "")).join(", ")}. Yine de yeni başvuru olarak kaydetmek için tekrar basın`); sv.textContent = "Yine de kaydet"; return; }
+      const now = Date.now(), num = k => form[k] === "" || form[k] == null ? null : Number(form[k]);
+      const data = { tur: mavi ? "mavi" : "beyaz", ad: ad.slice(0, 80), tel: g("vTel"), eposta: g("vMail"), dogumYili: num("vDy"), askerlik: g("vAsk"), il: g("vIl"), ilce: g("vIlc"), ehliyet: g("vEh"), ulasim: g("vSer"),
+        pozisyon: g("vPoz"), departman: g("vDep"), basvuru: g("vBas") || TODAY, kaynak: g("vKay"), referans: g("vRef"), egitim: g("vEg"), okul: g("vOk"), bolum: g("vBol"), deneyimYil: num("vDen"), sonIsyeri: g("vSi"), sonPozisyon: g("vSp"), ayrilis: g("vAyr"),
+        ...(mavi ? { meslek: g("vMes"), seviye: g("vSev"), vardiya: g("vVar"), teknikResim: g("vTr"), makineler: form._mak, belgeler: form._bel, uygulama: g("vUyg") } : { dil1: g("vD1"), dil1s: g("vD1s"), dil2: g("vD2"), dil2s: g("vD2s"), yazilim: form._yaz, seyahat: g("vSey"), linkedin: g("vLi") }),
+        ucret: num("vUc"), musait: g("vMu"), durum: form.vDur || "yeni", puan: num("vPu"), not: g("vNot"), kvkk: !!form.vKv, saklamaSonu: form.vSak || "", updatedAt: now, updatedBy: ME.name };
+      sv.disabled = true; sv.textContent = "Kaydediliyor…";
+      try {
+        if (c) await updateDoc(doc(fs, "cv", c.id), { ...data, log: cvLog(c, "Bilgiler güncellendi") });
+        else {
+          await setDoc(doc(fs, "cv", cid), { ...data, gorusmeler: [], createdAt: now, createdBy: ME.name, log: [{ at: now, by: ME.name, t: "Aday kaydedildi" }] });
+          if (pend) { try { const meta = await cvFileWrite(cid, pend); await updateDoc(doc(fs, "cv", cid), { dosya: meta }); } catch (x) { toast("Kayıt eklendi ama CV yüklenemedi: " + (x.message || x)); closeDrawer(); return; } }
+        }
+        toast(c ? "Aday bilgileri güncellendi" : `${ad} kaydedildi${pend ? " · CV eklendi" : ""}`); if (c) closeDrawer(); else { const nid = cid; closeDrawer(); setTimeout(() => cvOpen(nid), 120); }
+      } catch (x) { sv.disabled = false; sv.textContent = "Kaydet"; toast(writeErr(x)); }
+    };
+  }
+  function gorHtml(c) {
+    const G = (c.gorusmeler || []).slice().sort((a, b) => String(b.tarih + (b.saat || "")).localeCompare(String(a.tarih + (a.saat || "")))), eg = can("cv.edit") || can("cv.gorusme");
+    return `${G.length ? G.map((g, i) => `<div class="cvgor${g.plan ? " plan" : ""}"><div class="sipt"><b class="num">${fmtS(g.tarih)}${g.saat ? " " + esc(g.saat) : ""}</b><span class="kst" style="--tc:${g.plan ? "var(--k-gunluk)" : "var(--brand)"}">${g.plan ? "Planlandı" : esc(g.tur || "Görüşme")}</span><span>${esc(g.gorusmeci || "")}</span>${g.puan ? cvStars(Number(g.puan)) : ""}</div>${g.not ? `<p class="izs" style="margin:6px 0 0;white-space:pre-wrap">${esc(g.not)}</p>` : ""}<div class="note">${esc(g.by || "")} · ${g.at ? skTs(g.at) : ""}${eg ? ` · <button type="button" class="linkbtn" data-ged="${c.gorusmeler.indexOf(G[i])}">${g.plan ? "Sonucu gir" : "Düzenle"}</button> · <button type="button" class="linkbtn" data-gdel="${c.gorusmeler.indexOf(G[i])}">Sil</button>` : ""}</div></div>`).join("") : '<p class="note">Henüz görüşme kaydı yok.</p>'}
+      ${eg ? `<section id="gFormS"><h3 class="sec-t" id="gTit">Görüşme ekle</h3><div class="fgrid">
+        <div class="field"><label for="gTar">Tarih</label><input id="gTar" type="date" value="${TODAY}"></div>
+        <div class="field"><label for="gSa">Saat</label><input id="gSa" type="time"></div>
+        <div class="field"><label for="gTur">Görüşme türü</label><select id="gTur">${CV_GTUR.map(a => opt(a, a, "Yüz yüze")).join("")}</select></div>
+        <div class="field"><label for="gKim">Görüşmeci(ler)</label><input id="gKim" maxlength="100" value="${esc(ME.name)}"></div>
+        <div class="field"><label for="gPu">Puan</label><select id="gPu">${[["", "—"], ["5", "5 · Çok iyi"], ["4", "4 · İyi"], ["3", "3 · Orta"], ["2", "2 · Zayıf"], ["1", "1 · Uygun değil"]].map(([a, l]) => opt(a, l, "")).join("")}</select></div>
+        <label class="chk field" style="align-self:end"><input type="checkbox" id="gPl"> İleri tarihli · planlandı (sonuç sonra girilecek)</label>
+        <div class="field full"><label for="gNot">Notlar</label><textarea id="gNot" maxlength="2000" placeholder="Teknik bilgi, iletişim, motivasyon, ücret beklentisi, uygulama sonucu…"></textarea></div></div>
+        <button type="button" class="btn" id="gSv" style="margin-top:10px">Görüşmeyi kaydet</button><input type="hidden" id="gIdx" value=""></section>` : ""}
+      ${(c.log || []).length ? `<section><h3 class="sec-t">Kayıt geçmişi</h3>${c.log.slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>` : ""}`;
+  }
+  function bindGor(c) {
+    const pl = $("#gPl"); if (pl) pl.onchange = () => { $("#gPu").disabled = pl.checked; if (pl.checked) $("#gTar").min = TODAY; };
+    document.querySelectorAll("[data-ged]").forEach(b => b.onclick = () => { const i = Number(b.dataset.ged), g = c.gorusmeler[i]; $("#gIdx").value = i; $("#gTit").textContent = g.plan ? "Görüşme sonucunu gir" : "Görüşmeyi düzenle";
+      $("#gTar").value = g.tarih; $("#gSa").value = g.saat || ""; $("#gTur").value = g.tur || "Yüz yüze"; $("#gKim").value = g.gorusmeci || ""; $("#gPu").value = g.puan || ""; $("#gNot").value = g.not || ""; $("#gPl").checked = false; $("#gPu").disabled = false; $("#gFormS").scrollIntoView({ behavior: "smooth" }); });
+    document.querySelectorAll("[data-gdel]").forEach(b => { let a = false; b.onclick = async () => { if (!a) { a = true; b.textContent = "Emin misiniz?"; return; } const G = c.gorusmeler.slice(); G.splice(Number(b.dataset.gdel), 1); try { await updateDoc(doc(fs, "cv", c.id), { gorusmeler: G, updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, "Görüşme kaydı silindi") }); } catch (x) { toast(writeErr(x)); } }; });
+    const sv = $("#gSv"); if (!sv) return;
+    sv.onclick = async () => {
+      const plan = $("#gPl").checked, i = $("#gIdx").value, g = { tarih: $("#gTar").value || TODAY, saat: $("#gSa").value, tur: $("#gTur").value, gorusmeci: $("#gKim").value.trim(), puan: plan ? null : Number($("#gPu").value) || null, not: $("#gNot").value.trim(), plan, at: Date.now(), by: ME.name };
+      if (!plan && !g.not && !g.puan) { toast("Not ya da puan girin"); return; }
+      const G = (c.gorusmeler || []).slice(); if (i !== "") G[Number(i)] = g; else G.push(g);
+      const yeniDur = plan ? (["yeni", "gorusuldu"].includes(c.durum) ? "planlandi" : c.durum) : (["yeni", "planlandi"].includes(c.durum) && !G.some(x => x.plan) ? "gorusuldu" : c.durum);
+      sv.disabled = true;
+      try { await updateDoc(doc(fs, "cv", c.id), { gorusmeler: G, durum: yeniDur, updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, plan ? `Görüşme planlandı: ${fmtS(g.tarih)} ${g.saat}` : `Görüşme kaydı (${g.tur}${g.puan ? ", " + g.puan + "/5" : ""})`) }); toast(plan ? "Görüşme planlandı" : "Görüşme kaydedildi"); }
+      catch (x) { sv.disabled = false; toast(writeErr(x)); }
+    };
+  }
+  function dosyaHtml(c) {
+    const D = c.dosya, ed2 = can("cv.edit"), pdf = D && /pdf/i.test(D.tip || D.ad);
+    return D ? `<div class="izbal"><b>${esc(D.ad)}</b><div class="note">${nf(D.boyut / 1024, 0)} KB · ${esc(D.by || "")} · ${D.at ? skTs(D.at) : ""}</div></div>
+      <div class="pkact"><button type="button" class="btn" id="dGo">Görüntüle</button><button type="button" class="btn ghost" id="dDl">İndir</button>${ed2 ? '<button type="button" class="btn ghost" id="dRe">Dosyayı değiştir</button><button type="button" class="btn ghost dangerb" id="dRm">Dosyayı kaldır</button>' : ""}<input type="file" id="dFi" accept="application/pdf,image/*" hidden></div>
+      <div id="dView" class="cvview${pdf ? "" : " img"}"></div>`
+      : `<div class="empty" style="margin:0"><h3>CV dosyası eklenmemiş</h3><p>Adayın PDF CV'sini ya da telefonla çekilmiş CV fotoğrafını ekleyin (en fazla 5 MB).</p>${ed2 ? '<button type="button" class="btn" id="dAdd">Dosya ekle</button><input type="file" id="dFi" accept="application/pdf,image/*" hidden>' : ""}</div>`;
+  }
+  function bindDosya(c) {
+    const pick = () => $("#dFi").click(), fi = $("#dFi");
+    if (fi) fi.onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; if (f.size > CV_MAX) { toast("Dosya 5 MB'tan büyük olamaz"); return; } toast("Yükleniyor…");
+      try { const meta = await cvFileWrite(c.id, f, c.dosya); await updateDoc(doc(fs, "cv", c.id), { dosya: meta, updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, "CV dosyası eklendi: " + meta.ad) }); if (url) { URL.revokeObjectURL(url); url = null; } toast("CV dosyası eklendi"); } catch (x) { toast(x.message && !x.code ? x.message : writeErr(x)); } };
+    const a = $("#dAdd"); if (a) a.onclick = pick; const r = $("#dRe"); if (r) r.onclick = pick;
+    const get = async () => { if (url) return url; url = URL.createObjectURL(await cvFileBlob(c)); return url; };
+    const go = $("#dGo"); if (go) go.onclick = async () => { go.disabled = true; try { const u = await get(), pdf = /pdf/i.test(c.dosya.tip || c.dosya.ad); $("#dView").innerHTML = pdf ? `<iframe src="${u}" title="CV"></iframe><p class="note"><a href="${u}" target="_blank" rel="noopener">Yeni sekmede aç</a> (telefonda tüm sayfalar için)</p>` : `<img src="${u}" alt="CV">`; } catch (x) { toast(x.message || writeErr(x)); } go.disabled = false; };
+    const dl = $("#dDl"); if (dl) dl.onclick = async () => { try { await saveFile(await cvFileBlob(c), c.dosya.ad || (c.ad + ".pdf")); } catch (x) { toast(x.message || writeErr(x)); } };
+    const rm = $("#dRm"); if (rm) { let ar = false; rm.onclick = async () => { if (!ar) { ar = true; rm.textContent = "Kaldırılsın mı? Tekrar basın"; return; }
+      try { for (let k = 0; k < (c.dosya.parca || 0); k++) await deleteDoc(doc(fs, "cv_dosya", `${c.id}_${k}`)).catch(() => {}); await updateDoc(doc(fs, "cv", c.id), { dosya: null, updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, "CV dosyası kaldırıldı") }); toast("Dosya kaldırıldı"); } catch (x) { toast(writeErr(x)); } }; }
+  }
+  paint();
+}
+const cvLog = (c, t) => (c.log || []).concat([{ at: Date.now(), by: ME.name, t }]).slice(-40);
+// İşe alınan adayı Personel Takip'e aktarır (genel bilgiler + yetki varsa telefon/semt)
+async function cvToPersonel(c) {
+  if (!can("k.list")) return;
+  const ex = PT.people.find(p => crFold(p.ad) === crFold(c.ad) && p.aktif !== false);
+  if (ex) { toast(`${c.ad} personel listesinde zaten var`); try { await updateDoc(doc(fs, "cv", c.id), { personelId: ex.id, updatedAt: Date.now(), updatedBy: ME.name, log: cvLog(c, "Mevcut personel kaydına bağlandı") }); } catch (x) {} return; }
+  try {
+    const now = Date.now(), ref = doc(collection(fs, "personel"));
+    await setDoc(ref, { ad: c.ad, departman: c.departman || "", gorev: c.pozisyon || "", iseGiris: TODAY, yillikHak: null, aktif: true, ayrilis: "", kaynakCv: c.id, createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name });
+    if (can("k.ozel")) await setDoc(doc(fs, "personel_ozel", ref.id), { tc: "", telefon: c.tel || "", adres: [c.ilce, c.il].filter(Boolean).join(" / "), yakin: "", yakinTel: "", updatedAt: now, updatedBy: ME.name });
+    await updateDoc(doc(fs, "cv", c.id), { personelId: ref.id, updatedAt: now, updatedBy: ME.name, log: cvLog(c, "Personel Takip'e aktarıldı") });
+    toast(`${c.ad} Personel Takip'e eklendi · TC ve adresi kişi kartından tamamlayın`);
+  } catch (x) { toast(writeErr(x)); }
+}
+
+/* Deneme adayları (toplantıda göstermek için) */
+async function cvSeed() {
+  if (!can("cv.edit")) return;
+  const now = Date.now(), D = 864e5, iso = n => dayOf(now + n * D), by = ME.name;
+  const A = [
+    { tur: "mavi", ad: "Ali Yılmaz", tel: "0532 111 22 01", dogumYili: 1991, askerlik: "Yapıldı", il: "Konya", ilce: "Selçuklu", ehliyet: "B", ulasim: "Servis kullanır", pozisyon: "Kaynakçı (gazaltı / MIG-MAG)", departman: "Kaynakhane", basvuru: iso(-6), kaynak: "Doğrudan başvuru (fabrikaya geldi)", egitim: "Meslek lisesi", okul: "Konya Endüstri Meslek Lisesi", bolum: "Metal teknolojisi", deneyimYil: 9, sonIsyeri: "Örnek Makine San.", sonPozisyon: "Kaynak ustası", ayrilis: "İşyeri taşındı", meslek: "Kaynakçı (gazaltı / MIG-MAG)", seviye: "Usta", vardiya: "Evet", teknikResim: "Evet", makineler: ["Kaynak makinesi (gazaltı)", "Punta kaynak"], belgeler: ["Kaynakçı sertifikası", "MYK mesleki yeterlilik belgesi", "İSG temel eğitim belgesi"], uygulama: "2 mm sac köşe kaynağı: düzgün, deformasyon az", ucret: 38000, musait: "2 hafta içinde (ihbar)", durum: "havuz", puan: 5, not: "Tecrübeli, hızlı. Kaynakhane büyüyünce ilk aranacak.", kvkk: true, gor: [[-4, "10:30", "Uygulama / deneme işi", "Abdullah", 5, "Uygulamada başarılı. Ölçüye sadık."]], pdf: true },
+    { tur: "mavi", ad: "Mehmet Demir", tel: "0533 111 22 02", dogumYili: 1998, askerlik: "Yapıldı", il: "Konya", ilce: "Karatay", ehliyet: "B + forklift", ulasim: "Kendi aracıyla", pozisyon: "Abkant (büküm) operatörü", departman: "Üretim", basvuru: iso(-3), kaynak: "Kariyer.net", egitim: "Lise", deneyimYil: 4, sonIsyeri: "Örnek Sac Metal", sonPozisyon: "Abkant operatörü", meslek: "Abkant (büküm) operatörü", seviye: "Operatör", vardiya: "Evet", teknikResim: "Kısmen", makineler: ["Abkant pres", "Forklift"], belgeler: ["Forklift operatör belgesi"], ucret: 31000, musait: "Hemen başlayabilir", durum: "planlandi", kvkk: true, plan: [2, "14:00", "Yüz yüze", "Abdullah"] },
+    { tur: "mavi", ad: "Hüseyin Kaya", tel: "0535 111 22 03", dogumYili: 2003, askerlik: "Tecilli", il: "Konya", ilce: "Meram", ehliyet: "Yok", ulasim: "Toplu taşıma", pozisyon: "Montajcı", departman: "Montaj", basvuru: iso(-12), kaynak: "İŞKUR", egitim: "Lise", deneyimYil: 1, meslek: "Montajcı", seviye: "Çırak / yardımcı", vardiya: "Yalnız gündüz", teknikResim: "Hayır", makineler: [], belgeler: [], ucret: 24000, musait: "Hemen başlayabilir", durum: "gorusuldu", kvkk: true, gor: [[-9, "09:00", "Yüz yüze", "Hasan Hüseyin ERGUN", 3, "İstekli ama deneyimsiz. Askerlik tecilli, 2027'de gidebilir."]] },
+    { tur: "mavi", ad: "Murat Şahin", tel: "0536 111 22 04", dogumYili: 1985, askerlik: "Yapıldı", il: "Konya", ilce: "Selçuklu", ehliyet: "C", pozisyon: "Lazer kesim operatörü", departman: "Üretim", basvuru: iso(-40), kaynak: "Referans (çalışan önerisi)", referans: "Ali usta (kaynakhane)", egitim: "Meslek lisesi", deneyimYil: 12, meslek: "Lazer kesim operatörü", seviye: "Usta", vardiya: "Evet", teknikResim: "Evet", makineler: ["Lazer kesim", "Plazma kesim"], belgeler: ["MYK mesleki yeterlilik belgesi"], ucret: 42000, musait: "1 ay içinde", durum: "alindi", puan: 4, kvkk: true, gor: [[-35, "11:00", "Yüz yüze", "Feyzullah KILIÇ", 4, "CNC lazer programlamayı biliyor. Ücret beklentisi yüksek ama uygun."]] },
+    { tur: "beyaz", ad: "Zeynep Arslan", tel: "0537 111 22 05", eposta: "zeynep.ornek@mail.com", dogumYili: 1996, askerlik: "Uygulanmaz", il: "Konya", ilce: "Selçuklu", ehliyet: "B", pozisyon: "Planlama uzmanı", departman: "Planlama", basvuru: iso(-8), kaynak: "LinkedIn", egitim: "Lisans", okul: "Selçuk Üniversitesi", bolum: "Endüstri mühendisliği", deneyimYil: 3, sonIsyeri: "Örnek Otomotiv", sonPozisyon: "Üretim planlama", dil1: "İngilizce", dil1s: "İyi", yazilim: ["Excel", "ERP / MRP", "SAP"], seyahat: "Yok", ucret: 45000, musait: "1 ay içinde", durum: "teklif", kvkk: true, gor: [[-6, "15:00", "Yüz yüze", "Mustafa KILIÇLAR", 5, "MRP mantığına hâkim. Excel ileri düzey."], [-2, "10:00", "Online", "Feyzullah KILIÇ", 4, "Ücret konuşuldu, teklif gönderilecek."]], pdf: true },
+    { tur: "beyaz", ad: "Emre Çelik", tel: "0538 111 22 06", eposta: "emre.ornek@mail.com", dogumYili: 1999, askerlik: "Yapıldı", il: "Konya", pozisyon: "Teknik ressam", departman: "Proje", basvuru: iso(-15), kaynak: "Kariyer.net", egitim: "Ön lisans", okul: "Konya Teknik Üniversitesi MYO", bolum: "Makine resim ve konstrüksiyon", deneyimYil: 2, dil1: "İngilizce", dil1s: "Orta", yazilim: ["AutoCAD", "SolidWorks", "Excel"], seyahat: "Yok", ucret: 30000, musait: "Hemen başlayabilir", durum: "olumsuz", puan: 2, kvkk: false, not: "SolidWorks bilgisi beklenenin altında.", gor: [[-11, "13:30", "Yüz yüze", "Mustafa KILIÇLAR", 2, "Uygulamalı çizim testinde zorlandı."]] }
+  ];
+  try {
+    for (const a of A) {
+      const ref = doc(collection(fs, "cv")), G = (a.gor || []).map(([d, s, t, k, p, n]) => ({ tarih: iso(d), saat: s, tur: t, gorusmeci: k, puan: p, not: n, plan: false, at: now + d * D, by: k })).concat(a.plan ? [{ tarih: iso(a.plan[0]), saat: a.plan[1], tur: a.plan[2], gorusmeci: a.plan[3], puan: null, not: "", plan: true, at: now, by }] : []);
+      const { gor, plan, pdf, ...rest } = a;
+      await setDoc(ref, { eposta: "", referans: "", okul: "", bolum: "", sonIsyeri: "", sonPozisyon: "", ayrilis: "", not: "", puan: null, ...rest, gorusmeler: G, saklamaSonu: dayOf(Date.parse(a.basvuru + "T12:00:00Z") + 730 * D), deneme: true, createdAt: now, createdBy: by, updatedAt: now, updatedBy: by, log: [{ at: now, by, t: "Deneme adayı eklendi" }] });
+      if (pdf) { const blob = await cvDemoPdf(a), meta = await cvFileWrite(ref.id, new File([blob], a.ad.replace(/\s+/g, "_") + "_CV.pdf", { type: "application/pdf" })); await updateDoc(doc(fs, "cv", ref.id), { dosya: meta }); }
+    }
+    toast("6 deneme adayı eklendi (2'sinde örnek PDF CV var)");
+  } catch (x) { toast(writeErr(x)); }
+}
+async function cvDemoPdf(a) {
+  const W = 1240, H = 1754, cv = document.createElement("canvas"); cv.width = W; cv.height = H; const x = cv.getContext("2d");
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, H); x.fillStyle = "#1747c9"; x.fillRect(0, 0, W, 180); x.fillStyle = "#fff"; x.font = "700 56px Arial"; x.fillText(a.ad, 80, 110); x.font = "400 26px Arial"; x.fillText(a.pozisyon, 80, 150);
+  x.fillStyle = "#0d1118"; let y = 260; const line = (k, v) => { if (!v) return; x.font = "600 24px Arial"; x.fillText(k, 80, y); x.font = "400 24px Arial"; x.fillText(String(v), 380, y); y += 44; };
+  line("Telefon", a.tel); line("E-posta", a.eposta); line("Doğum yılı", a.dogumYili); line("Adres", [a.ilce, a.il].filter(Boolean).join(" / ")); y += 20;
+  x.font = "700 30px Arial"; x.fillText("Eğitim", 80, y); y += 50; line(a.egitim, [a.okul, a.bolum].filter(Boolean).join(" · ")); y += 20;
+  x.font = "700 30px Arial"; x.fillText("Deneyim", 80, y); y += 50; line(a.sonIsyeri || "—", a.sonPozisyon); line("Toplam", a.deneyimYil + " yıl"); y += 20;
+  x.font = "700 30px Arial"; x.fillText("Yetkinlikler", 80, y); y += 50; line("Belgeler / yazılım", (a.belgeler || a.yazilim || []).join(", ")); line("Dil", a.dil1 ? a.dil1 + " (" + a.dil1s + ")" : "");
+  x.font = "400 20px Arial"; x.fillStyle = "#7d8799"; x.fillText("ÖRNEK CV · deneme verisi", 80, H - 80);
+  return jpegPagesToPdf([cv.toDataURL("image/jpeg", 0.85)], W, H);
 }
