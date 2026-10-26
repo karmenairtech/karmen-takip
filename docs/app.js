@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "27";
+const APP_V = "28";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -5049,7 +5049,7 @@ function crOpen(id, tip) {
     document.querySelectorAll("[data-yrm]").forEach(b => b.onclick = () => { keep(); yet.splice(Number(b.dataset.yrm), 1); if (!yet.length) yet.push({ ad: "", gorev: "", tel: "", eposta: "" }); paint(); });
     const del = $("#kDel"); if (del) { let armed = false; del.onclick = async () => {
       const used = SA.siparis.some(p => p.cariId === cur.id) || SA.fatura.some(f => f.cariId === cur.id);
-      if (used) { toast("Bu firmaya ait sipariş veya fatura var; silmek yerine Pasif yapın"); return; }
+      if (used) { if (isAdmin()) { crPurge(cur.id); return; } toast("Bu firmaya ait sipariş veya fatura var; silmek yerine Pasif yapın"); return; }
       if (!armed) { armed = true; del.textContent = "Silinsin mi? Tekrar basın"; return; }
       try { await deleteDoc(doc(fs, "cari", cur.id)); toast("Cari kart silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
     const sv = $("#kS"); if (!sv) return;
@@ -7408,4 +7408,70 @@ function crOpenExcel() {
       toast(`${yeni} cari kart açıldı${gun ? ` · ${gun} kart güncellendi` : ""}`); closeDrawer();
     } catch (x) { b.disabled = false; b.textContent = "Aktar"; toast(writeErr(x)); }
   };
+}
+/* Yönetici: bir cariyi deneme kayıtlarıyla birlikte kalıcı silme.
+   Fiyat talepleri, satın alma siparişleri, faturalar, (yalnızca bu cariye ait) talepler, satış siparişleri, e-Fatura eşleşmeleri,
+   fiyat arşivi satırları ve stok hareketleri silinir; stok miktarları hareketler geri alınarak düzeltilir. */
+async function crPurge(cid) {
+  if (!isAdmin()) return;
+  const c = crFind(cid); if (!c) return;
+  const ad = crAd(c);
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="pgT" style="width:min(860px,100%)">
+    <div class="dh"><h2 id="pgT">Tüm kayıtlarıyla sil · ${esc(ad)}</h2><button class="x" id="pgX" aria-label="Kapat">×</button></div>
+    <div class="db" id="pgB"><p class="note">Bağlı kayıtlar aranıyor…</p></div>
+    <div class="df"><span class="note" id="pgSum"></span><div class="r"><button class="btn ghost" id="pgC" type="button">Vazgeç</button><button class="btn danger" id="pgS" type="button" disabled>Kalıcı sil</button></div></div></aside>`;
+  const back = () => crOpen(cid); $("#scrim").onclick = back; $("#pgX").onclick = back; $("#pgC").onclick = back;
+  try {
+    const TK = SA.teklif.filter(x => x.cariId === cid), PO = SA.siparis.filter(x => x.cariId === cid), FA = SA.fatura.filter(x => x.cariId === cid);
+    const SP0 = typeof SP !== "undefined" ? SP.list.filter(x => x.cariId === cid) : [];
+    const tIds = new Set([...TK.map(x => x.talepId), ...PO.map(x => x.talepId)].filter(Boolean)); SA.talep.filter(t => t.oneriCariId === cid).forEach(t => tIds.add(t.id));
+    const TL = [...tIds].map(id => SA.talep.find(t => t.id === id)).filter(Boolean).map(t => ({ t, tek: !SA.teklif.some(x => x.talepId === t.id && x.cariId !== cid) && !SA.siparis.some(x => x.talepId === t.id && x.cariId !== cid) }));
+    const nos = new Set([...PO.map(x => x.no), ...FA.map(x => x.no), ...TK.map(x => x.no)].filter(Boolean));
+    const t0 = Math.min(Date.now(), c.createdAt || Date.now(), ...[...TK, ...PO, ...FA, ...TL.map(x => x.t)].map(x => x.createdAt || Date.now())) - 864e5;
+    const hs = await getDocs(query(collection(fs, "stok_hareket"), where("ts", ">=", t0)));
+    const H = hs.docs.map(d => ({ id: d.id, ...d.data() })).filter(h => nos.has(h.belge) || [...nos].some(n => (h.aciklama || "").includes(n)) || (ad && (h.aciklama || "").includes("· " + ad)));
+    // e-Fatura ile açılmış stok kartları
+    const yeniKart = new Map(); for (const f of FA) for (const l of f.satirlar || []) if (l.sid && !yeniKart.has(l.sid)) { const it = await skGet(l.sid).catch(() => null); if (it && String(it.not || "").includes(`e-Fatura ${f.no} ile açıldı`)) yeniKart.set(it.id, it); }
+    const sids = new Set([...TK, ...PO].flatMap(x => (x.kalemler || []).map(k => k.sid)).concat(FA.flatMap(f => (f.satirlar || []).map(l => l.sid))).filter(Boolean));
+    const ted = await getDocs(query(collection(fs, "stok"), where("ted.cariId", "==", cid))).catch(() => ({ docs: [] }));
+    const H2 = H.filter(h => !yeniKart.has(h.sid)), etki = new Map();
+    for (const h of H2) { const it = await skGet(h.sid).catch(() => null); const e = etki.get(h.sid) || { it, d: 0, n: 0 }; e.d -= Number(h.miktar) || 0; e.n++; etki.set(h.sid, e); }
+    const grp = (k, lbl, L, txt, on = true, not = "") => L.length ? `<label class="chk sproc"><input type="checkbox" data-pg="${k}"${on ? " checked" : ""}><span><b>${lbl} · ${L.length}</b><small>${esc(L.slice(0, 8).map(txt).join(", "))}${L.length > 8 ? "…" : ""}</small>${not ? `<small class="late">${esc(not)}</small>` : ""}</span></label>` : "";
+    const TLt = TL.filter(x => x.tek), TLo = TL.filter(x => !x.tek);
+    $("#pgB").innerHTML = `<div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu işlem geri alınamaz.</b><div class="note">Yalnızca deneme kayıtları için kullanın. Silinecek grupları işaretleyin; stok miktarları silinen hareketler geri alınarak düzeltilir.</div></div>
+      <div class="sproz">
+        ${grp("tk", "Fiyat talepleri", TK, x => x.no)}${grp("po", "Satın alma siparişleri", PO, x => x.no + " · " + (SA_SDUR[x.durum] || [x.durum])[0])}${grp("fa", "e-Faturalar", FA, x => x.no)}
+        ${grp("tl", "Satın alma talepleri (yalnızca bu firmaya ait)", TLt.map(x => x.t), x => x.no)}${grp("tl2", "Başka firmalara da bağlı talepler", TLo.map(x => x.t), x => x.no, false, "Önerilmez: başka tedarikçilerin fiyat talebi / siparişi de bu talebe bağlı")}
+        ${grp("sp", "Satış siparişleri", SP0, x => x.no)}
+        ${grp("hr", "Stok hareketleri (geri alınır)", H2, h => `${h.kod} ${h.miktar > 0 ? "+" : ""}${nf(h.miktar)}`)}
+        ${grp("yk", "e-Faturayla açılmış stok kartları", [...yeniKart.values()], it => it.kod + " " + it.ad)}
+        ${grp("fy", "Fiyat arşivindeki satırlar", [...sids], sid => { const k = [...TK, ...PO].flatMap(x => x.kalemler || []).concat(FA.flatMap(f => f.satirlar || [])).find(k => k.sid === sid); return (k && (k.kod || k.ad)) || sid; })}
+        ${grp("tb", "Stok kartlarındaki tedarikçi bağlantısı", ted.docs, d => d.data().kod)}
+        <label class="chk sproc"><input type="checkbox" data-pg="cr" checked><span><b>Cari kart</b><small>${esc(c.kod || "")} · ${esc(ad)} · e-Fatura eşleşme hafızası dahil</small></span></label></div>
+      ${etki.size ? `<section style="margin-top:12px"><h3 class="sec-t">Stok düzeltmesi</h3>${[...etki.values()].filter(e => e.it).map(e => `<div class="note"><span class="num">${esc(e.it.kod)}</span> ${esc(e.it.ad)}: ${nf(e.it.miktar)} → <b>${nf((Number(e.it.miktar) || 0) + e.d)}</b> ${esc(e.it.birim || "")}${(Number(e.it.miktar) || 0) + e.d < 0 ? ' <span class="late">eksiye düşüyor</span>' : ""}</div>`).join("")}</section>` : ""}
+      <div class="field" style="margin-top:12px"><label for="pgOk">Onay için cari kodunu yazın: <b class="num">${esc(c.kod || ad)}</b></label><input id="pgOk" autocomplete="off"></div>`;
+    const chk = () => { $("#pgS").disabled = $("#pgOk").value.trim().toLocaleUpperCase("tr") !== String(c.kod || ad).toLocaleUpperCase("tr"); };
+    $("#pgOk").oninput = chk;
+    $("#pgS").onclick = async () => {
+      const on = k => { const e = document.querySelector(`[data-pg="${k}"]`); return !!(e && e.checked); };
+      const b = $("#pgS"); b.disabled = true; b.textContent = "Siliniyor…"; const now = Date.now(); let n = 0;
+      try {
+        const ops = []; const del = (col, id) => ops.push(bt => bt.delete(doc(fs, col, id)));
+        if (on("tk")) TK.forEach(x => del("sa_teklif", x.id)); if (on("po")) PO.forEach(x => del("sa_siparis", x.id)); if (on("fa")) FA.forEach(x => del("sa_fatura", x.id));
+        if (on("tl")) TLt.forEach(x => del("sa_talep", x.t.id)); if (on("tl2")) TLo.forEach(x => del("sa_talep", x.t.id));
+        if (on("sp")) SP0.forEach(x => { del("siparis", x.id); del("siparis_fiyat", x.id); });
+        if (on("hr")) { H2.forEach(h => del("stok_hareket", h.id)); etki.forEach((e, sid) => { if (!e.it) return; const yeni = (Number(e.it.miktar) || 0) + e.d; ops.push(bt => bt.update(doc(fs, "stok", sid), { miktar: increment(e.d), seviye: skSeviye(yeni, e.it.minStok, e.it.maxStok), updatedAt: now, updatedBy: ME.name })); }); }
+        if (on("tb")) ted.docs.forEach(d => ops.push(bt => bt.update(d.ref, { "ted.cariId": "", updatedAt: now, updatedBy: ME.name })));
+        if (on("cr")) { del("cari", cid); del("cari_eslesme", cid); }
+        for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); } n += ops.length;
+        if (on("fy")) for (const sid of sids) { if (on("yk") && yeniKart.has(sid)) continue; const f = await saFiyatGet(sid).catch(() => null); if (!f || !Array.isArray(f.arsiv)) continue;
+          const A = f.arsiv.filter(a => !(a.cariId === cid || (!a.cariId && ad && a.tedarikci === ad) || (a.belge && nos.has(a.belge)))); if (A.length === f.arsiv.length) continue;
+          const son = A.filter(a => !a.teklif).slice(-1)[0], d = { arsiv: A, updatedAt: now, updatedBy: ME.name }; if (f.alisFiyat != null) { d.alisFiyat = son ? Number(son.fiyat) : null; d.pb = son ? son.pb || "TRY" : f.pb || "TRY"; }
+          await setDoc(doc(fs, "stok_fiyat", sid), d, { merge: true }); SA.fiyat[sid] = { ...f, ...d }; n++; }
+        if (on("yk") && yeniKart.size) { await skDelete([...yeniKart.keys()]); yeniKart.forEach((v, k) => SK.cache.delete(k)); n += yeniKart.size; }
+        SK.cache.clear(); skCounts(800);
+        toast(`${ad} ve bağlı ${n} kayıt silindi`); closeDrawer();
+      } catch (x) { console.error(x); b.disabled = false; b.textContent = "Kalıcı sil"; toast(writeErr(x)); }
+    };
+  } catch (x) { console.error(x); $("#pgB").innerHTML = `<div class="izbal" style="--tc:var(--k-izinsiz)">${esc(writeErr(x))}</div>`; }
 }
