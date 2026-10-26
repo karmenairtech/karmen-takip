@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "26";
+const APP_V = "27";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3719,7 +3719,7 @@ async function skUnzip(buf) {
     return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
   } };
 }
-async function skReadXlsx(file) {
+async function skReadXlsx(file, all) {
   const z = await skUnzip(await file.arrayBuffer()), P = new DOMParser(), X = s => P.parseFromString(s, "application/xml");
   const tag = (el, n) => [...el.getElementsByTagName("*")].filter(x => x.localName === n);
   const ss = []; const sst = await z.get("xl/sharedStrings.xml");
@@ -3732,6 +3732,7 @@ async function skReadXlsx(file) {
     return tag(X(x).documentElement, "row").map(rw => { const a = []; tag(rw, "c").forEach(c => { const t = c.getAttribute("t"), v = tag(c, "v")[0];
       let val = t === "s" ? ss[Number(v && v.textContent)] : t === "inlineStr" ? tag(c, "t").map(q => q.textContent).join("") : v ? v.textContent : "";
       if (t === "b") val = val === "1" ? "DOĞRU" : "YANLIŞ"; a[colN(c.getAttribute("r") || "A")] = val == null ? "" : String(val); }); return Array.from(a, x => x == null ? "" : x); }); };
+  if (all) { const out = []; for (const s of sheets) if (s.path) out.push({ ad: s.ad, rows: await rowsOf(s.path) }); return out; }
   const pref = [...sheets.filter(s => /stok\s*kod/i.test(s.ad)), ...sheets];
   for (const s of pref) { if (!s.path) continue; const R = await rowsOf(s.path); const h = R.findIndex(r => /stok\s*kodu/i.test(r[0] || "")); if (h >= 0) return { sayfa: s.ad, rows: R.slice(h) }; }
   const f = sheets[0]; return { sayfa: f ? f.ad : "", rows: f ? await rowsOf(f.path) : [] };
@@ -4884,10 +4885,11 @@ function renderCari() {
   const isT = CR.view === "ted", L0 = isT ? T : M;
   if (!L0.length) {
     v.innerHTML = `<div class="empty"><h3>Henüz ${isT ? "tedarikçi" : "müşteri"} kartı yok</h3><p>${isT ? "Tedarikçi kartları satın alma talepleri, siparişler ve e-Fatura eşleştirmesinde kullanılır. Stok kartlarına yazılmış tedarikçi adları tek tuşla cari karta dönüştürülebilir." : "Müşteri kartları sipariş takip ve iş emirlerinde kullanılacak."}</p>
-      ${can("c.edit") ? `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="crE1" type="button">+ ${isT ? "Tedarikçi" : "Müşteri"} ekle</button>${isT && lvl("stok") !== "none" ? '<button class="btn ghost" id="crE2" type="button">Stok kartlarındaki tedarikçileri aktar</button>' : ""}${can("sa.siparis") && !SA.talep.length && !SA.siparis.length ? '<button class="btn ghost" id="crE3" type="button">Satınalma deneme verilerini ekle</button>' : ""}</div>` : ""}</div>`;
+      ${can("c.edit") ? `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn" id="crE1" type="button">+ ${isT ? "Tedarikçi" : "Müşteri"} ekle</button><button class="btn ghost" id="crE4" type="button">Muhasebe cari listesinden aktar (Excel)</button>${isT && lvl("stok") !== "none" ? '<button class="btn ghost" id="crE2" type="button">Stok kartlarındaki tedarikçileri aktar</button>' : ""}${can("sa.siparis") && !SA.talep.length && !SA.siparis.length ? '<button class="btn ghost" id="crE3" type="button">Satınalma deneme verilerini ekle</button>' : ""}</div>` : ""}</div>`;
     const b1 = $("#crE1"); if (b1) b1.onclick = () => crOpen(null, CR.view);
     const b2 = $("#crE2"); if (b2) b2.onclick = crImportFromStok;
     const b3 = $("#crE3"); if (b3) b3.onclick = saSeedDemo;
+    const b4 = $("#crE4"); if (b4) b4.onclick = crOpenExcel;
     return;
   }
   const F = CR.F, kats = sortTr(T.map(c => c.kategori));
@@ -4896,7 +4898,7 @@ function renderCari() {
       <select class="f${F.sinif ? " on" : ""}" id="crSin" aria-label="Puan sınıfı">${[["", "Tüm sınıflar"], ["A", "A sınıfı (85+)"], ["B", "B sınıfı (70–84)"], ["C", "C sınıfı (70 altı)"], ["-", "Puanı olmayan"]].map(([a, l]) => opt(a, l, F.sinif)).join("")}</select>` : ""}
       <select class="f${F.dur !== "aktif" ? " on" : ""}" id="crDur" aria-label="Durum">${[["aktif", "Aktif kartlar"], ["pasif", "Pasif kartlar"], ["tum", "Tümü"]].map(([a, l]) => opt(a, l, F.dur)).join("")}</select>
       <input class="f" id="crQ" type="search" placeholder="Unvan, kod, yetkili, şehir ara…" aria-label="Carilerde ara" value="${esc(F.q)}"></div>
-    <div class="filters"><span class="sortinfo" id="crInfo"></span><button type="button" class="btn ghost sm" id="crCsv">Excel'e aktar</button>${isT && can("c.edit") && lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="crImp">Stoktaki tedarikçileri aktar</button>' : ""}</div></div>
+    <div class="filters"><span class="sortinfo" id="crInfo"></span><button type="button" class="btn ghost sm" id="crCsv">Excel'e aktar</button>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="crXl">Muhasebe listesinden aktar</button>' : ""}${isT && can("c.edit") && lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="crImp">Stoktaki tedarikçileri aktar</button>' : ""}</div></div>
     <div id="crList"></div>`;
   const openPO = saOpenPOByCari(), sp = saSpendByCari(365), ie = crIeByMusteri();
   const rowsOf = () => { const q = skNorm(F.q.trim());
@@ -4927,6 +4929,7 @@ function renderCari() {
   $("#crQ").oninput = e => { F.q = e.target.value; draw(); };
   $("#crCsv").onclick = () => crCsv(rowsOf(), isT);
   const im = $("#crImp"); if (im) im.onclick = crImportFromStok;
+  const xl = $("#crXl"); if (xl) xl.onclick = crOpenExcel;
 }
 const SA_SINIF = { A: "var(--k-fabrikada)", B: "var(--k-gunluk)", C: "var(--k-izinsiz)" };
 // Müşteriye bağlı iş emirleri (planlama: müşteri adı eşleşmesi)
@@ -7334,3 +7337,75 @@ async function plHavuzStok(g) {
   } catch (x) { toast(writeErr(x)); }
 }
 function spStokHead(it) { if (lvl("siparis") === "none" && lvl("planlama") === "none") return ""; const r = spRezerve(it.id); return r.miktar > 0 ? `<span class="skyol">Siparişlere ayrılan: <b>${nf(r.miktar)}</b> · ${r.L.map(x => esc(x.no)).join(", ")}</span>` : ""; }
+/* Muhasebe cari listesinden (Excel) aktarma: sayfa adı / grup 120 → müşteri, 320 → tedarikçi.
+   Vergi no ya da unvanla mevcut kartlarla eşleşir; dolu alanların üzerine yazılmaz. */
+const crxTemiz = s => String(s ?? "").replace(/_x000D_/gi, " ").replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
+function crxTel(v) { const r = crxTemiz(v); let d = r.replace(/\D/g, ""); if (!d) return ""; if (d.length === 10 && d[0] === "5") d = "0" + d; if (d.length === 11 && d[0] === "0") return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7, 9)} ${d.slice(9)}`; return r; }
+function crxVkn(v) { let d = crxTemiz(v).replace(/\.0+$/, "").replace(/\D/g, ""); if (!d || /^(\d)\1+$/.test(d) || /^(12)+1?$/.test(d)) return ""; if (d.length >= 7 && d.length < 10) d = d.padStart(10, "0"); return d.length === 10 || d.length === 11 ? d : ""; }
+function crxYetkili(v) { const r = crxTemiz(v).replace(/^[-–.\s]+/, ""); return !r || /^\d{3}\s*l[iİı]\s*hesap/i.test(r) || r === "-" ? "" : r.slice(0, 80); }
+function crxParse(sheets) {
+  const out = [];
+  sheets.forEach(sh => {
+    const R = sh.rows; const hi = R.findIndex(r => r.some(c => /unvan/i.test(pkN(c)))); if (hi < 0) return;
+    const h = R[hi].map(pkN), f = re => h.findIndex(c => re.test(c)), ci = { grup: f(/^grup/), yet: f(/yetkili/), tel: f(/cep|tel/), vkn: f(/vergi|vkn|tckn/), un: f(/unvan/), kod: f(/hesapkod|carikod|^kod/), il: f(/^il$|sehir/), mail: f(/posta|mail/) };
+    R.slice(hi + 1).forEach(r => { const un = crxTemiz(r[ci.un]).slice(0, 160); if (!un) return;
+      const g = pkN((ci.grup >= 0 ? r[ci.grup] : "") + " " + sh.ad), muh = /muhtelif/.test(g);
+      const tip = /^320|\b320/.test(pkN(sh.ad)) || (/320/.test(g) && !/120/.test(g)) ? "ted" : /120/.test(g) ? "mus" : "";
+      out.push({ un, tip, muh, sayfa: sh.ad, yet: ci.yet >= 0 ? crxYetkili(r[ci.yet]) : "", tel: ci.tel >= 0 ? crxTel(r[ci.tel]) : "", vkn: ci.vkn >= 0 ? crxVkn(r[ci.vkn]) : "", hamVkn: ci.vkn >= 0 ? crxTemiz(r[ci.vkn]) : "", kod: ci.kod >= 0 ? crxTemiz(r[ci.kod]).slice(0, 40) : "", il: ci.il >= 0 ? crxTemiz(r[ci.il]).slice(0, 40) : "", mail: ci.mail >= 0 ? crxTemiz(r[ci.mail]).slice(0, 120) : "" }); });
+  });
+  // dosya içi tekrarlar: aynı vergi no ya da aynı unvan → tek kart (120 ve 320'de varsa hem müşteri hem tedarikçi)
+  const M = new Map();
+  out.forEach(x => { const k = x.vkn ? "v" + x.vkn : "u" + crFold(x.un); const g = M.get(k);
+    if (!g) { M.set(k, { ...x, mus: x.tip === "mus", ted: x.tip === "ted", yetL: x.yet ? [{ ad: x.yet, tel: x.tel }] : [], adet: 1 }); return; }
+    g.adet++; if (x.tip === "mus") g.mus = true; if (x.tip === "ted") g.ted = true; g.muh = g.muh && x.muh; if (!g.tel && x.tel) g.tel = x.tel; if (!g.kod && x.kod) g.kod = x.kod;
+    if (x.yet && !g.yetL.some(y => crFold(y.ad) === crFold(x.yet))) g.yetL.push({ ad: x.yet, tel: x.tel }); });
+  return [...M.values()];
+}
+function crOpenExcel() {
+  if (!can("c.edit")) return;
+  let L = [], ad = "";
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="cxT" style="width:min(1000px,100%)">
+    <div class="dh"><h2 id="cxT">Muhasebe cari listesini aktar</h2><button class="x" id="cxX" aria-label="Kapat">×</button></div>
+    <div class="db" id="cxB"><div class="izbal"><b>Excel'deki 120'li hesaplar müşteri, 320'li hesaplar tedarikçi kartı olarak açılır.</b><div class="note">Tüm sayfalar okunur; grup "120" ya da sayfa adı "120…" ise müşteri, "320" ise tedarikçi. Muhtelif müşteriler "Muhtelif" kategorisiyle müşterilere eklenir. Vergi numarası ya da unvanı sistemde olan carilere yeni kart açılmaz; yalnızca boş alanları doldurulur ve müşteri/tedarikçi işareti eklenir. Aynı firma hem 120 hem 320'de varsa tek kart hem müşteri hem tedarikçi olur.</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="cxF">Excel dosyası seç</button><input type="file" id="cxFi" accept=".xlsx" hidden><span class="note" id="cxFn"></span></div></div>
+    <div class="df"><span class="note" id="cxSum"></span><div class="r"><button class="btn ghost" id="cxC" type="button">Vazgeç</button><button class="btn" id="cxS" type="button" disabled>Aktar</button></div></div></aside>`;
+  $("#scrim").onclick = closeDrawer; $("#cxX").onclick = closeDrawer; $("#cxC").onclick = closeDrawer;
+  $("#cxF").onclick = () => $("#cxFi").click();
+  $("#cxFi").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; $("#cxFn").textContent = "Okunuyor…";
+    try { const X = await skReadXlsx(f, true); L = crxParse(X); ad = f.name; if (!L.length) { $("#cxFn").textContent = "Dosyada 'Unvan' sütunu olan sayfa bulunamadı."; return; } goster(); } catch (x) { console.error(x); $("#cxFn").textContent = "Dosya okunamadı. .xlsx olarak kaydedip tekrar deneyin."; } };
+  const goster = () => {
+    L.forEach(x => { const c = (x.vkn && crByVkn(x.vkn)) || crByName(x.un); x.cid = c ? c.id : ""; x.esl = c ? (x.vkn && crByVkn(x.vkn) ? "Vergi no ile eşleşti" : "Unvan ile eşleşti") : ""; });
+    const yeni = L.filter(x => !x.cid), esl = L.filter(x => x.cid), tipsiz = L.filter(x => !x.mus && !x.ted);
+    const say = (t) => L.filter(x => x[t]).length, vknYok = L.filter(x => !x.vkn).length;
+    $("#cxB").innerHTML = `<div class="note">${esc(ad)} · ${L.length} firma (${L.reduce((a, x) => a + x.adet, 0)} satır)</div>
+      <div class="cxst">${[["Müşteri", say("mus"), `${L.filter(x => x.mus && x.muh).length} muhtelif`], ["Tedarikçi", say("ted"), `${L.filter(x => x.mus && x.ted).length} firma hem müşteri hem tedarikçi`], ["Yeni kart", yeni.length, `${esl.length} mevcut kartla eşleşti`], ["Vergi no eksik", vknYok, "Kart açılır, vergi no sonra girilir"]].map(([k, v, s]) => `<div><span>${k}</span><b class="num">${v}</b><small>${esc(s)}</small></div>`).join("")}</div>
+      ${tipsiz.length ? `<div class="izbal" style="--tc:var(--k-izinsiz)"><b>${tipsiz.length} satırın grubu anlaşılamadı</b>; bunlar atlanacak: ${esc(tipsiz.slice(0, 5).map(x => x.un).join(", "))}</div>` : ""}
+      <div class="ledger cxled" role="table"><div class="lhead" role="row"><div>Unvan</div><div>Tür</div><div>Vergi no</div><div>Yetkili / telefon</div><div>Durum</div></div>
+      ${L.slice().sort((a, b) => (!!a.cid - !!b.cid) || a.un.localeCompare(b.un, "tr")).map(x => `<div class="row" role="row" style="cursor:default;--stripe:${x.cid ? "var(--k-fabrikada)" : "var(--brand)"}"><div><b>${esc(x.un)}</b>${x.adet > 1 ? ` <small class="note">${x.adet} satır birleşti</small>` : ""}</div>
+        <div>${[x.mus ? `<span class="kst" style="--tc:var(--brand)">120 Müşteri${x.muh ? " · muhtelif" : ""}</span>` : "", x.ted ? '<span class="kst" style="--tc:var(--k-gec)">320 Tedarikçi</span>' : ""].join(" ") || '<span class="late">Grup yok</span>'}</div>
+        <div class="num">${esc(x.vkn || "—")}${x.hamVkn && !x.vkn ? ` <small class="note late" title="Geçersiz: ${esc(x.hamVkn)}">geçersiz</small>` : ""}</div>
+        <div class="note">${esc(x.yetL.map(y => y.ad + (y.tel ? " · " + y.tel : "")).join(" / ") || x.tel || "—")}</div>
+        <div class="note">${x.cid ? esc(x.esl) : "Yeni kart"}</div></div>`).join("")}</div>`;
+    const n = L.filter(x => x.mus || x.ted).length; $("#cxSum").textContent = `${yeni.filter(x => x.mus || x.ted).length} yeni kart açılacak · ${esl.length} kart güncellenecek`; $("#cxS").disabled = !n;
+  };
+  $("#cxS").onclick = async () => {
+    const b = $("#cxS"); b.disabled = true; const now = Date.now(); let n = Math.max(0, ...CR.list.map(c => { const m = String(c.kod || "").match(/^C-(\d+)$/); return m ? Number(m[1]) : 0; })), yeni = 0, gun = 0;
+    const ops = [];
+    L.filter(x => x.mus || x.ted).forEach(x => {
+      const grup = [x.mus ? "120" : "", x.ted ? "320" : ""].filter(Boolean).join(" / "), yet = x.yetL.map(y => ({ ad: y.ad, gorev: "", tel: y.tel || "", eposta: "" }));
+      if (!x.cid) { yeni++; const ref = doc(collection(fs, "cari"));
+        const d = { kod: "C-" + String(++n).padStart(4, "0"), muhasebeKod: x.kod || grup, unvan: x.un, kisaAd: "", tedarikci: x.ted, musteri: x.mus, kategori: x.mus && x.muh && !x.ted ? "Muhtelif" : "", vd: "", vergiNo: x.vkn, mersis: "", adres: "", il: x.il, ilce: "", tel: x.tel || (yet[0] || {}).tel || "", whatsapp: "", eposta: x.mail, web: "", vade: null, pb: "TRY", iban: "", yetkililer: yet, not: "", aktif: true, kaynak: "muhasebe", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+        ops.push(bt => bt.set(ref, d)); return; }
+      const c = crFind(x.cid); if (!c) return; const d = {};
+      if (x.mus && !c.musteri) d.musteri = true; if (x.ted && !c.tedarikci) d.tedarikci = true;
+      if (!c.vergiNo && x.vkn) d.vergiNo = x.vkn; if (!c.muhasebeKod) d.muhasebeKod = x.kod || grup; if (!c.tel && x.tel) d.tel = x.tel; if (!c.il && x.il) d.il = x.il; if (!c.eposta && x.mail) d.eposta = x.mail;
+      const cy = (c.yetkililer || []).filter(y => y.ad), ek = yet.filter(y => !cy.some(z => crFold(z.ad) === crFold(y.ad))); if (ek.length) d.yetkililer = [...cy, ...ek];
+      if (x.mus && x.muh && !c.kategori && !x.ted) d.kategori = "Muhtelif";
+      if (Object.keys(d).length) { gun++; ops.push(bt => bt.update(doc(fs, "cari", c.id), { ...d, updatedAt: now, updatedBy: ME.name })); }
+    });
+    try { for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); b.textContent = `Yazılıyor… ${Math.min(i + 400, ops.length)}/${ops.length}`; }
+      toast(`${yeni} cari kart açıldı${gun ? ` · ${gun} kart güncellendi` : ""}`); closeDrawer();
+    } catch (x) { b.disabled = false; b.textContent = "Aktar"; toast(writeErr(x)); }
+  };
+}

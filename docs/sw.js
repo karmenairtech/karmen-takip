@@ -1,5 +1,5 @@
 // Kar-Men Proje Takip — uygulama kabuğu önbelleği
-const CACHE = "karmen-takip-v26";
+const CACHE = "karmen-takip-v27";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "logo.jpg", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/favicon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
