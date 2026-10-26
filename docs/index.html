@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="24">
+<meta name="app-version" content="25">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=24">
+<link rel="stylesheet" href="styles.css?v=25">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -198,6 +198,7 @@
   <div class="toolbar">
     <div class="seg pktabs pltabs" id="plTabs" role="group" aria-label="Planlama menüsü">
       <button type="button" data-lv="genel" aria-pressed="true">Genel bakış</button>
+      <button type="button" data-lv="havuz" aria-pressed="false">Planlanacak işler</button>
       <button type="button" data-lv="ie" aria-pressed="false">İş emirleri</button>
       <button type="button" data-lv="gun" aria-pressed="false">Gün sonu girişi</button>
       <button type="button" data-lv="gantt" aria-pressed="false">Planlama çizelgesi</button>
@@ -303,6 +304,37 @@
     </div>
   </div>
   <section id="cvView"></section>
+</main>
+</div>
+<div id="modSP" data-route="siparis" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">SİPARİŞ TAKİP</div>
+        <h1>Müşteri siparişleri</h1>
+      </div>
+      <div class="dateblock" aria-label="Bugünün tarihi">
+        <div class="dnum num js-dday">—</div>
+        <div class="dmeta"><div class="dwd js-dwd">—</div><div class="dmy js-dmy">—</div><div class="dclk num js-dclk">—</div></div>
+      </div>
+    </div>
+    <div class="kpis" id="spKpis"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <div class="seg pktabs" id="spTabs" role="group" aria-label="Görünüm">
+      <button type="button" data-sp="liste" aria-pressed="true">Siparişler</button>
+      <button type="button" data-sp="sevk" aria-pressed="false">Sevkiyat</button>
+      <button type="button" data-sp="proje" aria-pressed="false">Projeler</button>
+    </div>
+    <div class="filters">
+      <button class="btn ghost" id="spCfgBtn" type="button" hidden>Ayarlar</button>
+      <button class="btn" id="spAdd" type="button" hidden>+ Sipariş</button>
+    </div>
+  </div>
+  <section id="spView"></section>
 </main>
 </div>
 <div id="modStok" data-route="stok" hidden>
@@ -417,6 +449,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=24"></script>
+<script type="module" src="app.js?v=25"></script>
 </body>
 </html>
