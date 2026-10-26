@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "25";
+const APP_V = "26";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -2837,7 +2837,7 @@ function pkCsv(ay, days, S) {
 function pkListView(v) {
   const oz = can("k.ozel");
   v.innerHTML = `<div class="pkbar"><div class="filters">${pkFiltBar(`<label class="chk sm"><input type="checkbox" id="pkAyr"${PT.F.ayr ? " checked" : ""}> Ayrılanlar da</label>`)}</div>
-      <div class="filters">${can("k.list") ? '<button type="button" class="btn ghost sm" id="pkBulk">Listeden toplu ekle</button>' : ""}</div></div>
+      <div class="filters">${can("k.list") ? '<button type="button" class="btn ghost sm" id="pkBulk">Listeden ekle / eşleştir</button>' : ""}</div></div>
     <div id="pkList"></div>
     ${oz ? "" : '<p class="note" style="margin:-18px 0 28px">TC kimlik, adres ve telefon bilgileri yalnızca kişisel bilgi yetkisi olanlara görünür.</p>'}`;
   const draw = () => {
@@ -2923,37 +2923,106 @@ function pkOpenPerson(id) {
   };
   if (!p && ed) setTimeout(() => $("#ppAd").focus(), 50);
 }
+// Personel listesi: Excel ya da yapıştırma → isimleri mevcut kayıtlarla eşleştir, iş tanımı/departmanı güncelle, yenileri ekle
+const pkTok = s => String(s || "").trim().split(/\s+/).map(trFold).filter(Boolean);
+const pkN = s => trFold(s).toLowerCase();
+const pkGorevTemiz = s => String(s || "").trim().replace(/\s+/g, " ").replace(/\s*-\s+|\s+-\s*/g, " - ").slice(0, 120);
+function pkDepOner(g) {
+  const t = pkN(g);
+  if (/menfez/.test(t)) return "Menfez"; if (/kanal|spiro/.test(t)) return "Kanal"; if (/lazer/.test(t)) return "Lazer Kesim";
+  if (/depo|sevkiyat/.test(t)) return "Depo / Sevkiyat"; if (/sofor/.test(t)) return "Lojistik"; if (/montaj/.test(t)) return "Montaj";
+  if (/kaynak/.test(t)) return "Kaynakhane"; if (/boya/.test(t)) return "Boyahane"; if (/abkant|bukum|pres/.test(t)) return "Büküm"; return "";
+}
+function pkEsle(ad, people) {
+  const T = pkTok(ad), f = T.join(""); if (!T.length) return { tip: "yok", L: [] };
+  const ex = people.filter(p => pkTok(p.ad).join("") === f); if (ex.length) return { tip: ex.length === 1 ? "tam" : "cok", L: ex };
+  const C = people.filter(p => { const P = pkTok(p.ad); if (!P.length) return false; const a = P.every(x => T.includes(x)), b = T.every(x => P.includes(x)); return a || b || (P[0] === T[0] && P[P.length - 1] === T[T.length - 1]); });
+  return { tip: C.length === 1 ? "olasi" : C.length ? "cok" : "yok", L: C };
+}
+function pkParseRows(R) {
+  R = R.map(r => r.map(x => String(x ?? "").trim())).filter(r => r.some(Boolean));
+  const hi = R.findIndex(r => r.some(c => /^(adi?soyadi?|ad|isim|isimsoyisim|personeladi?)$/.test(pkN(c))));
+  let ci = { ad: 0, dep: 1, gor: 2, tel: 3 }, D = R;
+  if (hi >= 0) { const h = R[hi].map(c => pkN(c)), f = re => h.findIndex(c => re.test(c));
+    ci = { ad: f(/^(adi?soyadi?|ad|isim|isimsoyisim|personeladi?)$/), dep: f(/departman|bolum/), gor: f(/gorev|tanim|unvan|pozisyon/), tel: f(/tel/) }; D = R.slice(hi + 1); }
+  return D.map(r => ({ ad: (r[ci.ad] || "").replace(/\s+/g, " ").slice(0, 80), dep: ci.dep >= 0 ? (r[ci.dep] || "").slice(0, 60) : "", gor: ci.gor >= 0 ? pkGorevTemiz(r[ci.gor]) : "", tel: ci.tel >= 0 ? (r[ci.tel] || "").slice(0, 20) : "" }))
+    .filter(r => r.ad && !/^\d+$/.test(r.ad) && !/^personel listesi$/i.test(r.ad));
+}
 function pkOpenBulk() {
   if (!can("k.list")) return;
-  const oz = can("k.ozel");
-  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
-  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="bkT" style="width:min(600px,100%)">
-    <div class="dh"><h2 id="bkT">Listeden toplu ekle</h2><button class="x" id="bkX" aria-label="Kapat">×</button></div>
-    <div class="db"><div class="field"><label for="bkTa">Her satıra bir personel</label><textarea id="bkTa" class="cfgta" style="min-height:220px;font-family:var(--mono);font-size:13px" placeholder="Ad Soyad; Departman; İş tanımı${oz ? "; Telefon" : ""}\nAhmet Yılmaz; Üretim; Kaynak ustası${oz ? "; 0532 000 00 00" : ""}\nAyşe Demir; Muhasebe; Ön muhasebe"></textarea>
-      <p class="note" style="margin:4px 0 0">Alanları noktalı virgül (;) ya da sekme ile ayırın; Excel'den kopyalayıp yapıştırabilirsiniz. Yalnızca ad soyad zorunludur. Listede zaten olan isimler atlanır.${oz ? " TC ve adres gibi bilgileri sonra kişi kartından girin." : ""}</p></div>
-      <div id="bkPrev" class="note"></div></div>
-    <div class="df"><span></span><div class="r"><button class="btn ghost" id="bkC" type="button">Vazgeç</button><button class="btn" id="bkS" type="button" disabled>Ekle</button></div></div>
-  </aside>`;
-  $("#scrim").onclick = closeDrawer; $("#bkX").onclick = closeDrawer; $("#bkC").onclick = closeDrawer;
-  let list = [];
-  $("#bkTa").oninput = () => {
-    const seen = new Set(PT.people.map(p => lower(p.ad)));
-    list = $("#bkTa").value.split("\n").map(l => l.split(/\t|;/).map(x => x.trim())).filter(a => a[0]).map(([ad, departman = "", gorev = "", telefon = ""]) => ({ ad: ad.replace(/\s+/g, " ").slice(0, 80), departman: departman.slice(0, 60), gorev: gorev.slice(0, 120), telefon: telefon.slice(0, 20) }))
-      .filter(r => { const k = lower(r.ad); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 300);
-    $("#bkPrev").textContent = list.length ? `${list.length} yeni personel eklenecek: ${list.slice(0, 5).map(r => r.ad).join(", ")}${list.length > 5 ? "…" : ""}` : "";
-    $("#bkS").disabled = !list.length; $("#bkS").textContent = list.length ? list.length + " kişiyi ekle" : "Ekle";
+  const oz = can("k.ozel"); let rows = [], kaynak = "";
+  const shell = () => {
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="bkT" style="width:min(1040px,100%)">
+      <div class="dh"><h2 id="bkT">Personel listesini eşleştir</h2><button class="x" id="bkX" aria-label="Kapat">×</button></div>
+      <div class="db" id="bkB"></div>
+      <div class="df"><span class="note" id="bkSum"></span><div class="r"><button class="btn ghost" id="bkC" type="button">Vazgeç</button><button class="btn" id="bkS" type="button" disabled>Kaydet</button></div></div></aside>`;
+    $("#scrim").onclick = closeDrawer; $("#bkX").onclick = closeDrawer; $("#bkC").onclick = closeDrawer;
   };
+  const giris = () => {
+    $("#bkB").innerHTML = `<div class="izbal"><b>Excel dosyası yükleyin ya da satırları yapıştırın.</b><div class="note">Başlık satırında "Adı Soyadı", "Görevi" ve varsa "Departman" sütunları otomatik bulunur. İsimler sistemdeki personelle eşleştirilir: eşleşenlerin iş tanımı ve departmanı güncellenir, eşleşmeyenler yeni personel olarak eklenir. Kaydetmeden önce her satırı kontrol edebilirsiniz.</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="bkF">Excel dosyası seç</button><input type="file" id="bkFi" accept=".xlsx" hidden><span class="note" id="bkFn"></span></div>
+      <div class="field"><label for="bkTa">ya da yapıştırın (her satıra bir kişi)</label><textarea id="bkTa" class="cfgta" style="min-height:160px;font-family:var(--mono);font-size:13px" placeholder="Ad Soyad; Departman; İş tanımı${oz ? "; Telefon" : ""}\nAhmet Yılmaz; Üretim; Kaynak ustası"></textarea></div>
+      <button type="button" class="btn ghost" id="bkGo">Eşleştir</button>`;
+    $("#bkS").disabled = true; $("#bkSum").textContent = "";
+    $("#bkF").onclick = () => $("#bkFi").click();
+    $("#bkFi").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; $("#bkFn").textContent = "Okunuyor…";
+      try { const X = await skReadXlsx(f); const R = pkParseRows(X.rows); if (!R.length) { $("#bkFn").textContent = "Dosyada personel satırı bulunamadı."; return; } kaynak = f.name; hazirla(R); } catch (x) { console.error(x); $("#bkFn").textContent = "Dosya okunamadı. .xlsx olarak kaydedip tekrar deneyin."; } };
+    $("#bkGo").onclick = () => { const R = pkParseRows($("#bkTa").value.split("\n").map(l => l.split(/\t|;/))); if (!R.length) { toast("Satır yok"); return; } kaynak = "yapıştırılan liste"; hazirla(R); };
+  };
+  const hazirla = R => {
+    const kul = new Set(), seen = new Set();
+    rows = R.filter(r => { const k = pkTok(r.ad).join(""); if (seen.has(k)) return false; seen.add(k); return true; }).map(r => {
+      const m = pkEsle(r.ad, PT.people.filter(p => !kul.has(p.id))); const p = m.tip === "tam" || m.tip === "olasi" ? m.L[0] : null; if (p) kul.add(p.id);
+      return { ...r, m, pid: p ? p.id : m.tip === "cok" ? "" : "__yeni", dep: r.dep || (p && p.departman) || pkDepOner(r.gor), tel: r.tel };
+    });
+    ciz();
+  };
+  const ciz = () => {
+    const secili = new Set(rows.map(r => r.pid).filter(x => x && !x.startsWith("__")));
+    const disari = PT.people.filter(p => p.aktif !== false && !secili.has(p.id));
+    const deps = sortTr([...PT.people.map(p => p.departman), ...rows.map(r => r.dep), "Montaj", "Menfez", "Kanal", "Lazer Kesim", "Depo / Sevkiyat", "Lojistik", "Üretim"]);
+    $("#bkB").innerHTML = `<div class="note" style="margin-bottom:4px">${esc(kaynak)} · ${rows.length} kişi <button type="button" class="linkbtn" id="bkGeri">başka liste</button></div>
+      <datalist id="bkDepL">${deps.map(d => `<option value="${esc(d)}">`).join("")}</datalist>
+      <div class="ledger pkbled" role="table"><div class="lhead" role="row"><div>Listedeki ad</div><div>Sistemdeki kayıt</div><div>Departman</div><div>İş tanımı</div></div>
+      ${rows.map((r, i) => { const p = PT.people.find(x => x.id === r.pid), st = r.pid === "__atla" ? ["Atlanacak", "var(--ink-3)"] : r.pid === "__yeni" ? ["Yeni eklenecek", "var(--brand)"] : !r.pid ? ["Seçim gerekli", "var(--k-izinsiz)"] : r.m.tip === "tam" && p && p.id === (r.m.L[0] || {}).id ? ["Eşleşti", "var(--k-fabrikada)"] : ["Olası eşleşme, kontrol edin", "var(--k-gec)"];
+        const degis = p ? [(p.gorev || "") !== r.gor && r.gor ? `İş tanımı: ${p.gorev || "—"} → ${r.gor}` : "", (p.departman || "") !== r.dep && r.dep ? `Departman: ${p.departman || "—"} → ${r.dep}` : ""].filter(Boolean) : [];
+        return `<div class="row" role="row" style="cursor:default;--stripe:${st[1]}"><div><b>${esc(r.ad)}</b><div><span class="kst" style="--tc:${st[1]}">${st[0]}</span></div></div>
+          <div><select class="kin" data-bp="${i}" aria-label="${esc(r.ad)} için kayıt"><option value="">— Seçin —</option><option value="__yeni"${r.pid === "__yeni" ? " selected" : ""}>+ Yeni personel olarak ekle</option><option value="__atla"${r.pid === "__atla" ? " selected" : ""}>Atla</option>
+            <optgroup label="Mevcut personel">${PT.people.map(x => `<option value="${esc(x.id)}"${x.id === r.pid ? " selected" : ""}>${esc(x.ad)}${x.aktif === false ? " (ayrıldı)" : ""}${secili.has(x.id) && x.id !== r.pid ? " · başka satırda" : ""}</option>`).join("")}</optgroup></select>
+            ${degis.length ? `<div class="note">${degis.map(esc).join("<br>")}</div>` : p ? '<div class="note">Değişiklik yok</div>' : ""}${p && p.aktif === false ? '<div class="note late">İşten ayrıldı olarak kayıtlı; kaydedince yeniden aktif olur</div>' : ""}</div>
+          <div><input class="kin" data-bd="${i}" list="bkDepL" maxlength="60" value="${esc(r.dep)}"></div>
+          <div><input class="kin" data-bg="${i}" maxlength="120" value="${esc(r.gor)}"></div></div>`; }).join("")}</div>
+      ${disari.length ? `<section style="margin-top:14px"><h3 class="sec-t">Sistemde olup listede olmayanlar <small>${disari.length}</small></h3><p class="note" style="margin:0 0 6px">Liste yalnızca bir bölümü kapsıyorsa bunlar doğaldır (ofis personeli vb.). İşten ayrılanları işaretleyin; geçmiş kayıtları silinmez.</p>
+        ${disari.map(p => `<label class="chk sm"><input type="checkbox" data-bay="${esc(p.id)}"> ${esc(p.ad)} <small class="note">${esc([p.departman, p.gorev].filter(Boolean).join(" · "))}</small> — işten ayrıldı</label>`).join("")}</section>` : ""}`;
+    $("#bkGeri").onclick = giris;
+    document.querySelectorAll("[data-bp]").forEach(s => s.onchange = () => { const r = rows[Number(s.dataset.bp)]; r.pid = s.value; const p = PT.people.find(x => x.id === s.value); if (p && p.departman && !r.depElle) r.dep = p.departman; ciz(); });
+    document.querySelectorAll("[data-bd]").forEach(s => s.oninput = () => { const r = rows[Number(s.dataset.bd)]; r.dep = s.value.trim(); r.depElle = true; sum(); });
+    document.querySelectorAll("[data-bg]").forEach(s => s.oninput = () => { rows[Number(s.dataset.bg)].gor = s.value.trim(); sum(); });
+    document.querySelectorAll("[data-bay]").forEach(s => s.onchange = sum);
+    sum();
+  };
+  const sum = () => {
+    const ids = rows.map(r => r.pid).filter(x => x && !x.startsWith("__")), cift = ids.filter((x, i) => ids.indexOf(x) !== i);
+    const bos = rows.filter(r => !r.pid).length, yeni = rows.filter(r => r.pid === "__yeni").length, gun = ids.length, ay = document.querySelectorAll("[data-bay]:checked").length;
+    $("#bkSum").innerHTML = cift.length ? '<span class="late">Aynı kayıt iki satıra seçilmiş</span>' : bos ? `<span class="late">${bos} satırda seçim gerekli</span>` : `${gun} güncellenecek · ${yeni} eklenecek${ay ? ` · ${ay} ayrıldı işaretlenecek` : ""}`;
+    const b = $("#bkS"); b.disabled = !!(cift.length || bos || !(gun + yeni + ay)); b.textContent = "Kaydet";
+  };
+  shell(); giris();
   $("#bkS").onclick = async () => {
-    $("#bkS").disabled = true;
+    const b = $("#bkS"); b.disabled = true; const now = Date.now(), ay = [...document.querySelectorAll("[data-bay]:checked")].map(c => c.dataset.bay);
     try {
-      for (let i = 0; i < list.length; i += 200) {
-        const b = writeBatch(fs);
-        list.slice(i, i + 200).forEach(r => { const ref = doc(collection(fs, "personel")); b.set(ref, { ad: r.ad, departman: r.departman, gorev: r.gorev, iseGiris: "", yillikHak: null, aktif: true, ayrilis: "", createdAt: Date.now(), createdBy: ME.name, updatedAt: Date.now(), updatedBy: ME.name });
-          if (oz && r.telefon) b.set(doc(fs, "personel_ozel", ref.id), { tc: "", telefon: r.telefon, adres: "", yakin: "", yakinTel: "", updatedAt: Date.now(), updatedBy: ME.name }); });
-        await b.commit();
-      }
-      toast(list.length + " personel eklendi"); closeDrawer();
-    } catch (x) { $("#bkS").disabled = false; toast(writeErr(x)); }
+      const ops = [];
+      rows.forEach(r => { if (r.pid === "__atla" || !r.pid) return;
+        if (r.pid === "__yeni") { const ref = doc(collection(fs, "personel")); ops.push(bt => { bt.set(ref, { ad: r.ad, departman: r.dep, gorev: r.gor, iseGiris: "", yillikHak: null, aktif: true, ayrilis: "", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name });
+          if (oz && r.tel) bt.set(doc(fs, "personel_ozel", ref.id), { tc: "", telefon: r.tel, adres: "", yakin: "", yakinTel: "", updatedAt: now, updatedBy: ME.name }); }); return; }
+        const p = PT.people.find(x => x.id === r.pid); if (!p) return;
+        const d = {}; if (r.gor && r.gor !== (p.gorev || "")) d.gorev = r.gor; if (r.dep && r.dep !== (p.departman || "")) d.departman = r.dep; if (p.aktif === false) { d.aktif = true; d.ayrilis = ""; }
+        if (Object.keys(d).length) ops.push(bt => bt.update(doc(fs, "personel", p.id), { ...d, updatedAt: now, updatedBy: ME.name })); });
+      ay.forEach(id => ops.push(bt => bt.update(doc(fs, "personel", id), { aktif: false, ayrilis: TODAY, updatedAt: now, updatedBy: ME.name })));
+      for (let i = 0; i < ops.length; i += 200) { const bt = writeBatch(fs); ops.slice(i, i + 200).forEach(f => f(bt)); await bt.commit(); }
+      toast(ops.length ? `Personel listesi işlendi · ${ops.length} kayıt` : "Değişiklik yoktu"); closeDrawer();
+    } catch (x) { b.disabled = false; toast(writeErr(x)); }
   };
 }
 function pkOpenCfg() {
