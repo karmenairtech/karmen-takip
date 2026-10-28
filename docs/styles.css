@@ -1184,3 +1184,43 @@ a.qb{text-decoration:none;display:inline-flex;align-items:center}
 @media (max-width:480px){.pltiles{grid-template-columns:minmax(0,1fr)}}
 .tknot{width:100%;resize:vertical;min-height:34px;font-size:13.5px;line-height:1.4;background:color-mix(in srgb,#f0a020 6%,var(--bg))}
 .tkn{margin-top:6px;padding:6px 10px;border-left:3px solid #f0a020;background:color-mix(in srgb,#f0a020 9%,transparent);border-radius:0 6px 6px 0;font-size:13px;clear:both}
+/* MES tablet ekranı */
+.mesbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+.mesis{display:flex;flex-direction:column;gap:4px;flex:1 1 320px}.mesis label{font-size:12px;font-weight:600;color:var(--ink-2)}.mesis select{font-size:16px;padding:10px 12px}
+.mesact{display:flex;gap:8px;flex-wrap:wrap}
+.meshead{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:var(--band);color:var(--band-ink);border-radius:16px;padding:16px 20px;margin-bottom:16px}
+.meshead .note{color:#aab4c3}
+.mesnm{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:.5px}
+.meskpi{display:flex;gap:22px;flex-wrap:wrap}.meskpi div{display:flex;flex-direction:column;align-items:flex-start}.meskpi b{font-size:28px;font-family:var(--mono);filter:brightness(1.6)}.meskpi span{font-size:12px;color:#aab4c3}
+.messel{position:sticky;top:64px;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:2px solid var(--brand);border-radius:14px;padding:10px 14px;margin-bottom:14px;box-shadow:0 8px 20px rgba(0,0,0,.12)}
+.mesg{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:18px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--line)}.mesg b{font-size:16px}
+.mesl{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-bottom:6px}
+.mesk{background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--ink-3);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.mesk.devam{border-left-color:var(--brand);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 30%,transparent)}.mesk.hazir{border-left-color:var(--k-fabrikada)}.mesk.kismi{border-left-color:var(--k-gec)}.mesk.bekle{opacity:.62}
+.mesk.sec{outline:3px solid var(--brand);outline-offset:2px}
+.mesh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mest{font-size:12px;font-weight:800;letter-spacing:.6px;color:#fff;background:var(--tc);border-radius:6px;padding:3px 8px}
+.mesonc{font-size:12px;font-weight:800;color:#fff;background:#e5484d;border-radius:6px;padding:3px 8px}
+.mester{margin-left:auto;font-size:12.5px;font-weight:600;padding:3px 9px;border-radius:20px;background:var(--surface-2)}
+.mester.kir,.mester.gec{background:#e5484d;color:#fff}.mester.tur{background:#f08c00;color:#fff}.mester.yes{background:#2f9e44;color:#fff}
+.mesu{font-size:18px;font-weight:700;line-height:1.25}
+.mesm{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13.5px;color:var(--ink-2)}.mesm span{display:inline-flex;gap:6px;align-items:center}.mesm b{color:var(--ink)}
+.meso{display:grid;grid-template-columns:minmax(0,2fr) repeat(3,minmax(0,1fr));gap:10px;background:var(--surface-2);border-radius:10px;padding:10px 12px}
+.meso div{display:flex;flex-direction:column;min-width:0}.meso small{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px}.meso b{font-size:15px}
+.mesnot{font-size:13px;padding:6px 10px;border-left:3px solid #f0a020;background:color-mix(in srgb,#f0a020 10%,transparent);border-radius:0 6px 6px 0}
+.mesbk{font-size:13px;color:var(--ink-2);padding:8px 10px;background:var(--surface-2);border-radius:8px}
+.mesb{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mbtn{min-height:52px;padding:0 22px;border-radius:12px;font-size:17px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.mbtn.bas{background:#2f9e44;border-color:#2f9e44;color:#fff;flex:1}.mbtn.bit{background:var(--brand);border-color:var(--brand);color:#fff;flex:1}.mbtn.dur{background:#f08c00;border-color:#f08c00;color:#fff}
+.mbtn.sec{min-height:52px;font-size:15px}.mbtn.sec[aria-pressed="true"]{background:color-mix(in srgb,var(--brand) 14%,var(--surface));border-color:var(--brand);color:var(--brand)}
+.mbtn:disabled{opacity:.5}
+.messure{font-size:12.5px;color:var(--ink-2)}
+.mesbl{display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow:auto}
+.mesbr{display:grid;grid-template-columns:minmax(0,1fr) 110px 90px;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.mesbr small{display:block;font-size:12px;color:var(--ink-2)}.mesbr label{display:flex;flex-direction:column;font-size:11px;font-weight:600;color:var(--ink-2)}.mesbr .kin{font-size:18px;padding:8px}
+/* tam ekran tablet modu */
+body.mesfs .topbar,body.mesfs #modPlan>header.band,body.mesfs #plTabs,body.mesfs #plCfgBtn,body.mesfs #plAdd,body.mesfs .ph-banner,body.mesfs .pvbar{display:none!important}
+body.mesfs #modPlan main.wrap{max-width:none;padding:14px 18px}
+body.mesfs .messel{top:8px}
+@media (max-width:700px){.mesl{grid-template-columns:1fr}.meso{grid-template-columns:1fr 1fr}.meskpi{gap:14px}.meskpi b{font-size:22px}}
+.meso{grid-template-columns:repeat(3,minmax(0,1fr))}.meso>div:first-child{grid-column:1/-1}
