@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="28">
+<meta name="app-version" content="31">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=28">
+<link rel="stylesheet" href="styles.css?v=31">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -325,8 +325,8 @@
 <main class="wrap">
   <div class="toolbar">
     <div class="seg pktabs" id="spTabs" role="group" aria-label="Görünüm">
+      <button type="button" data-sp="teklif" aria-pressed="false">Teklifler</button>
       <button type="button" data-sp="liste" aria-pressed="true">Siparişler</button>
-      <button type="button" data-sp="sevk" aria-pressed="false">Sevkiyat</button>
       <button type="button" data-sp="proje" aria-pressed="false">Projeler</button>
     </div>
     <div class="filters">
@@ -335,6 +335,32 @@
     </div>
   </div>
   <section id="spView"></section>
+</main>
+</div>
+<div id="modSV" data-route="sevkiyat" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">SEVKİYAT</div>
+        <h1>Sevkiyat ve irsaliye</h1>
+      </div>
+      <div class="dateblock" aria-label="Bugünün tarihi">
+        <div class="dnum num js-dday">—</div>
+        <div class="dmeta"><div class="dwd js-dwd">—</div><div class="dmy js-dmy">—</div><div class="dclk num js-dclk">—</div></div>
+      </div>
+    </div>
+    <div class="kpis" id="svKpis"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <div class="seg pktabs" id="svTabs" role="group" aria-label="Görünüm">
+      <button type="button" data-sv="bekleyen" aria-pressed="true">Sevk bekleyenler</button>
+      <button type="button" data-sv="gecmis" aria-pressed="false">Sevkiyatlar</button>
+    </div>
+  </div>
+  <section id="svView"></section>
 </main>
 </div>
 <div id="modStok" data-route="stok" hidden>
@@ -449,6 +475,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=28"></script>
+<script type="module" src="app.js?v=31"></script>
 </body>
 </html>
