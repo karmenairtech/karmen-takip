@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "34";
+const APP_V = "35";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -8167,7 +8167,7 @@ function mesKart(j) {
   const { e, st, q } = j, gun = e.termin ? dnum(e.termin) - dnum(TODAY) : null, tc = gun == null ? "" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes", key = j.key, renk = e.renk;
   const A = j.stage ? MES_ASM[j.stage] : null, o = j.o || (j.k != null ? e.ops[j.k] : null), lp = o && MES_LP(o.ist);
   const son = j.stage ? j.ks.map(k => (e.ops[k].calisma || []).find(c => !c.bit)).find(Boolean) : o ? (o.calisma || []).filter(c => !c.bit).slice(-1)[0] : null;
-  const etiket = A ? A[0] : lp ? (/^LZR/i.test(o.ist) ? "LAZER KESİM" : "PLAZMA KESİM") : "İŞLEM";
+  const etiket = A ? A[0] : lp ? (/^LZR/i.test(o.ist) ? "LAZER KESİM" : "PLAZMA KESİM") : mesModu() === "basit" ? "ÖN İŞLEM · " + o.ist : "İŞLEM";
   const islem = A ? `${A[1]} · ${j.ks.length} işlem` : `${esc(plNo(o, j.k))}. ${esc(o.ad || o.tanim || "")} · ${esc(o.ist)}`;
   const tamam = j.stage ? j.done || 0 : Number(o.tamam) || 0;
   const bas = A ? A[2] : st === "kismi" ? "Devam et" : "Başla", bit = A ? A[3] : "Bitir";
@@ -8184,7 +8184,7 @@ function mesKart(j) {
     <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
     <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
     <div class="mesio"><span class="num">${esc(e.no)}</span><span>${islem}</span></div>
-    <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlp ${j.lpDone ? "ok" : ""}">${j.lpDone ? "Lazer/plazma ✓" : "Lazer/plazma bekleniyor"}</span>` : ""}</div>
+    <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlps">${(j.onDurum || []).map(x => `<span class="mlp ${x.ok ? "ok" : ""}">${esc(x.ad)} ${x.ok ? "✓" : "bekleniyor"}</span>`).join("")}</span>` : ""}</div>
     ${e.not ? `<div class="mesnot">${esc(e.not)}</div>` : ""}
     ${st === "bekle" ? `<div class="mesbk">${j.stage ? (j.stage === "boya" ? "Üretim bitince boyahaneye düşer" : "Önceki aşama bitince düşer") : "Önceki işlem bekleniyor"}</div>` : `<div class="mesb">${btn}<button type="button" class="mbtn sec" data-ma="sec" aria-pressed="${MES.sec.has(key)}" title="Seç">${MES.sec.has(key) ? "✓" : "Seç"}</button></div>`}
     ${son ? `<div class="messure">Başladı ${skTs(son.bas).split(" ").pop()} · ${esc(son.by || "")}</div>` : ""}
@@ -8198,7 +8198,7 @@ function plMesView(v) {
   const S = mesStations(), mod = mesModu(), devObj = MES.ist.startsWith("d:") ? D.find(d => "d:" + d.id === MES.ist) : null;
   const J = mod === "basit" ? mesIslerBasit(S) : mesIsler(S);
   const bugun = PL.ie.reduce((a, e) => a + (e.ops || []).filter(o => S.has(o.ist) && o.durum === "bitti" && o.bitis && dayOf(o.bitis) === TODAY && !o.atlandi).length, 0);
-  const gk = { tip: j => j.tip, renk: j => j.renk, sip: j => j.sip, asama: j => j.stage ? MES_ASM[j.stage][0] : (j.o && MES_LP(j.o.ist) ? "LAZER / PLAZMA" : "İŞLEM"), yok: () => "" }[MES.grup] || (() => "");
+  const gk = { tip: j => j.tip, renk: j => j.renk, sip: j => j.sip, asama: j => j.stage ? MES_ASM[j.stage][0] : (j.o && MES_LP(j.o.ist) ? "LAZER / PLAZMA" : "ÖN İŞLEMLER"), yok: () => "" }[MES.grup] || (() => "");
   const G = new Map(); J.forEach(j => { const k = gk(j); if (!G.has(k)) G.set(k, []); G.get(k).push(j); });
   const fs0 = document.body.classList.contains("mesfs") || !!dev, ops = devObj ? devObj.op || [] : [];
   if (MES.op && ops.length && !ops.includes(MES.op)) MES.op = "";
@@ -8403,8 +8403,8 @@ function panoMenuEdit() {
 /* ================= MES v2: cihazlar, basit mod (aşamalar), planlama menü yetkileri ================= */
 const MESC = { cfg: { cihazlar: [], plTabs: {}, mod: "basit" }, ready: false, unsub: null };
 const MES_DEV_DEF = () => [
-  { id: "t1", ad: "Tablet-1 · Depo, sevkiyat, boyahane", email: "", mod: "basit", ist: ["DEPO-1", "BKL-1", "DLD-1", "DLD-2", "BTBC-1", "BTBC-2", "FRN-1", "PKT-1", "ARB-1"], op: ["Şahin Tan"] },
-  { id: "t2", ad: "Tablet-2 · Menfez", email: "", mod: "basit", ist: ["TST-1", "TST-2", "MNT-1", "MNT-2", "MNT-3", "EP-1", "EP-2", "EP-3", "EP-4", "EP-5", "EP-6", "EP-7", "EP-8", "EP-9", "EP-10", "EP-11", "EP-12", "MK-1"], op: ["Selim Tan"] },
+  { id: "t1", ad: "Tablet-1 · Depo, sevkiyat, boyahane", email: "", mod: "basit", ist: ["DEPO-1", "BKL-1", "DLD-1", "DLD-2", "BTBC-1", "BTBC-2", "FRN-1", "PKT-1", "ARB-1", "MNT-3"], op: ["Şahin Tan"] },
+  { id: "t2", ad: "Tablet-2 · Menfez", email: "", mod: "basit", ist: ["TST-1", "TST-2", "MNT-1", "MNT-2", "EP-1", "EP-2", "EP-3", "EP-4", "EP-5", "EP-6", "EP-7", "EP-8", "EP-9", "EP-10", "EP-11", "EP-12", "MK-1"], op: ["Selim Tan"] },
   { id: "t3", ad: "Tablet-3 · Kanal imalat", email: "", mod: "basit", ist: ["KKM-1", "SPR-1", "SPR-2", "KNT-1"], op: ["Enes Büyüktaş"] },
   { id: "pc1", ad: "Plazma-PC", email: "", mod: "basit", ist: ["PLZ-1"], op: ["Mahir Elhac"] },
   { id: "pc2", ad: "Lazer-PC", email: "", mod: "basit", ist: ["LZR-1"], op: ["Ahiret Tan"] }];
@@ -8424,6 +8424,11 @@ function mesAsamalar(e) {
   const O = e.ops || [], A = { lp: [], uretim: [], boya: [], depo: [] }, b = o => plBolumOf(o.ist), isB = o => b(o) === "boya" || /^BKL/i.test(o.ist || ""), isPA = o => ["paket", "alan"].includes(b(o));
   let lastProd = -1, lastB = -1; O.forEach((o, k) => { if (isB(o)) lastB = k; else if (!MES_LP(o.ist) && !isPA(o)) lastProd = k; });
   O.forEach((o, k) => { if (MES_LP(o.ist)) A.lp.push(k); else if (isB(o)) A.boya.push(k); else if (isPA(o) && k > lastProd && k > lastB) A.depo.push(k); else A.uretim.push(k); });
+  // üretim aşamasının sahibi: son üretim işleminin (montaj) bağlı olduğu cihaz
+  const dev = ist => (MESC.cfg.cihazlar || []).find(d => (d.ist || []).includes(ist)) || null;
+  let sahip = null; for (let i = A.uretim.length - 1; i >= 0; i--) { const o = O[A.uretim[i]]; if (isPA(o)) continue; const d = dev(o.ist); if (d) { sahip = d; break; } }
+  A.on = []; A.sahip = sahip ? sahip.id : "";
+  if (sahip) { const kal = []; A.uretim.forEach(k => { const o = O[k], d = isPA(o) ? null : dev(o.ist); if (d && d.id !== sahip.id) A.on.push(k); else kal.push(k); }); A.uretim = kal; }
   return A;
 }
 function mesAsamaSt(e, ks) { const O = ks.map(k => e.ops[k]); if (!O.length) return null; if (O.every(o => o.durum === "bitti")) return "bitti"; if (O.some(o => o.durum === "devam")) return "devam"; if (O.some(o => o.durum === "durdu" || (o.durum === "bitti" && !o.atlandi) || Number(o.tamam) > 0)) return "kismi"; return "bekliyor"; }
@@ -8434,16 +8439,17 @@ function mesIslerBasit(S) {
   const L = [], onc = { cokacil: 0, acil: 1, normal: 2 };
   PL.ie.filter(e => plIeOpen(e) && e.durum !== "bekle").forEach(e => {
     const A = mesAsamalar(e), q = Number(e.miktar) || 0, base = { e, q, tip: e.akisAd || "Diğer", renk: e.renkAd || "Renk belirtilmedi", sip: e.siparisNo || "Stoka üretim" };
-    A.lp.forEach(k => { const o = e.ops[k]; if (o.durum === "bitti" || !S.has(o.ist)) return; const lpPrev = (o.onceki || []).map(String).every(n => { const p = (e.ops || []).find((x, j) => String(plNo(x, j)) === n); return !p || !MES_LP(p.ist) || p.durum === "bitti"; });
+    const ayri = new Set([...A.lp, ...A.on]);
+    [...A.lp, ...A.on].forEach(k => { const o = e.ops[k]; if (o.durum === "bitti" || !S.has(o.ist)) return; const lpPrev = (o.onceki || []).map(String).every(n => { const j0 = (e.ops || []).findIndex((x, j) => String(plNo(x, j)) === n); return j0 < 0 || !ayri.has(j0) || e.ops[j0].durum === "bitti"; });
       L.push({ ...base, k, key: e.id + "|" + k, st: o.durum === "devam" ? "devam" : lpPrev ? (o.durum === "durdu" ? "kismi" : "hazir") : "bekle", kalan: Math.max(0, q - (Number(o.tamam) || 0)), dk: plStepPlan(o, q) * (1 - plOpDone(o, q)), o }); });
     const stU = mesAsamaSt(e, A.uretim), stB = mesAsamaSt(e, A.boya), stD = mesAsamaSt(e, A.depo);
-    const lpDone = A.lp.every(k => e.ops[k].durum === "bitti");
+    const lpDone = [...A.lp, ...A.on].every(k => e.ops[k].durum === "bitti"), onDurum = [...A.lp, ...A.on].map(k => { const o = e.ops[k]; return { ad: /^LZR/i.test(o.ist) ? "Lazer" : /^PLZ/i.test(o.ist) ? "Plazma" : o.ist, ok: o.durum === "bitti" }; }).filter((x, i, a) => a.findIndex(y => y.ad === x.ad) === i).map(x => ({ ...x, ok: [...A.lp, ...A.on].filter(k => { const o = e.ops[k]; return (/^LZR/i.test(o.ist) ? "Lazer" : /^PLZ/i.test(o.ist) ? "Plazma" : o.ist) === x.ad; }).every(k => e.ops[k].durum === "bitti") }));
     [["uretim", A.uretim, stU, true], ["boya", A.boya, stB, !stU || stU === "bitti"], ["depo", A.depo, stD, (!stU || stU === "bitti") && (!stB || stB === "bitti")]].forEach(([s, ks, st, hazir]) => {
       if (!ks.length || st === "bitti") return;
       if (!hazir && s !== "uretim") { const once = s === "boya" ? stU : (A.boya.length && stB !== "bitti" ? stB : stU); if (!once || once === "bekliyor") return; }
       const vis = ks.map(k => e.ops[k]).filter(o => s !== "uretim" || !["paket", "alan"].includes(plBolumOf(o.ist))); if (!vis.some(o => S.has(o.ist))) return;
       const done = Math.min(...ks.map(k => e.ops[k].durum === "bitti" ? q : Number(e.ops[k].tamam) || 0));
-      L.push({ ...base, stage: s, ks, key: e.id + "|s:" + s, st: st === "devam" ? "devam" : hazir ? (st === "kismi" ? "kismi" : "hazir") : "bekle", kalan: Math.max(0, q - done), done, dk: ks.reduce((a, k) => a + plStepPlan(e.ops[k], q) * (1 - plOpDone(e.ops[k], q)), 0), lpDone, lpVar: A.lp.length > 0 }); });
+      L.push({ ...base, stage: s, ks, key: e.id + "|s:" + s, st: st === "devam" ? "devam" : hazir ? (st === "kismi" ? "kismi" : "hazir") : "bekle", kalan: Math.max(0, q - done), done, dk: ks.reduce((a, k) => a + plStepPlan(e.ops[k], q) * (1 - plOpDone(e.ops[k], q)), 0), lpDone, lpVar: A.lp.length + A.on.length > 0, onDurum }); });
   });
   const so = { devam: 0, kismi: 1, hazir: 2, bekle: 3 };
   return L.sort((a, b) => (so[a.st] - so[b.st]) || ((onc[a.e.oncelik] ?? 2) - (onc[b.e.oncelik] ?? 2)) || String(a.e.termin || "9").localeCompare(String(b.e.termin || "9")));
