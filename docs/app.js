@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "36";
+const APP_V = "37";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7242,9 +7242,11 @@ function spOpenCfg() {
         <div class="field full"><label class="chk"><input type="checkbox" id="cgKs"${C.kase ? " checked" : ""}> Teklif PDF'inde firma kaşesi (hazırlayan alanında) basılsın</label></div>
         <div class="field full"><label for="cgNt">Genel şartlar (Türkçe, her satır bir madde)</label><textarea id="cgNt" class="cfgta" style="min-height:170px">${esc(C.notTR)}</textarea></div>
         <div class="field full"><label for="cgNe">Genel şartlar (İngilizce)</label><textarea id="cgNe" class="cfgta" style="min-height:170px">${esc(C.notEN)}</textarea></div></div>`; })()}
+      ${isAdmin() && (SP.list.length || TK.list.length) ? `<h3 class="sec-t" style="margin-top:14px">Deneme verilerini temizle <small>yalnızca yönetici</small></h3><p class="note" style="margin:0 0 8px">${SP.list.length} sipariş, ${TK.list.length} teklif ve bunlara bağlı bütün kayıtlar kalıcı silinir.</p><button type="button" class="btn danger" id="cgAll">Tüm siparişleri sil…</button>` : ""}
     </div>
     <div class="df"><span></span><div class="r"><button class="btn ghost" id="scC2" type="button">Vazgeç</button><button class="btn" id="scS2" type="button">Kaydet</button></div></div></aside>`;
   $("#scrim").onclick = closeDrawer; $("#scX2").onclick = closeDrawer; $("#scC2").onclick = closeDrawer;
+  const ca = $("#cgAll"); if (ca) ca.onclick = spTumunuSil;
   $("#scS2").onclick = async () => { try { await setDoc(doc(fs, "config", "siparis"), { varyasyon: $("#cgV").value.trim(), sikRenkler: $("#cgR").value.split(/[,\s]+/).map(x => x.replace(/\D/g, "")).filter(x => x.length === 4).slice(0, 16),
       tkFirma: { unvan: $("#cgFu").value.trim(), adres: $("#cgFa").value.trim(), tel: $("#cgFt").value.trim(), eposta: $("#cgFe").value.trim(), web: $("#cgFw").value.trim() }, tkGecerlilik: Math.max(1, Number($("#cgGc").value) || 15), tkTeslimSure: $("#cgTs").value.trim(), tkKase: $("#cgKs").checked, tkNotTR: $("#cgNt").value.trim(), tkNotEN: $("#cgNe").value.trim(),
       updatedAt: Date.now(), updatedBy: ME.name }, { merge: true }); toast("Ayarlar kaydedildi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } };
@@ -8536,5 +8538,43 @@ function plTumunuSil() {
         for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); b.textContent = `Siliniyor… ${Math.min(i + 400, ops.length)}/${ops.length}`; }
         toast(`${L.length} iş emri silindi`); done(true); closeDrawer();
       } catch (x) { b.disabled = false; b.textContent = "Kalıcı sil"; toast(writeErr(x)); } };
+  });
+}
+
+/* Yönetici: deneme sürecindeki bütün siparişleri ve bağlı kayıtları sil */
+function spTumunuSil() {
+  if (!isAdmin()) return;
+  const L = SP.list.slice(), nos = new Set(L.map(s => s.no)), ids = new Set(L.map(s => s.id));
+  const IE = PL.ie.filter(e => (e.siparisIds || []).some(i => ids.has(i)) || String(e.siparisNo || "").split(",").map(x => x.trim()).some(n => nos.has(n)));
+  const sevk = L.reduce((a, s) => a + (s.sevkiyatlar || []).length, 0);
+  spModal(`<label>Tüm siparişleri sil</label>
+    <div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu işlem geri alınamaz.</b><div class="note">Silinecekler: ${L.length} sipariş, satış fiyatları, ek dosyalar, ${sevk} sevkiyat kaydı, termin ve revizyon geçmişi.</div></div>
+    <div class="sproz">
+      ${IE.length ? `<label class="chk sproc"><input type="checkbox" id="tsIe" checked><span><b>Bu siparişlere bağlı ${IE.length} iş emri</b><small>İçlerindeki bütün işlem kayıtlarıyla (başlat, bitir, adet, fire)</small></span></label>` : ""}
+      ${TK.list.length ? `<label class="chk sproc"><input type="checkbox" id="tsTk" checked><span><b>Bütün teklifler (${TK.list.length})</b><small>Siparişe dönüşmüş ya da dönüşmemiş, hepsi</small></span></label>` : ""}
+      ${sevk ? `<label class="chk sproc"><input type="checkbox" id="tsSk" checked><span><b>Sevkiyatta stoktan düşülen miktarları geri al</b><small>Stoktan karşılanıp sevk edilen ürünlerin stok hareketleri silinir, miktarlar stoğa geri eklenir</small></span></label>` : ""}
+    </div>
+    <div class="field"><label for="tsOk">Onay için <b>SİL</b> yazın</label><input id="tsOk" autocomplete="off"></div>
+    <div class="r"><button type="button" class="btn ghost" id="tsC">Vazgeç</button><button type="button" class="btn danger" id="tsO" disabled>Kalıcı sil</button></div>`, (h, done) => {
+    const ok = h.querySelector("#tsOk"), b = h.querySelector("#tsO"), on = id => { const c = h.querySelector("#" + id); return !!(c && c.checked); };
+    ok.oninput = () => { b.disabled = ok.value.trim().toLocaleUpperCase("tr") !== "SİL"; };
+    h.querySelector("#tsC").onclick = () => done(false);
+    b.onclick = async () => { b.disabled = true; b.textContent = "Hazırlanıyor…"; const now = Date.now();
+      try {
+        const ops = [], del = (c, id) => ops.push(bt => bt.delete(doc(fs, c, id)));
+        L.forEach(s => { del("siparis", s.id); del("siparis_fiyat", s.id); });
+        const ek = L.flatMap(s => (s.ekler || []).flatMap(x => Array.from({ length: x.parca || 0 }, (_, k) => `${s.id}_${x.id}_${k}`))); ek.forEach(id => del("sp_dosya", id));
+        if (on("tsIe")) IE.forEach(e => del("isemri", e.id));
+        if (on("tsTk")) TK.list.forEach(t => del("teklif", t.id));
+        if (on("tsSk") && sevk) {
+          const t0 = Math.min(...L.map(s => s.createdAt || now)) - 864e5, hs = await getDocs(query(collection(fs, "stok_hareket"), where("ts", ">=", t0)));
+          const H = hs.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.tip === "cikis" && /Satış \/ sevkiyat/.test(x.aciklama || "") && [...nos].some(n => (x.aciklama || "").includes(n)));
+          const by = new Map(); H.forEach(x => { del("stok_hareket", x.id); by.set(x.sid, (by.get(x.sid) || 0) - (Number(x.miktar) || 0)); });
+          for (const [sid, d] of by) { const it = await skGet(sid).catch(() => null); if (it) ops.push(bt => bt.update(doc(fs, "stok", sid), { miktar: increment(d), seviye: skSeviye((Number(it.miktar) || 0) + d, it.minStok, it.maxStok), updatedAt: now, updatedBy: ME.name })); }
+        }
+        for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); b.textContent = `Siliniyor… ${Math.min(i + 400, ops.length)}/${ops.length}`; }
+        if (typeof SK !== "undefined") { SK.cache.clear(); skCounts(800); }
+        toast(`${L.length} sipariş ve bağlı kayıtlar silindi`); done(true); closeDrawer();
+      } catch (x) { console.error(x); b.disabled = false; b.textContent = "Kalıcı sil"; toast(writeErr(x)); } };
   });
 }
