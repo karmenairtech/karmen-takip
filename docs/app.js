@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "35";
+const APP_V = "36";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4292,7 +4292,7 @@ function plOpenNewIe(pre = {}) {
     <div class="db">
       <div class="kopts sm" role="radiogroup" aria-label="Üretim türü"><button type="button" role="radio" class="kopt on" aria-checked="true" data-nt="sip" style="--tc:var(--brand)"><i></i>Siparişe üretim</button><button type="button" role="radio" class="kopt" aria-checked="false" data-nt="stok" style="--tc:var(--k-gunluk)"><i></i>Stoka üretim</button></div>
       <div class="fgrid">
-        <div class="field nsip"><label for="nSip">Sipariş no</label><input id="nSip" list="nSipL" maxlength="40" value="${esc(pre.siparisNo || "")}" placeholder="Örn. SP-2026-120"><datalist id="nSipL">${sortTr(PL.ie.map(e => e.siparisNo)).map(s => `<option value="${esc(s)}">`).join("")}</datalist></div>
+        <div class="field nsip"><label for="nSip">Sipariş no</label><div style="display:flex;gap:6px"><input id="nSip" list="nSipL" maxlength="40" value="${esc(pre.siparisNo || "")}" placeholder="Örn. SP-2026-120" style="flex:1"><button type="button" class="btn ghost sm" id="nSipNx" title="Sıradaki sipariş numarasını getir">Sıradaki no</button></div><datalist id="nSipL">${sortTr(PL.ie.map(e => e.siparisNo)).map(s => `<option value="${esc(s)}">`).join("")}</datalist></div>
         <div class="field nsip"><label for="nMus">Müşteri</label><input id="nMus" maxlength="100" value="${esc(pre.musteri || "")}"></div>
         <div class="field full"><label for="nAk">İş akış şeması *</label><select id="nAk"><option value="">Seçin</option>${PL.akis.map(a => opt(a.id, `${a.kod} · ${a.ad}`, pre.akisId || "")).join("")}</select></div>
         <div class="field full"><label for="nUr">Ürün *</label><input id="nUr" list="nUrL" maxlength="140" placeholder="Stok kodu (M-0101…) ya da ad yazın, listeden seçin" value="${esc(pre.urunAd || "")}"><datalist id="nUrL">${prods.map(i => `<option value="${esc(i.kod + " · " + i.ad)}">`).join("")}${PL.akis.map(a => a.urunAd ? `<option value="${esc(a.urunAd)}">` : "").join("")}</datalist></div>
@@ -4573,10 +4573,12 @@ function plOpenCfg() {
       <div class="field"><label for="pcfD">Günlük net çalışma (dk)</label><input id="pcfD" type="number" min="60" max="1440" value="${esc(PL.cfg.gunlukDk)}"></div>
       <label class="chk field full"><input type="checkbox" id="pcfC"${PL.cfg.cumartesi ? " checked" : ""}> Cumartesi çalışma günü</label>
     </div><p class="note" style="margin:0">Tahmini bitiş tarihi bu mesai bilgisine göre hesaplanır (molalar düşülmüş net süre).</p>
-    ${can("pl.ie") ? `<section><h3 class="sec-t">Deneme iş emirleri</h3><p class="note" style="margin:0 0 8px">Toplantıda işleyişi göstermek için 15 örnek iş emri. "DENEME" etiketiyle görünür; örnek süreler yalnızca bu iş emirlerine yazılır, akış şemalarınız değişmez.</p>${PL.ie.some(e => e.deneme) ? (can("pl.delete") ? '<button type="button" class="btn danger" id="pcfUn">Deneme iş emirlerini sil</button>' : '<p class="note">Deneme iş emirleri ekli.</p>') : '<button type="button" class="btn ghost" id="pcfSeed">15 deneme iş emri ekle</button>'}</section>` : ""}</div>
+    ${can("pl.ie") ? `<section><h3 class="sec-t">Deneme iş emirleri</h3><p class="note" style="margin:0 0 8px">Toplantıda işleyişi göstermek için 15 örnek iş emri. "DENEME" etiketiyle görünür; örnek süreler yalnızca bu iş emirlerine yazılır, akış şemalarınız değişmez.</p>${PL.ie.some(e => e.deneme) ? (can("pl.delete") ? '<button type="button" class="btn danger" id="pcfUn">Deneme iş emirlerini sil</button>' : '<p class="note">Deneme iş emirleri ekli.</p>') : '<button type="button" class="btn ghost" id="pcfSeed">15 deneme iş emri ekle</button>'}</section>` : ""}
+    ${isAdmin() && PL.ie.length ? `<section><h3 class="sec-t">Tüm iş emirlerini sil <small>yalnızca yönetici</small></h3><p class="note" style="margin:0 0 8px">Deneme sürecinde açılan <b>${PL.ie.length}</b> iş emrinin tamamı ve üzerlerindeki bütün işlem kayıtları (başlat, bitir, adet, fire) kalıcı silinir. Akış şemaları, istasyonlar ve siparişler silinmez.</p><button type="button" class="btn danger" id="pcfAll">Tüm iş emirlerini sil…</button></section>` : ""}</div>
     <div class="df"><span></span><div class="r"><button class="btn ghost" id="pcfCa" type="button">Vazgeç</button><button class="btn" id="pcfS" type="button">Kaydet</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#pcfX").onclick = closeDrawer; $("#pcfCa").onclick = closeDrawer;
+  const ta = $("#pcfAll"); if (ta) ta.onclick = plTumunuSil;
   const sd = $("#pcfSeed"); if (sd) sd.onclick = () => { closeDrawer(); plSeedDemo(); };
   const un = $("#pcfUn"); if (un) { let armed = false; un.onclick = async () => { if (!armed) { armed = true; un.textContent = "Silmek için tekrar basın"; return; } un.disabled = true; await plUnseedDemo(); closeDrawer(); }; }
   if (!can("pl.ist")) { ["pcfM", "pcfD", "pcfC"].forEach(k => $("#" + k).disabled = true); $("#pcfS").hidden = true; }
@@ -8511,3 +8513,28 @@ function renderYtMes() {
       YTM.dev = null; YTM.tabs = null; YTM.mod = null; toast("Planlama ve MES ayarları kaydedildi"); } catch (x) { toast(writeErr(x)); } };
 }
 const YTM = { dev: null, tabs: null, mod: null };
+
+/* Planlama: sıradaki sipariş no (yeni iş emri formu) */
+function plSiradakiSip() { const y = TODAY.slice(0, 4), re = new RegExp("^SP-" + y + "-(\\d+)$"), N = [...SP.list.map(x => x.no), ...PL.ie.map(e => e.siparisNo)].map(n => { const m = String(n || "").trim().match(re); return m ? Number(m[1]) : 0; }); return `SP-${y}-${String(Math.max(0, ...N) + 1).padStart(4, "0")}`; }
+document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#nSipNx"); if (!b) return; const i = $("#nSip"); if (i) { i.value = plSiradakiSip(); i.dispatchEvent(new Event("input", { bubbles: true })); i.focus(); } });
+/* Yönetici: deneme sürecindeki bütün iş emirlerini sil */
+function plTumunuSil() {
+  if (!isAdmin()) return;
+  const L = PL.ie.slice(), spBagli = SP.list.filter(s => (s.kalemler || []).some(k => (k.ie || []).length));
+  spModal(`<label>Tüm iş emirlerini sil</label>
+    <div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu işlem geri alınamaz.</b><div class="note">${L.length} iş emri ve içindeki bütün işlem kayıtları silinir. MES ekranları, planlama ekranı ve fabrika panosundaki üretim sayıları sıfırlanır.</div></div>
+    ${spBagli.length ? `<label class="chk"><input type="checkbox" id="tsSp" checked> ${spBagli.length} siparişteki iş emri bağlantılarını da temizle (kalemler "Planlanacak işler" havuzuna geri döner)</label>` : ""}
+    <div class="field"><label for="tsOk">Onay için <b>SİL</b> yazın</label><input id="tsOk" autocomplete="off"></div>
+    <div class="r"><button type="button" class="btn ghost" id="tsC">Vazgeç</button><button type="button" class="btn danger" id="tsO" disabled>Kalıcı sil</button></div>`, (h, done) => {
+    const ok = h.querySelector("#tsOk"), b = h.querySelector("#tsO");
+    ok.oninput = () => { b.disabled = ok.value.trim().toLocaleUpperCase("tr") !== "SİL"; };
+    h.querySelector("#tsC").onclick = () => done(false);
+    b.onclick = async () => { b.disabled = true; b.textContent = "Siliniyor…"; const now = Date.now();
+      try {
+        const ops = L.map(e => bt => bt.delete(doc(fs, "isemri", e.id)));
+        const sp = h.querySelector("#tsSp"); if (sp && sp.checked) spBagli.forEach(s => ops.push(bt => bt.update(doc(fs, "siparis", s.id), { kalemler: (s.kalemler || []).map(k => ({ ...k, ie: [] })), updatedAt: now, updatedBy: ME.name, log: spLog(s, "Deneme iş emirleri silindi, kalemler planlama havuzuna döndü") })));
+        for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); b.textContent = `Siliniyor… ${Math.min(i + 400, ops.length)}/${ops.length}`; }
+        toast(`${L.length} iş emri silindi`); done(true); closeDrawer();
+      } catch (x) { b.disabled = false; b.textContent = "Kalıcı sil"; toast(writeErr(x)); } };
+  });
+}
