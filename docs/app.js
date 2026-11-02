@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "37";
+const APP_V = "39";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -2484,7 +2484,7 @@ function pkHak(p) {
 }
 const pkUsed = (pid, yil) => PT.izin.filter(z => z.pid === pid && z.tur === "yillik" && String(z.bas).slice(0, 4) === String(yil)).reduce((s, z) => s + (Number(z.gun) || pkWorkDays(z.bas, z.bit)), 0);
 function pkMonthStats(p, ay) {
-  const r = { geldi: 0, gec: 0, izinsiz: 0, izin: 0, rapor: 0, gecDk: 0, isgunu: 0 };
+  const r = { geldi: 0, gec: 0, izinsiz: 0, izin: 0, rapor: 0, gecDk: 0, isgunu: 0, mesai: 0, mesaiGun: 0 };
   const [y, m] = ay.split("-").map(Number), N = new Date(Date.UTC(y, m, 0)).getUTCDate();
   for (let d = 1; d <= N; d++) {
     const iso = `${ay}-${String(d).padStart(2, "0")}`; if (iso > TODAY || !pkActiveOn(p, iso)) continue;
@@ -2494,6 +2494,7 @@ function pkMonthStats(p, ay) {
     if (e.d === "izinsiz") r.izinsiz++;
     if (e.d === "gunluk" || e.d === "yillik" || e.d === "ucretsiz") r.izin++;
     if (e.d === "rapor") r.rapor++;
+    if (Number(e.mesai) > 0) { r.mesai += Number(e.mesai); r.mesaiGun++; }
   }
   return r;
 }
@@ -2509,7 +2510,7 @@ function startPersonel() {
     e => { b = true; done(); toast("İzinler okunamadı: " + (e.code || e.message)); }));
   dataUnsubs.push(onSnapshot(doc(fs, "config", "personel"), s => {
     const d = s.exists() ? s.data() : {};
-    PT.cfg = { mesai: d.mesai || "08:00", tolerans: Number.isFinite(d.tolerans) ? d.tolerans : 5, cumartesi: d.cumartesi !== false }; pkChanged();
+    PT.cfg = { mesai: d.mesai || "08:00", bitis: d.bitis || "18:00", tolerans: Number.isFinite(d.tolerans) ? d.tolerans : 5, cumartesi: d.cumartesi !== false }; pkChanged();
   }, () => {}));
   PT.ozel = {};
   if (can("k.ozel")) dataUnsubs.push(onSnapshot(collection(fs, "personel_ozel"), s => { PT.ozel = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); pkChanged(); }, () => {}));
@@ -2592,7 +2593,8 @@ function pkDayView(v) {
   const iso = PT.date, P = PT.people.filter(p => pkActiveOn(p, iso) && pkMatch(p));
   const cnt = {}; P.forEach(p => { const d = pkEff(p, iso).d || "bos"; cnt[d] = (cnt[d] || 0) + 1; });
   const bos = P.filter(p => !pkEff(p, iso).d);
-  const chips = [...PK.map(([id, l]) => [id, l, PKS[id].c]), ["bos", "İşaretlenmedi", "var(--ink-3)"]].map(([id, l, cc]) =>
+  cnt.mesai = P.filter(p => Number(pkEff(p, iso).mesai) > 0).length;
+  const chips = [...PK.map(([id, l]) => [id, l, PKS[id].c]), ["bos", "İşaretlenmedi", "var(--ink-3)"], ["mesai", "Mesaiye kalan", "#7c3aed"]].map(([id, l, cc]) =>
     `<button type="button" class="kchip${PT.F.st === id ? " on" : ""}" data-kst="${id}" style="--tc:${cc}"${cnt[id] ? "" : " data-zero"}><b class="num">${cnt[id] || 0}</b>${esc(l)}</button>`).join("");
   v.innerHTML = `<div class="pkbar">
       <div class="pkdate"><button type="button" class="btn ghost sm" data-dd="-1" aria-label="Önceki gün">‹</button><input type="date" class="f" id="pkDate" value="${iso}" max="${addDays(TODAY, 60)}" aria-label="Tarih"><button type="button" class="btn ghost sm" data-dd="1" aria-label="Sonraki gün">›</button>${iso !== TODAY ? '<button type="button" class="btn ghost sm" id="pkToday">Bugün</button>' : ""}<span class="pkwd">${DAYS_L[wdOf(iso)]}${pkWork(iso) ? "" : " · hafta tatili"}</span></div>
@@ -2603,7 +2605,7 @@ function pkDayView(v) {
     <p class="note" style="margin:-18px 0 28px">İzin kayıtları ilgili günlere kendiliğinden işlenir. Satıra tıklayınca saat, sebep ve not girilir. ${can("k.yoklama") ? "Gelmeyen ya da geç gelen için sebep girmeyi unutmayın." : ""}</p>`;
   const draw = () => {
     const rows = PT.people.filter(p => pkActiveOn(p, iso) && pkMatch(p)).map(p => ({ p, e: pkEff(p, iso) }))
-      .filter(r => !PT.F.st || (PT.F.st === "bos" ? !r.e.d : r.e.d === PT.F.st))
+      .filter(r => !PT.F.st || (PT.F.st === "bos" ? !r.e.d : PT.F.st === "mesai" ? Number(r.e.mesai) > 0 : r.e.d === PT.F.st))
       .sort((a, b) => (a.p.departman || "").localeCompare(b.p.departman || "", "tr") || (a.p.ad || "").localeCompare(b.p.ad || "", "tr"));
     const ed = can("k.yoklama");
     let lastDep = null;
@@ -2615,13 +2617,15 @@ function pkDayView(v) {
           <button type="button" class="qb ok${e.d === "fabrikada" ? " on" : ""}" data-qk="fabrikada" data-pid="${esc(p.id)}" title="Fabrikada">✓<span> Geldi</span></button>
           <button type="button" class="qb wa${e.d === "gec" ? " on" : ""}" data-qk="gec" data-pid="${esc(p.id)}" title="Geç geldi">Geç</button>
           <button type="button" class="qb ba${e.d === "izinsiz" ? " on" : ""}" data-qk="izinsiz" data-pid="${esc(p.id)}" title="İzinsiz gelmedi">Gelmedi</button>
-          <button type="button" class="qb mo" data-qk="" data-pid="${esc(p.id)}" title="İzin ve diğer durumlar">İzin…</button></div>` : '<div class="pq"></div>';
+          <button type="button" class="qb mo" data-qk="" data-pid="${esc(p.id)}" title="İzin ve diğer durumlar">İzin…</button>
+          <button type="button" class="qb ms${Number(e.mesai) > 0 ? " on" : ""}" data-qm="${esc(p.id)}" title="Mesaiye kaldı">${Number(e.mesai) > 0 ? "Mesai " + nf(e.mesai) + " sa" : "Mesai"}</button></div>` : ed && iso <= TODAY && e.d === "tatil" ? `<div class="pq"><button type="button" class="qb ms" data-qm="${esc(p.id)}" title="Hafta tatilinde mesai">Tatil mesaisi</button></div>` : '<div class="pq"></div>';
       return `${sep}<div class="row prow" role="row" tabindex="0" data-pk="${esc(p.id)}" style="--stripe:${e.d && PKS[e.d] ? PKS[e.d].c : "transparent"}">
         <div class="pp">${avatar(p.ad)}<div class="sub">${esc(p.gorev || "")}${out ? ` <span class="ttag" style="--tc:var(--brand)">Dış işte #${esc(out.no)}</span>` : ""}</div></div>
-        <div class="pst">${pkPill(e.d)}${det ? `<div class="pdet">${det}</div>` : ""}${e.not ? `<div class="pnot">${esc(e.not)}</div>` : ""}</div>
+        <div class="pst">${pkPill(e.d)}${Number(e.mesai) > 0 ? ` <span class="kst" style="--tc:#7c3aed">Mesai ${nf(e.mesai)} sa${e.mesaiBit ? " · " + esc(e.mesaiBit) : ""}</span>` : ""}${det ? `<div class="pdet">${det}</div>` : ""}${e.not ? `<div class="pnot">${esc(e.not)}</div>` : ""}</div>
         ${q}</div>`;
     }).join("") : `<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtrelere uyan personel yok.</div>`}</div>`;
     $("#pkList").querySelectorAll("[data-pk]").forEach(el => { const go = () => pkOpenEntry(el.dataset.pk, iso, null); el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
+    $("#pkList").querySelectorAll("[data-qm]").forEach(b => b.onclick = ev => { ev.stopPropagation(); pkMesai(b.dataset.qm, iso); });
     $("#pkList").querySelectorAll("[data-qk]").forEach(b => b.onclick = async ev => {
       ev.stopPropagation(); const k = b.dataset.qk, pid = b.dataset.pid;
       if (k === "fabrikada") { b.disabled = true; try { await pkSet(pid, iso, { d: "fabrikada" }); } catch (x) { toast(writeErr(x)); b.disabled = false; } return; }
@@ -2828,13 +2832,13 @@ function pkMonthView(v) {
   v.innerHTML = `<div class="pkbar"><div class="pkdate"><button type="button" class="btn ghost sm" id="mPrev" aria-label="Önceki ay">‹</button><b class="pkmon">${MON_L[m - 1]} ${y}</b><button type="button" class="btn ghost sm" id="mNext" aria-label="Sonraki ay"${ay >= ayOf(TODAY) ? " disabled" : ""}>›</button>
       <span class="pkwd">Devam %${tot.i ? Math.round(tot.g / tot.i * 100) : 0} · ${tot.gec} geç · ${tot.x} izinsiz</span></div>
       <div class="filters">${pkFiltBar()}<button type="button" class="btn ghost sm" id="mCsv">Excel'e aktar</button></div></div>
-    <div class="mgrid-w"><table class="mgrid"><thead><tr><th class="mn">Personel</th>${days.map(d => `<th class="${pkWork(d) ? "" : "we"}${d === TODAY ? " td" : ""}"><span>${Number(d.slice(8))}</span><small>${DAYS_S[wdOf(d)]}</small></th>`).join("")}<th class="t">Geldi</th><th class="t">Geç</th><th class="t">İzinsiz</th><th class="t">İzin</th><th class="t">Rapor</th></tr></thead>
+    <div class="mgrid-w"><table class="mgrid"><thead><tr><th class="mn">Personel</th>${days.map(d => `<th class="${pkWork(d) ? "" : "we"}${d === TODAY ? " td" : ""}"><span>${Number(d.slice(8))}</span><small>${DAYS_S[wdOf(d)]}</small></th>`).join("")}<th class="t">Geldi</th><th class="t">Geç</th><th class="t">İzinsiz</th><th class="t">İzin</th><th class="t">Rapor</th><th class="t">Mesai</th></tr></thead>
     <tbody>${S.map(({ p, s }) => `<tr><th class="mn" data-pp="${esc(p.id)}" tabindex="0">${esc(p.ad)}<small>${esc(p.departman || "")}</small></th>${days.map(d => {
       if (!pkActiveOn(p, d)) return '<td class="na"></td>';
       const e = pkEff(p, d), k = PKS[e.d];
-      const tip = `${fmtS(d)} · ${k ? k.l : e.d === "tatil" ? "Hafta tatili" : d > TODAY ? "" : "İşaretlenmedi"}${e.saat ? " · " + e.saat : ""}${e.sebep ? " · " + e.sebep : ""}`;
-      return `<td class="${e.d === "tatil" ? "we" : ""}${k ? " k" : ""}${e.d === "fabrikada" ? " fab" : ""}${!e.d && d <= TODAY ? " bos" : ""}" style="${k ? `--tc:${k.c}` : ""}" title="${esc(tip)}"${ed && e.d !== "tatil" ? ` data-md="${d}" data-mp="${esc(p.id)}"` : ""}>${k ? (e.d === "fabrikada" ? "" : k.k) : ""}</td>`;
-    }).join("")}<td class="t"><b>${s.geldi}</b>/${s.isgunu}</td><td class="t${s.gec ? " w" : ""}">${s.gec || ""}</td><td class="t${s.izinsiz ? " b" : ""}">${s.izinsiz || ""}</td><td class="t">${s.izin || ""}</td><td class="t">${s.rapor || ""}</td></tr>`).join("") || `<tr><td colspan="${N + 6}" style="padding:16px;color:var(--ink-2)">Bu filtrelere uyan personel yok.</td></tr>`}</tbody></table></div>
+      const tip = `${fmtS(d)} · ${k ? k.l : e.d === "tatil" ? "Hafta tatili" : d > TODAY ? "" : "İşaretlenmedi"}${Number(e.mesai) > 0 ? " · mesai " + nf(e.mesai) + " sa" : ""}${e.saat ? " · " + e.saat : ""}${e.sebep ? " · " + e.sebep : ""}`;
+      return `<td class="${e.d === "tatil" ? "we" : ""}${k ? " k" : ""}${Number(e.mesai) > 0 ? " hasms" : ""}${e.d === "fabrikada" ? " fab" : ""}${!e.d && d <= TODAY ? " bos" : ""}" style="${k ? `--tc:${k.c}` : ""}" title="${esc(tip)}"${ed && e.d !== "tatil" ? ` data-md="${d}" data-mp="${esc(p.id)}"` : ""}>${k ? (e.d === "fabrikada" ? "" : k.k) : ""}</td>`;
+    }).join("")}<td class="t"><b>${s.geldi}</b>/${s.isgunu}</td><td class="t${s.gec ? " w" : ""}">${s.gec || ""}</td><td class="t${s.izinsiz ? " b" : ""}">${s.izinsiz || ""}</td><td class="t">${s.izin || ""}</td><td class="t">${s.rapor || ""}</td><td class="t${s.mesai ? " ms" : ""}" title="${s.mesaiGun} gün">${s.mesai ? nf(s.mesai) + " sa" : ""}</td></tr>`).join("") || `<tr><td colspan="${N + 6}" style="padding:16px;color:var(--ink-2)">Bu filtrelere uyan personel yok.</td></tr>`}</tbody></table></div>
     <div class="mleg">${PK.map(([id, l, k]) => `<span><i${id === "fabrikada" ? ' class="fab"' : ""} style="--tc:${PKS[id].c}">${id === "fabrikada" ? "" : k}</i>${esc(l)}</span>`).join("")}<span><i class="bos"></i>İşaretlenmedi</span><span><i class="we"></i>Hafta tatili</span></div>`;
   pkBindFilt(() => { clearTimeout(PT.qt); PT.qt = setTimeout(() => { const pos = $("#pkQ").selectionStart; renderPersonel(); const q = $("#pkQ"); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (e) {} } }, 250); });
   $("#mPrev").onclick = () => { PT.month = prevAy(ay); pkWatch(); renderPersonel(); };
@@ -2845,8 +2849,8 @@ function pkMonthView(v) {
 }
 function pkCsv(ay, days, S) {
   const q = x => { const s = String(x ?? ""); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const head = ["Personel", "Departman", "İş tanımı", ...days.map(d => d.slice(8) + " " + DAYS_S[wdOf(d)]), "Geldi", "İş günü", "Geç", "Geç (dk)", "İzinsiz", "İzinli", "Raporlu"];
-  const lines = [head, ...S.map(({ p, s }) => [p.ad, p.departman || "", p.gorev || "", ...days.map(d => { if (!pkActiveOn(p, d)) return ""; const e = pkEff(p, d); return PKS[e.d] ? PKS[e.d].l + (e.saat ? " " + e.saat : "") : e.d === "tatil" ? "Tatil" : ""; }), s.geldi, s.isgunu, s.gec, s.gecDk, s.izinsiz, s.izin, s.rapor])];
+  const head = ["Personel", "Departman", "İş tanımı", ...days.map(d => d.slice(8) + " " + DAYS_S[wdOf(d)]), "Geldi", "İş günü", "Geç", "Geç (dk)", "İzinsiz", "İzinli", "Raporlu", "Mesai (saat)", "Mesai (gün)"];
+  const lines = [head, ...S.map(({ p, s }) => [p.ad, p.departman || "", p.gorev || "", ...days.map(d => { if (!pkActiveOn(p, d)) return ""; const e = pkEff(p, d); return PKS[e.d] ? PKS[e.d].l + (e.saat ? " " + e.saat : "") : e.d === "tatil" ? "Tatil" : ""; }), s.geldi, s.isgunu, s.gec, s.gecDk, s.izinsiz, s.izin, s.rapor, s.mesai || "", s.mesaiGun || ""])];
   const csv = "﻿" + lines.map(r => r.map(q).join(";")).join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = `personel-devam-${ay}.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   toast("Aylık devam tablosu indirildi (Excel ile açılır)");
@@ -3051,6 +3055,7 @@ function pkOpenCfg() {
     <div class="dh"><h2 id="pcT">Personel takip ayarları</h2><button class="x" id="pcX" aria-label="Kapat">×</button></div>
     <div class="db"><div class="fgrid">
       <div class="field"><label for="pcM">Mesai başlangıcı</label><input id="pcM" type="time" value="${esc(PT.cfg.mesai)}"></div>
+      <div class="field"><label for="pcB">Normal mesai bitişi</label><input id="pcB" type="time" value="${esc(PT.cfg.bitis || "18:00")}"></div>
       <div class="field"><label for="pcT2">Geç sayılma toleransı (dk)</label><input id="pcT2" type="number" min="0" max="120" value="${esc(PT.cfg.tolerans)}"></div>
       <label class="chk field full"><input type="checkbox" id="pcC"${PT.cfg.cumartesi ? " checked" : ""}> Cumartesi çalışma günü</label>
     </div><p class="note" style="margin:0">Mesai başlangıcı geç kalma süresini hesaplamakta kullanılır. Pazar (ve Cumartesi çalışılmıyorsa Cumartesi) hafta tatili sayılır; izin günleri buna göre hesaplanır.</p></div>
@@ -3060,7 +3065,7 @@ function pkOpenCfg() {
   $("#pcS").onclick = async () => {
     const m = $("#pcM").value; if (!hm2m(m)) { toast("Mesai saatini girin"); return; }
     $("#pcS").disabled = true;
-    try { await setDoc(doc(fs, "config", "personel"), { mesai: m, tolerans: Math.max(0, Math.min(120, Number($("#pcT2").value) || 0)), cumartesi: $("#pcC").checked, updatedAt: Date.now(), updatedBy: ME.name }); toast("Ayarlar kaydedildi"); closeDrawer(); }
+    try { await setDoc(doc(fs, "config", "personel"), { mesai: m, bitis: $("#pcB").value || "18:00", tolerans: Math.max(0, Math.min(120, Number($("#pcT2").value) || 0)), cumartesi: $("#pcC").checked, updatedAt: Date.now(), updatedBy: ME.name }); toast("Ayarlar kaydedildi"); closeDrawer(); }
     catch (x) { $("#pcS").disabled = false; toast(writeErr(x)); }
   };
 }
@@ -3867,10 +3872,12 @@ function skOpenCfg() {
       ${can("s.edit") ? `<section><h3 class="sec-t">Mamul kod kataloğu <small>${nf(skKatalog().length, 0)} kod</small></h3><p class="note" style="margin:0 0 8px">Stok Tespit Formu'nda işaretlenen mamuller: TSK, ÇSK, Lineer menfez (dampersiz/damperli), dış hava panjurları — 100×100'den 1000×1000'e 50 mm adımlarla (üstü "Ölçüden kod bul" ile açılır); lineer ve gizli tavan slot difüzör (tekli–5'li, 1000 mm); müdahale kapakları (200×200–800×800). Var olan kodlar atlanır.</p>${SK.cfg.katalog ? `<p class="note okt" style="margin:0 0 8px">Yüklendi: ${esc(SK.cfg.katalog.by || "")} · ${SK.cfg.katalog.at ? skTs(SK.cfg.katalog.at) : ""} · ${nf(SK.cfg.katalog.adet || 0, 0)} kod</p>` : ""}<button type="button" class="btn ghost" id="scKat">${SK.cfg.katalog ? "Eksik kodları tamamla" : "Kataloğu yükle"}</button></section>
       <section><h3 class="sec-t">Deneme ürünleri</h3><p class="note" style="margin:0 0 8px">Toplantıda işleyişi göstermek için 5 örnek ürün (hareketler ve fiyat geçmişiyle). "DENEME" etiketiyle görünür, tek düğmeyle silinir.</p>
         ${SK.cnt.deneme > 0 || SK.items.some(i => i.deneme) ? (can("s.delete") ? '<button type="button" class="btn danger" id="scUn">Deneme ürünlerini sil</button>' : '<p class="note">Deneme ürünleri ekli.</p>') : '<button type="button" class="btn ghost" id="scSeed">Deneme ürünlerini ekle</button>'}</section>` : ""}
+      ${isAdmin() ? '<section><h3 class="sec-t">Stok verilerini sıfırla <small>yalnızca yönetici</small></h3><p class="note" style="margin:0 0 8px">Deneme sürecindeki stok hareketlerini ya da stok kartlarının tamamını kalıcı siler. Kod sistemi, gruplar ve depolar silinmez.</p><button type="button" class="btn danger" id="scRst">Stok verilerini sıfırla…</button></section>' : ""}
     </div>
     <div class="df"><span></span><div class="r"><button class="btn ghost" id="scC" type="button">Vazgeç</button><button class="btn" id="scS" type="button">Kaydet</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#scX").onclick = closeDrawer; $("#scC").onclick = closeDrawer;
+  const rs = $("#scRst"); if (rs) rs.onclick = skSifirla;
   const sd = $("#scSeed"); if (sd) sd.onclick = () => { closeDrawer(); skSeed(); };
   const kt = $("#scKat"); if (kt) kt.onclick = () => { closeDrawer(); skKatalogYukle(); };
   const un = $("#scUn"); if (un) { let armed = false; un.onclick = async () => { if (!armed) { armed = true; un.textContent = "Silmek için tekrar basın"; return; } un.disabled = true; await skUnseed(); closeDrawer(); }; }
@@ -5512,9 +5519,11 @@ function saOpenCfg() {
         <div class="field full"><label for="gOd">Varsayılan ödeme şartı</label><input id="gOd" maxlength="120" value="${esc(C.odeme)}" placeholder="Örn. 60 gün vadeli, havale"></div>
         <div class="field full"><label for="gSa">Standart sipariş şartları</label><textarea id="gSa" maxlength="3000" style="min-height:140px">${esc(C.sartlar)}</textarea></div></div></section>
     </div>
+    ${isAdmin() ? '<div class="db" style="padding-top:0;flex:0 0 auto"><section><h3 class="sec-t">Satın alma verilerini sıfırla <small>yalnızca yönetici</small></h3><p class="note" style="margin:0 0 8px">Bütün talepler, fiyat talepleri, satın alma siparişleri, mal kabuller ve e-faturalar kalıcı silinir. Firma bilgileri, onaycılar ve tedarikçi cari kartları kalır.</p><button type="button" class="btn danger" id="sgRst">Satın alma verilerini sıfırla…</button></section></div>' : ""}
     <div class="df"><span></span><div class="r"><button class="btn ghost" id="sgC" type="button">Vazgeç</button><button class="btn" id="sgS" type="button">Kaydet</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#sgX").onclick = closeDrawer; $("#sgC").onclick = closeDrawer;
+  const rs = $("#sgRst"); if (rs) rs.onclick = saSifirla;
   $("#sgS").onclick = async () => {
     const g = id => $("#" + id).value.trim(), num = id => { const x = $("#" + id).value; return x === "" ? null : Number(x); };
     const data = { limit: Math.max(0, Number($("#gLim").value) || 100000), onayBuyuk: [...document.querySelectorAll("[data-ob]:checked")].map(x => x.dataset.ob), onayKucuk: [...document.querySelectorAll("[data-ok]:checked")].map(x => x.dataset.ok),
@@ -8576,5 +8585,88 @@ function spTumunuSil() {
         if (typeof SK !== "undefined") { SK.cache.clear(); skCounts(800); }
         toast(`${L.length} sipariş ve bağlı kayıtlar silindi`); done(true); closeDrawer();
       } catch (x) { console.error(x); b.disabled = false; b.textContent = "Kalıcı sil"; toast(writeErr(x)); } };
+  });
+}
+
+/* Personel: mesaiye kalanlar (bir kişi, bir gün) */
+function pkMesai(pid, iso) {
+  if (!can("k.yoklama")) return;
+  const p = PT.people.find(x => x.id === pid); if (!p) return; const e = pkEff(p, iso), var0 = Number(e.mesai) > 0, bit0 = PT.cfg.bitis || "18:00";
+  const sure = b => { const a = hm2m(bit0), c = hm2m(b); return a == null || c == null ? null : Math.max(0, Math.round(((c - a + (c < a ? 1440 : 0)) / 60) * 2) / 2); };
+  spModal(`<label>Mesai · ${esc(p.ad)} <small class="note">${fmtS(iso)}</small></label>
+    <p class="note" style="margin:0">Normal mesai bitişi ${esc(bit0)}. Bitiş saatini girince süre kendiliğinden hesaplanır; isterseniz süreyi doğrudan yazın.</p>
+    <div class="pkmh">${[1, 1.5, 2, 2.5, 3, 4].map(h => `<button type="button" class="btn ghost sm" data-mh="${h}">${nf(h)} sa</button>`).join("")}</div>
+    <div class="fgrid"><div class="field"><label for="msB">Mesai bitiş saati</label><input id="msB" type="time" value="${esc(e.mesaiBit || "")}"></div>
+      <div class="field"><label for="msS">Mesai süresi (saat)</label><input id="msS" type="number" min="0.5" max="16" step="0.5" value="${var0 ? esc(e.mesai) : ""}"></div>
+      <div class="field full"><label for="msN">Not</label><input id="msN" maxlength="200" value="${esc(e.mesaiNot || "")}" placeholder="Hangi iş için, kimin talimatıyla…"></div></div>
+    ${!e.d && pkWork(iso) ? '<p class="note" style="margin:0">Kişi bu gün için işaretlenmemiş; mesai girilince "fabrikada" olarak işaretlenir.</p>' : ""}
+    <div class="r">${var0 ? '<button type="button" class="btn ghost dangerb" id="msD">Mesaiyi kaldır</button>' : ""}<button type="button" class="btn ghost" id="msC">Vazgeç</button><button type="button" class="btn" id="msO">Kaydet</button></div>`, (h, done) => {
+    const B = h.querySelector("#msB"), S = h.querySelector("#msS");
+    B.oninput = () => { const x = sure(B.value); if (x) S.value = x; };
+    h.querySelectorAll("[data-mh]").forEach(b => b.onclick = () => { const x = Number(b.dataset.mh); S.value = x; const a = hm2m(bit0); if (a != null) { const m = (a + x * 60) % 1440; B.value = String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } });
+    const yaz = async v => { const at = Date.now(), cur = (PT.yok[iso] || {})[pid];
+      const base = cur && cur.d ? {} : { d: pkWork(iso) ? "fabrikada" : "fabrikada", saat: "", cikis: "", sebep: "", not: "" };
+      await setDoc(doc(fs, "yoklama", iso), { ay: ayOf(iso), k: { [pid]: { ...base, ...v, mesaiBy: ME.name, mesaiAt: at, by: ME.name, at } }, updatedAt: at, updatedBy: ME.name }, { merge: true }); };
+    h.querySelector("#msC").onclick = () => done(false);
+    const d0 = h.querySelector("#msD"); if (d0) d0.onclick = async () => { try { await yaz({ mesai: 0, mesaiBit: "", mesaiNot: "" }); toast("Mesai kaldırıldı"); done(true); } catch (x) { toast(writeErr(x)); } };
+    h.querySelector("#msO").onclick = async () => { const x = Math.round((Number(S.value) || 0) * 2) / 2; if (!(x > 0)) { toast("Mesai süresini girin"); S.focus(); return; }
+      try { await yaz({ mesai: x, mesaiBit: B.value || "", mesaiNot: h.querySelector("#msN").value.trim().slice(0, 200) }); toast(`${p.ad}: ${nf(x)} saat mesai`); done(true); } catch (er) { toast(writeErr(er)); } };
+  });
+}
+
+/* ===== Yönetici: modül sıfırlama yardımcıları ===== */
+async function rstYaz(ops, b) {
+  for (let i = 0; i < ops.length; i += 400) { const bt = writeBatch(fs); ops.slice(i, i + 400).forEach(f => f(bt)); await bt.commit(); if (b) b.textContent = `Siliniyor… ${Math.min(i + 400, ops.length)}/${ops.length}`; }
+}
+const rstKota = x => /resource-exhausted|quota/i.test(String((x && (x.code || x.message)) || "")) ? "Günlük ücretsiz yazma kotası doldu. Kalan kısmı yarın aynı düğmeyle tamamlayın; silinenler silinmiş olarak kalır." : writeErr(x);
+function rstModal(baslik, html, onay) {
+  return spModal(`<label>${esc(baslik)}</label><div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu işlem geri alınamaz.</b></div>${html}
+    <div class="field"><label for="rsOk">Onay için <b>SİL</b> yazın</label><input id="rsOk" autocomplete="off"></div>
+    <div class="r"><button type="button" class="btn ghost" id="rsC">Vazgeç</button><button type="button" class="btn danger" id="rsO" disabled>Kalıcı sil</button></div>`, (h, done) => {
+    const ok = h.querySelector("#rsOk"), b = h.querySelector("#rsO"); ok.oninput = () => { b.disabled = ok.value.trim().toLocaleUpperCase("tr") !== "SİL"; };
+    h.querySelector("#rsC").onclick = () => done(false);
+    b.onclick = async () => { b.disabled = true; b.textContent = "Hazırlanıyor…"; try { await onay(h, b); done(true); closeDrawer(); } catch (x) { console.error(x); b.disabled = false; b.textContent = "Kalıcı sil"; toast(rstKota(x)); } };
+  });
+}
+/* Stok sıfırlama: hareketler ya da kartların tamamı */
+async function skSifirla() {
+  if (!isAdmin()) return;
+  let nK = "?", nH = "?"; try { nK = (await getCountFromServer(collection(fs, "stok"))).data().count; nH = (await getCountFromServer(collection(fs, "stok_hareket"))).data().count; } catch (e) {}
+  rstModal("Stok verilerini sıfırla", `<div class="sproz">
+      <label class="chk sproc"><input type="radio" name="rsT" value="har" checked><span><b>Yalnızca hareketleri sıfırla</b><small>${nf(nH)} stok hareketi silinir, bütün kartların miktarı 0 olur. Stok kartları, kodlar ve fiyatlar kalır. Gerçek sayımla yeniden başlamak için.</small></span></label>
+      <label class="chk sproc"><input type="radio" name="rsT" value="kart"><span><b>Bütün stok kartlarını sil</b><small>${nf(nK)} stok kartı; hareketleri, alış fiyatları, satış liste fiyatları ve fotoğraflarıyla birlikte silinir. Kartları Excel'den yeniden yüklemeniz gerekir.</small></span></label></div>
+    <p class="note" style="margin:0">Ücretsiz planda günde 20.000 yazma sınırı var. Kayıt çoksa işlem yarıda kalabilir; ertesi gün aynı düğmeyle kaldığı yerden tamamlanır.</p>`, async (h, b) => {
+    const tip = h.querySelector('input[name="rsT"]:checked').value, ops = [], now = Date.now();
+    const H = await getDocs(collection(fs, "stok_hareket")); H.docs.forEach(d => ops.push(bt => bt.delete(doc(fs, "stok_hareket", d.id))));
+    const K = await getDocs(collection(fs, "stok"));
+    if (tip === "har") K.docs.forEach(d => { if (Number(d.data().miktar) || d.data().sonHareket) ops.push(bt => bt.update(doc(fs, "stok", d.id), { miktar: 0, seviye: "bos", sonHareket: null, updatedAt: now, updatedBy: ME.name })); });
+    else { K.docs.forEach(d => ops.push(bt => bt.delete(doc(fs, "stok", d.id)))); for (const c of ["stok_fiyat", "stok_foto", "satis_fiyat"]) { const X = await getDocs(collection(fs, c)).catch(() => ({ docs: [] })); X.docs.forEach(d => ops.push(bt => bt.delete(doc(fs, c, d.id)))); } }
+    await rstYaz(ops, b);
+    SK.cache.clear(); SK.fiyat = {}; if (typeof tkFiyatCache !== "undefined") tkFiyatCache.clear(); skCounts(500); if (typeof renderStok === "function" && ROUTE === "stok") renderStok();
+    toast(tip === "har" ? `${nf(H.size)} hareket silindi, stok miktarları sıfırlandı` : `${nf(K.size)} stok kartı ve bağlı kayıtlar silindi`);
+  });
+}
+/* Satın alma sıfırlama */
+function saSifirla() {
+  if (!isAdmin()) return;
+  rstModal("Satın alma verilerini sıfırla", `<p class="note" style="margin:0">Silinecekler: ${SA.talep.length} talep, ${SA.teklif.length} fiyat talebi, ${SA.siparis.length} satın alma siparişi (mal kabul ve iade kayıtlarıyla), ${SA.fatura.length} e-fatura ve e-fatura eşleşme hafızası.</p>
+    <div class="sproz">
+      <label class="chk sproc"><input type="checkbox" id="rsSk" checked><span><b>Mal kabul ve e-fatura stok girişlerini geri al</b><small>Bu kayıtların stok hareketleri silinir, miktarlar stoktan düşülür (iadeler geri eklenir)</small></span></label>
+      <label class="chk sproc"><input type="checkbox" id="rsFy" checked><span><b>Satın almadan gelen fiyat geçmişini temizle</b><small>Teklif, sipariş ve faturadan yazılan alış fiyatları arşivden silinir; elle girilen fiyatlar kalır</small></span></label>
+      <label class="chk sproc"><input type="checkbox" id="rsYk"><span><b>e-Faturayla açılmış stok kartlarını da sil</b><small>Fatura yüklenirken otomatik açılan kartlar</small></span></label></div>`, async (h, b) => {
+    const on = id => h.querySelector("#" + id).checked, ops = [], now = Date.now(), del = (c, id) => ops.push(bt => bt.delete(doc(fs, c, id)));
+    SA.talep.forEach(x => del("sa_talep", x.id)); SA.teklif.forEach(x => del("sa_teklif", x.id)); SA.siparis.forEach(x => del("sa_siparis", x.id)); SA.fatura.forEach(x => del("sa_fatura", x.id));
+    const E = await getDocs(collection(fs, "cari_eslesme")).catch(() => ({ docs: [] })); E.docs.forEach(d => ops.push(bt => bt.delete(doc(fs, "cari_eslesme", d.id))));
+    const silinecekKart = new Set();
+    if (on("rsYk")) { const K = await getDocs(collection(fs, "stok")); K.docs.forEach(d => { if (/e-Fatura .* ile açıldı/.test(d.data().not || "")) { silinecekKart.add(d.id); ops.push(bt => bt.delete(doc(fs, "stok", d.id))); } }); }
+    if (on("rsSk")) { const H = await getDocs(collection(fs, "stok_hareket")), by = new Map();
+      H.docs.forEach(d => { const x = d.data(); if (!/^(Mal kabul ·|e-Fatura ile giriş|Tedarikçiye iade)/.test(x.aciklama || "") && !silinecekKart.has(x.sid)) { if (!silinecekKart.has(x.sid)) return; } ops.push(bt => bt.delete(doc(fs, "stok_hareket", d.id))); if (!silinecekKart.has(x.sid)) by.set(x.sid, (by.get(x.sid) || 0) - (Number(x.miktar) || 0)); });
+      for (const [sid, dlt] of by) { if (!dlt) continue; const it = await skGet(sid).catch(() => null); if (it) ops.push(bt => bt.update(doc(fs, "stok", sid), { miktar: increment(dlt), seviye: skSeviye((Number(it.miktar) || 0) + dlt, it.minStok, it.maxStok), updatedAt: now, updatedBy: ME.name })); } }
+    if (on("rsFy")) { const F = await getDocs(collection(fs, "stok_fiyat")).catch(() => ({ docs: [] }));
+      F.docs.forEach(d => { if (silinecekKart.has(d.id)) { ops.push(bt => bt.delete(doc(fs, "stok_fiyat", d.id))); return; } const f = d.data(), A = Array.isArray(f.arsiv) ? f.arsiv : []; const K2 = A.filter(a => !(a.cariId || a.kaynak || a.teklif)); if (K2.length === A.length) return;
+        const son = K2.filter(a => !a.teklif).slice(-1)[0]; ops.push(bt => bt.update(doc(fs, "stok_fiyat", d.id), { arsiv: K2, alisFiyat: son ? Number(son.fiyat) : null, pb: son ? son.pb || "TRY" : f.pb || "TRY", updatedAt: now, updatedBy: ME.name })); }); }
+    await rstYaz(ops, b);
+    SK.cache.clear(); SA.fiyat = {}; skCounts(500);
+    toast("Satın alma verileri sıfırlandı");
   });
 }
