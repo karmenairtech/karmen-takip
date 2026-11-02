@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="32">
+<meta name="app-version" content="34">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=32">
+<link rel="stylesheet" href="styles.css?v=34">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -135,6 +135,7 @@
 </div>
 
 <!-- Yetkilendirme (yalnızca yönetici) -->
+<div id="modPano" data-route="pano" hidden><div id="panoStage"></div></div>
 <div id="modYetki" data-route="yetki" hidden>
 <header class="band hband">
   <div class="wrap">
@@ -174,6 +175,7 @@
     <div class="ph-box"><h3>Kayıtları içe aktar</h3><p class="note" style="margin:0 0 10px">Önceki takip ekranından alınan <b>karmen-veri.json</b> dosyasını Proje Takip'e aktarır. Aynı numaralı kayıtların üzerine yazılır.</p>
       <button class="btn ghost" id="ytImpBtn" type="button">Dosya seç ve içe aktar</button><input type="file" id="ytImp" accept="application/json,.json" hidden></div>
   </section>
+<section id="ytMes"></section>
 </main>
 </div>
 
@@ -201,7 +203,6 @@
       <button type="button" data-lv="havuz" aria-pressed="false">Planlanacak işler</button>
       <button type="button" data-lv="ie" aria-pressed="false">İş emirleri</button>
       <button type="button" data-lv="mes" aria-pressed="false">MES (tablet)</button>
-      <button type="button" data-lv="gun" aria-pressed="false">Gün sonu girişi</button>
       <button type="button" data-lv="gantt" aria-pressed="false">Planlama çizelgesi</button>
       <button type="button" data-lv="akis" aria-pressed="false">İş akış şemaları</button>
       <button type="button" data-lv="ist" aria-pressed="false">İş istasyonları</button>
@@ -476,6 +477,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=32"></script>
+<script type="module" src="app.js?v=34"></script>
 </body>
 </html>

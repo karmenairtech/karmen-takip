@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "32";
+const APP_V = "34";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -52,7 +52,7 @@ let ME = null;            // {uid,email,name,role}
 let unsubs = [];
 /* ================= Yetki modeli ================= */
 // Modül seviyesi: none (erişim yok) · view (gözlemci) · use (kullanıcı) · edit (düzenleyici). Sistem yöneticisi her şeyi yapar.
-const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat"];
+const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat", "pano"];
 const PERM_LEVELS = [["none", "Erişim yok"], ["view", "Gözlemci"], ["use", "Kullanıcı"], ["edit", "Düzenleyici"]];
 const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
@@ -64,7 +64,8 @@ const PERM_ACTS = {
   cv: [["cv.edit", "Aday kaydı ekleme, düzenleme ve CV dosyası"], ["cv.gorusme", "Görüşme notu, puan ve durum girme"], ["cv.delete", "Aday kaydı ve CV silme"]],
   cari: [["c.edit", "Cari kart ekleme ve düzenleme"], ["c.puan", "Tedarikçiye iletişim/hizmet puanı verme"], ["c.delete", "Cari kart silme"]],
   siparis: [["sp.teklif", "Teklif hazırlama, gönderme ve siparişe dönüştürme"], ["sp.edit", "Sipariş girme, onaylama ve düzenleme"], ["sp.fiyat", "Satış ve liste fiyatlarını görme ve girme"], ["sp.cfg", "Varyasyon, renk ve teklif ayarları"], ["sp.delete", "Teklif ve sipariş silme"]],
-  sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"]]
+  sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"]],
+  pano: [["pano.menu", "Günün yemek menüsünü girme"]]
 };
 // Modülden bağımsız genel yetkiler
 const PERM_GLOBAL = [["p.msg", "Mesaj gönderme (üst çubuktaki Mesajlar)"]];
@@ -78,14 +79,15 @@ const PERM_DEF = {
   cari: { none: [], view: [], use: [], edit: PERM_ACTS.cari.map(a => a[0]) },
   cv: { none: [], view: [], use: ["cv.gorusme"], edit: PERM_ACTS.cv.map(a => a[0]) },
   siparis: { none: [], view: [], use: ["sp.teklif", "sp.edit"], edit: PERM_ACTS.siparis.map(a => a[0]) },
-  sevkiyat: { none: [], view: [], use: ["sv.sevk"], edit: PERM_ACTS.sevkiyat.map(a => a[0]) }
+  sevkiyat: { none: [], view: [], use: ["sv.sevk"], edit: PERM_ACTS.sevkiyat.map(a => a[0]) },
+  pano: { none: [], view: [], use: [], edit: ["pano.menu"] }
 };
 function effPerms(e) {
   if (!e) return null;
   if (e.role === "admin") return { role: "admin", mods: {}, acts: {} };
   if (e.mods && typeof e.mods === "object") return { role: "user", mods: { ...e.mods }, acts: { ...(e.acts || {}) } };
   const L = e.role === "viewer" ? "view" : "use", mods = {}, acts = {};   // eski kayıt (üye / izleyici)
-  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
+  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (["pano"].includes(m)) { mods[m] = "none"; return; } if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
   return { role: "user", mods, acts };
 }
 const isAdmin = () => !!ME && ME.role === "admin";
@@ -230,6 +232,7 @@ function startData() {
   if (lvl("satinalma") !== "none") startSA(); else { SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true; }
   if (lvl("siparis") !== "none" || lvl("planlama") !== "none" || lvl("sevkiyat") !== "none") startSP(); else { SP.list = []; SP.ready = true; }
   if (can("sp.teklif")) startTK(); else { TK.list = []; TK.ready = true; }
+  startMesCfg();
   if (lvl("cv") !== "none") startCV(); else { CV.list = []; CV.ready = true; }
   if (lvl("personel") !== "none") startPersonel(); else { PT.people = []; PT.izin = []; PT.ozel = {}; PT.ready = true; }
   if (lvl("proje") === "none") { state.ready = true; render(); return; }
@@ -962,6 +965,7 @@ const ICONS = {
   disis: '<path d="M2 6h11v10H2z"/><path d="M13 9h4l4 4v3h-8z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
   planlama: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M7 13h6M10 17h7"/>',
   siparis: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>',
+  pano: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-3 3 2 4-5"/>',
   sevkiyat: '<path d="M1 5h13v11H1z"/><path d="M14 9h4.5l3.5 3.5V16h-8z"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/><path d="M4 9h6M4 12h4"/>',
   cari: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.5 17c.6-1.9 2-3 3.5-3s2.9 1.1 3.5 3"/><path d="M14.5 9.5h4M14.5 13h4"/>',
   cv: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><circle cx="11" cy="11.5" r="2.2"/><path d="M7.8 17.5c.5-1.7 1.7-2.7 3.2-2.7s2.7 1 3.2 2.7"/>',
@@ -978,13 +982,17 @@ const MODULES = [
   { id: "cv", name: "CV ARŞİVİ", desc: "İş başvuruları: mavi yaka ve beyaz yaka adaylar, görüşmeler ve CV dosyaları", active: true },
   { id: "planlama", name: "PLANLAMA MODÜLÜ", desc: "İş istasyonları, ürün iş akış şemaları ve iş emirleri", active: true },
   { id: "siparis", name: "SİPARİŞ TAKİP MODÜLÜ", desc: "Teklifler, müşteri siparişleri, renk teyidi, termin ve planlama havuzu", active: true },
-  { id: "sevkiyat", name: "SEVKİYAT MODÜLÜ", desc: "Sevke hazır ürünler, irsaliye, paketleme listesi ve müşteriye gönderim", active: true }
+  { id: "sevkiyat", name: "SEVKİYAT MODÜLÜ", desc: "Sevke hazır ürünler, irsaliye, paketleme listesi ve müşteriye gönderim", active: true },
+  { id: "pano", name: "FABRİKA PANOSU", desc: "Smart TV için canlı fabrika ekranı: üretim, verimlilik, makineler, personel ve günün menüsü", active: true }
 ];
 let ROUTE = "home";
 function route() {
   let r = (location.hash || "").replace(/^#/, "") || "home";
   if (r === "yetki" && !isAdmin()) { r = "home"; try { history.replaceState(null, "", "#home"); } catch (e) {} }
   if (r !== "home" && r !== "yetki" && !MODULES.some(m => m.id === r)) r = "home";
+  const mdev = typeof mesMyDev === "function" ? mesMyDev() : null;
+  document.body.classList.toggle("mesdev", !!mdev);
+  if (mdev) { r = "planlama"; PL.view = "mes"; MES.ist = "d:" + mdev.id; if (location.hash !== "#planlama") { try { history.replaceState(null, "", "#planlama"); } catch (e) {} } }
   let mod = MODULES.find(m => m.id === r);
   if (mod && lvl(mod.id) === "none") { toast(mod.name + " için yetkiniz yok"); r = "home"; mod = null; try { history.replaceState(null, "", "#home"); } catch (e) {} }
   const changed = r !== ROUTE; ROUTE = r;
@@ -999,6 +1007,7 @@ function route() {
   $("#modCV").hidden = r !== "cv";
   $("#modSP").hidden = r !== "siparis";
   $("#modSV").hidden = r !== "sevkiyat";
+  $("#modPano").hidden = r !== "pano"; if (r !== "pano") document.body.classList.remove("panofs");
   $("#modYetki").hidden = r !== "yetki";
   $("#modPh").hidden = !(mod && !mod.active);
   $("#crumb").innerHTML = r === "home" ? "<b>Ana ekran</b>" : `<a href="#home">‹ <span>Ana ekran</span></a><b>${esc(mod ? mod.name : "YETKİLENDİRME")}</b>`;
@@ -1014,7 +1023,8 @@ function route() {
   if (r === "cv") renderCV();
   if (r === "siparis") renderSP();
   if (r === "sevkiyat") renderSV();
-  if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); }
+  if (r === "pano") panoGir();
+  if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); renderYtMes(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
 }
@@ -1036,6 +1046,7 @@ function renderHome() {
     if (m.id === "cv") return cvTile(m);
     if (m.id === "siparis") return spTile(m);
     if (m.id === "sevkiyat") return svTile(m);
+    if (m.id === "pano") return panoTile(m);
     if (m.active) return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
@@ -1900,7 +1911,7 @@ function wireDisisToolbar() {
 wireDisisToolbar();
 
 /* ================= YETKİLENDİRME (yalnızca yönetici) ================= */
-const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
+const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", pano: "Fabrika Panosu", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
 const LV_SHORT = { none: "Yok", view: "Gözlemci", use: "Kullanıcı", edit: "Düzenleyici" };
 const YT = { rows: [], dirty: false, msg: "" };
 function yetkiTile() {
@@ -4032,8 +4043,8 @@ function planTile(m) {
 /* --- ekran --- */
 function renderPlan() {
   if (!ME || $("#modPlan").hidden) return;
-  const gt = document.querySelector('#plTabs [data-lv="gun"]'); if (gt) gt.hidden = !can("pl.op");
-  if (PL.view === "gun" && !can("pl.op")) PL.view = "genel";
+  const izin = plTabIzin(); document.querySelectorAll("#plTabs [data-lv]").forEach(b => b.hidden = !izin.has(b.dataset.lv));
+  if (!izin.has(PL.view)) PL.view = PL_TABS.map(t => t[0]).find(k => izin.has(k)) || "mes";
   const hvb = document.querySelector('#plTabs [data-lv="havuz"]'); if (hvb) { const n = plHavuzRows().reduce((a, g) => a + g.satir.length, 0); hvb.innerHTML = "Planlanacak işler" + (n ? ` <span class="cnt">${n}</span>` : ""); }
   const A = PL.ie.filter(plIeOpen), S = A.map(e => ({ e, s: plStats(e) }));
   const risk = S.filter(x => x.s.late || x.s.over), wk = weekRange();
@@ -4256,7 +4267,8 @@ async function plOpAction(e, k, act, val) {
   const O = (e.ops || []).map(o => ({ ...o, calisma: (o.calisma || []).map(c => ({ ...c })) })), o = O[k]; if (!o) return;
   const now = Date.now(), q = Number(e.miktar) || 0, close = () => o.calisma.forEach(c => { if (!c.bit) c.bit = now; });
   let msg = "";
-  if (act === "bas") { if (!o.calisma.some(c => !c.bit)) o.calisma.push({ bas: now, by: ME.name }); o.durum = "devam"; o.operator = o.operator || ME.name; msg = `${k + 1}. ${o.ad} başlatıldı`; }
+  const by = typeof mesBy === "function" ? mesBy() : ME.name;
+  if (act === "bas") { if (!o.calisma.some(c => !c.bit)) o.calisma.push({ bas: now, by }); o.durum = "devam"; o.operator = o.operator || by; msg = `${k + 1}. ${o.ad} başlatıldı`; }
   if (act === "dur") { close(); o.durum = "durdu"; msg = `${k + 1}. ${o.ad} duraklatıldı`; }
   if (act === "bit") { close(); o.durum = "bitti"; o.tamam = q; o.bitis = now; msg = `${k + 1}. ${o.ad} bitirildi`; }
   if (act === "geri") { o.durum = o.calisma.length ? "durdu" : "bekliyor"; o.tamam = Math.min(Number(o.tamam) || 0, q); msg = `${k + 1}. ${o.ad} yeniden açıldı`; }
@@ -4264,7 +4276,7 @@ async function plOpAction(e, k, act, val) {
   if (act === "adet") { const n = Math.max(0, Math.min(q, Number(val) || 0)); o.tamam = n; if (n >= q && q > 0) { close(); o.durum = "bitti"; o.bitis = now; } else if (o.durum === "bitti") o.durum = "durdu"; else if (o.durum === "bekliyor" && n > 0) o.durum = "durdu"; msg = `${k + 1}. ${o.ad}: ${nf(n)}/${nf(q)} tamamlandı`; }
   const all = O.every(x => x.durum === "bitti"), any = O.some(x => x.durum !== "bekliyor");
   const durum = all ? "bitti" : e.durum === "bekle" ? "bekle" : any ? "uretim" : "plan";
-  const patch = { ops: O, durum, updatedAt: now, updatedBy: ME.name, log: [...(e.log || []), { at: now, by: ME.name, t: msg }, ...(all && e.durum !== "bitti" ? [{ at: now, by: ME.name, t: "İş emri tamamlandı" }] : [])].slice(-80) };
+  const patch = { ops: O, durum, updatedAt: now, updatedBy: by, log: [...(e.log || []), { at: now, by, t: msg }, ...(all && e.durum !== "bitti" ? [{ at: now, by, t: "İş emri tamamlandı" }] : [])].slice(-80) };
   if (all && e.durum !== "bitti") patch.bitis = now; if (any && !e.basladi) patch.basladi = now;
   try { await updateDoc(doc(fs, "isemri", e.id), patch); toast(all && e.durum !== "bitti" ? `${e.no} tamamlandı` : msg); } catch (x) { toast(writeErr(x)); plChanged(); }
 }
@@ -8139,79 +8151,101 @@ function plOpsFor(a, k, q) {
 }
 
 /* ================= MES: istasyon tablet ekranı ================= */
-const MES = { ist: (() => { try { return localStorage.getItem("mesIst") || ""; } catch (e) { return ""; } })(), grup: (() => { try { return localStorage.getItem("mesGrup") || "tip"; } catch (e) { return "tip"; } })(), ac: new Set(), sec: new Set() };
-const mesMatch = (o, ist) => !ist ? false : ist.startsWith("b:") ? plBolumOf(o.ist) === ist.slice(2) : o.ist === ist;
+const MES = { op: (() => { try { return localStorage.getItem("mesOp") || ""; } catch (e) { return ""; } })(), modSec: "", ist: (() => { try { return localStorage.getItem("mesIst") || ""; } catch (e) { return ""; } })(), grup: (() => { try { return localStorage.getItem("mesGrup") || "tip"; } catch (e) { return "tip"; } })(), ac: new Set(), sec: new Set() };
+const mesMatch = (o, ist) => !ist ? false : ist instanceof Set ? ist.has(o.ist) : ist.startsWith("b:") ? plBolumOf(o.ist) === ist.slice(2) : o.ist === ist;
 function mesHazir(e, k) { const O = e.ops || [], o = O[k]; const need = (o.onceki || []).map(String); return need.every(n => { const p = O.find((x, j) => String(plNo(x, j)) === n); return !p || p.durum === "bitti"; }); }
 function mesIsler(ist) {
   const L = [];
   PL.ie.filter(e => plIeOpen(e) && e.durum !== "bekle").forEach(e => (e.ops || []).forEach((o, k) => { if (o.durum === "bitti" || !mesMatch(o, ist)) return;
     const hz = mesHazir(e, k), st = o.durum === "devam" ? "devam" : hz ? (o.durum === "durdu" ? "kismi" : "hazir") : "bekle", q = Number(e.miktar) || 0;
-    L.push({ e, o, k, st, q, kalan: Math.max(0, q - (Number(o.tamam) || 0)), dk: plStepPlan(o, q) * (1 - plOpDone(o, q)), tip: e.akisAd || "Diğer", renk: e.renkAd || "Renk belirtilmedi", sip: e.siparisNo || "Stoka üretim" }); }));
+    L.push({ e, o, k, key: e.id + "|" + k, st, q, kalan: Math.max(0, q - (Number(o.tamam) || 0)), dk: plStepPlan(o, q) * (1 - plOpDone(o, q)), tip: e.akisAd || "Diğer", renk: e.renkAd || "Renk belirtilmedi", sip: e.siparisNo || "Stoka üretim" }); }));
   const so = { devam: 0, kismi: 1, hazir: 2, bekle: 3 }, onc = { cokacil: 0, acil: 1, normal: 2 };
   return L.sort((a, b) => (so[a.st] - so[b.st]) || ((onc[a.e.oncelik] ?? 2) - (onc[b.e.oncelik] ?? 2)) || String(a.e.termin || "9").localeCompare(String(b.e.termin || "9")));
 }
 const MES_ST = { devam: ["ÇALIŞILIYOR", "var(--brand)"], kismi: ["YARIM KALDI", "var(--k-gec)"], hazir: ["HAZIR", "var(--k-fabrikada)"], bekle: ["ÖNCEKİ İŞLEM BEKLENİYOR", "var(--ink-3)"] };
 function mesKart(j) {
-  const { e, o, st, q } = j, gun = e.termin ? dnum(e.termin) - dnum(TODAY) : null, tc = gun == null ? "" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes";
-  const son = (o.calisma || []).filter(c => !c.bit).slice(-1)[0], key = e.id + "|" + j.k, renk = e.renk;
-  return `<div class="mesk ${st}${MES.sec.has(key) ? " sec" : ""}" data-mk="${esc(key)}">
-    <div class="mesh"><span class="mest" style="--tc:${MES_ST[st][1]}">${MES_ST[st][0]}</span>${e.oncelik && e.oncelik !== "normal" ? `<span class="mesonc">${esc(PL_ONC[e.oncelik][0].toLocaleUpperCase("tr"))}</span>` : ""}<span class="mester ${tc}">${e.termin ? (gun < 0 ? -gun + " gün gecikti" : gun === 0 ? "Termin bugün" : "Termin " + fmtS(e.termin) + " · " + gun + " gün") : "Termin yok"}</span></div>
+  const { e, st, q } = j, gun = e.termin ? dnum(e.termin) - dnum(TODAY) : null, tc = gun == null ? "" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes", key = j.key, renk = e.renk;
+  const A = j.stage ? MES_ASM[j.stage] : null, o = j.o || (j.k != null ? e.ops[j.k] : null), lp = o && MES_LP(o.ist);
+  const son = j.stage ? j.ks.map(k => (e.ops[k].calisma || []).find(c => !c.bit)).find(Boolean) : o ? (o.calisma || []).filter(c => !c.bit).slice(-1)[0] : null;
+  const etiket = A ? A[0] : lp ? (/^LZR/i.test(o.ist) ? "LAZER KESİM" : "PLAZMA KESİM") : "İŞLEM";
+  const islem = A ? `${A[1]} · ${j.ks.length} işlem` : `${esc(plNo(o, j.k))}. ${esc(o.ad || o.tanim || "")} · ${esc(o.ist)}`;
+  const tamam = j.stage ? j.done || 0 : Number(o.tamam) || 0;
+  const bas = A ? A[2] : st === "kismi" ? "Devam et" : "Başla", bit = A ? A[3] : "Bitir";
+  let btn = "";
+  if (can("pl.op") && st !== "bekle") {
+    if (j.stage === "depo") btn = `<button type="button" class="mbtn bit" data-ma="bit">${bit}</button>`;
+    else if (st === "devam") btn = `<button type="button" class="mbtn dur" data-ma="dur" title="Duraklat">❚❚</button><button type="button" class="mbtn bit" data-ma="bit">${bit}</button>`;
+    else btn = `<button type="button" class="mbtn bas" data-ma="bas">${st === "kismi" && !A ? "Devam et" : st === "kismi" ? "Devam et" : bas}</button>${st === "kismi" ? `<button type="button" class="mbtn bit" data-ma="bit">${bit}</button>` : ""}`;
+  }
+  return `<div class="mesk ${st}${MES.sec.has(key) ? " sec" : ""}${j.stage ? " asm-" + j.stage : lp ? " asm-lp" : ""}" data-mk="${esc(key)}">
+    <div class="mesh"><span class="mest" style="--tc:${MES_ST[st][1]}">${MES_ST[st][0]}</span>${e.oncelik && e.oncelik !== "normal" ? `<span class="mesonc">${esc(PL_ONC[e.oncelik][0].toLocaleUpperCase("tr"))}</span>` : ""}<span class="mester ${tc}">${e.termin ? (gun < 0 ? -gun + " gün gecikti" : gun === 0 ? "Bugün" : fmtS(e.termin).slice(0, 5) + " · " + gun + " gün") : "Termin yok"}</span></div>
+    <div class="masm">${etiket}</div>
     <div class="mesu">${esc(e.urunAd || "")}</div>
-    <div class="mesm"><span>${renk ? spSw(renk, true) : ""}<b>${esc(e.renkAd || "—")}</b></span><span class="num">${esc(e.no)}</span><span>${esc(e.siparisNo || "Stoka üretim")}${e.musteri ? " · " + esc(e.musteri) : ""}</span></div>
-    <div class="meso"><div><small>İşlem</small><b>${esc(plNo(o, j.k))}. ${esc(o.ad || o.tanim || "")}</b>${o.alt ? `<small>${esc(o.alt)}</small>` : ""}</div><div><small>İstasyon</small><b class="num">${esc(o.ist)}</b></div>
-      <div><small>Adet</small><b class="num">${nf(Number(o.tamam) || 0)} / ${nf(q)}</b></div><div><small>Kalan süre</small><b class="num">${j.dk ? plDur(j.dk) : "—"}</b></div></div>
+    <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
+    <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
+    <div class="mesio"><span class="num">${esc(e.no)}</span><span>${islem}</span></div>
+    <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlp ${j.lpDone ? "ok" : ""}">${j.lpDone ? "Lazer/plazma ✓" : "Lazer/plazma bekleniyor"}</span>` : ""}</div>
     ${e.not ? `<div class="mesnot">${esc(e.not)}</div>` : ""}
-    ${st === "bekle" ? `<div class="mesbk">Önceki işlem bitmeden başlatılamaz: ${esc((o.onceki || []).map(n => { const p = (e.ops || []).find((x, i) => String(plNo(x, i)) === String(n)); return p ? `${n}. ${p.ad} (${p.ist})` : n; }).join(", "))}</div>`
-      : `<div class="mesb">${can("pl.op") ? (st === "devam" ? `<button type="button" class="mbtn dur" data-ma="dur">Duraklat</button><button type="button" class="mbtn bit" data-ma="bit">Bitir</button>` : `<button type="button" class="mbtn bas" data-ma="bas">${st === "kismi" ? "Devam et" : "Başla"}</button>${st === "kismi" ? '<button type="button" class="mbtn bit" data-ma="bit">Bitir</button>' : ""}`) : ""}
-        <button type="button" class="mbtn sec" data-ma="sec" aria-pressed="${MES.sec.has(key)}">${MES.sec.has(key) ? "✓ Seçildi" : "Seç"}</button>${son ? `<span class="messure">Başladı ${skTs(son.bas).split(" ").pop()} · ${esc(son.by || "")}</span>` : ""}</div>`}
+    ${st === "bekle" ? `<div class="mesbk">${j.stage ? (j.stage === "boya" ? "Üretim bitince boyahaneye düşer" : "Önceki aşama bitince düşer") : "Önceki işlem bekleniyor"}</div>` : `<div class="mesb">${btn}<button type="button" class="mbtn sec" data-ma="sec" aria-pressed="${MES.sec.has(key)}" title="Seç">${MES.sec.has(key) ? "✓" : "Seç"}</button></div>`}
+    ${son ? `<div class="messure">Başladı ${skTs(son.bas).split(" ").pop()} · ${esc(son.by || "")}</div>` : ""}
   </div>`;
 }
 const plDur = dk => { dk = Math.round(dk); return dk >= 60 ? `${Math.floor(dk / 60)} sa ${dk % 60} dk` : dk + " dk"; };
 function plMesView(v) {
-  const istler = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr"));
-  if (!MES.ist && istler.length) MES.ist = (istler.find(i => /^TST/.test(i.kod)) || istler[0]).kod;
-  const J = mesIsler(MES.ist), ist = MES.ist.startsWith("b:") ? null : plIst(MES.ist), bl = MES.ist.startsWith("b:") ? PL_BC[MES.ist.slice(2)] : null;
-  const bugun = PL.ie.reduce((a, e) => a + (e.ops || []).filter(o => mesMatch(o, MES.ist) && o.durum === "bitti" && o.bitis && dayOf(o.bitis) === TODAY).length, 0);
-  const gk = { tip: j => j.tip, renk: j => j.renk, sip: j => j.sip, yok: () => "" }[MES.grup] || (() => "");
+  const istler = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr")), dev = mesMyDev(), D = MESC.cfg.cihazlar || [];
+  if (dev) MES.ist = "d:" + dev.id;
+  if (!MES.ist || (MES.ist.startsWith("d:") && !D.some(d => "d:" + d.id === MES.ist))) MES.ist = D.length ? "d:" + D[0].id : ((istler.find(i => /^TST/.test(i.kod)) || istler[0] || {}).kod || "");
+  const S = mesStations(), mod = mesModu(), devObj = MES.ist.startsWith("d:") ? D.find(d => "d:" + d.id === MES.ist) : null;
+  const J = mod === "basit" ? mesIslerBasit(S) : mesIsler(S);
+  const bugun = PL.ie.reduce((a, e) => a + (e.ops || []).filter(o => S.has(o.ist) && o.durum === "bitti" && o.bitis && dayOf(o.bitis) === TODAY && !o.atlandi).length, 0);
+  const gk = { tip: j => j.tip, renk: j => j.renk, sip: j => j.sip, asama: j => j.stage ? MES_ASM[j.stage][0] : (j.o && MES_LP(j.o.ist) ? "LAZER / PLAZMA" : "İŞLEM"), yok: () => "" }[MES.grup] || (() => "");
   const G = new Map(); J.forEach(j => { const k = gk(j); if (!G.has(k)) G.set(k, []); G.get(k).push(j); });
-  const fs0 = document.body.classList.contains("mesfs");
-  v.innerHTML = `<div class="mesbar">
-      <div class="mesis"><label for="mesIst">Tablet / istasyon</label><select id="mesIst" class="f">${PL_BOLUM.map(([k, l]) => `<option value="b:${k}"${MES.ist === "b:" + k ? " selected" : ""}>Bölüm: ${esc(l)} (tümü)</option>`).join("")}<optgroup label="İstasyonlar">${istler.map(i => opt(i.kod, `${i.kod} · ${i.ad}`, MES.ist)).join("")}</optgroup></select></div>
-      <div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipine göre"], ["renk", "Renge göre"], ["sip", "Siparişe göre"], ["yok", "Gruplama yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
-      <div class="mesact">${window.__CALL_DEMO && can("pl.ie") ? '<button type="button" class="btn ghost sm" id="mesSeed">20 deneme işi oluştur</button>' : ""}<button type="button" class="btn ${fs0 ? "" : "ghost "}sm" id="mesFs">${fs0 ? "Tablet modundan çık" : "Tablet modu (tam ekran)"}</button></div></div>
-    <div class="meshead"><div><div class="mesnm">${esc(ist ? ist.kod : bl ? bl.l : MES.ist)}</div><div class="note">${esc(ist ? ist.ad : "Bölümdeki tüm istasyonlar")}${ist && ist.durum && ist.durum !== "aktif" ? ` · <b class="late">${esc(PL_IDUR[ist.durum][0])}</b>` : ""}${ist && ist.operator ? " · Operatör: " + esc(ist.operator) : ""}</div></div>
-      <div class="meskpi">${[["Çalışılıyor", J.filter(j => j.st === "devam").length, "var(--brand)"], ["Hazır", J.filter(j => j.st === "hazir" || j.st === "kismi").length, "var(--k-fabrikada)"], ["Önceki işlem bekleniyor", J.filter(j => j.st === "bekle").length, "var(--ink-3)"], ["Bugün biten", bugun, "var(--k-gunluk)"], ["Kalan iş yükü", plDur(J.filter(j => j.st !== "bekle").reduce((a, j) => a + j.dk, 0)), "#ffffff"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div></div>
-    ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} iş seçildi</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Seçilenleri başlat</button><button type="button" class="mbtn dur" data-ms="dur">Seçilenleri duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Seçilenleri bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Seçimi temizle</button></div>` : ""}
-    ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.e.id + "|" + j.k), all = keys.length && keys.every(x => MES.sec.has(x));
-      return `${k ? `<div class="mesg"><div><b>${esc(k)}</b> <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır${MES.grup === "renk" && L[0].e.renk ? "" : ""}</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Grup seçimini kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
-      : `<div class="empty"><h3>Bu istasyonda bekleyen iş yok</h3><p>Planlama, iş emirlerini açtığında bu istasyona düşen operasyonlar burada sırayla görünür. Önceki işlemi biten işler "Hazır" olur.</p></div>`}`;
-  $("#mesIst").onchange = e => { MES.ist = e.target.value; MES.sec.clear(); try { localStorage.setItem("mesIst", MES.ist); } catch (x) {} plMesView(v); };
+  const fs0 = document.body.classList.contains("mesfs") || !!dev, ops = devObj ? devObj.op || [] : [];
+  if (MES.op && ops.length && !ops.includes(MES.op)) MES.op = "";
+  v.innerHTML = `${dev ? "" : `<div class="mesbar">
+      <div class="mesis"><label for="mesIst">Cihaz / istasyon</label><select id="mesIst" class="f">${D.length ? `<optgroup label="MES cihazları">${D.map(d => `<option value="d:${esc(d.id)}"${MES.ist === "d:" + d.id ? " selected" : ""}>${esc(d.ad)}</option>`).join("")}</optgroup>` : ""}<optgroup label="Bölümler">${PL_BOLUM.map(([k, l]) => `<option value="b:${k}"${MES.ist === "b:" + k ? " selected" : ""}>${esc(l)} (tümü)</option>`).join("")}</optgroup><optgroup label="İstasyonlar">${istler.map(i => opt(i.kod, `${i.kod} · ${i.ad}`, MES.ist)).join("")}</optgroup></select></div>
+      ${devObj ? "" : `<div class="mesgr seg" role="group" aria-label="Mod">${[["basit", "Basit"], ["detayli", "Detaylı"]].map(([k, l]) => `<button type="button" data-mm="${k}" aria-pressed="${mod === k}">${l}</button>`).join("")}</div>`}
+      <div class="mesact">${window.__CALL_DEMO && can("pl.ie") ? '<button type="button" class="btn ghost sm" id="mesSeed">20 deneme işi oluştur</button>' : ""}<button type="button" class="btn ${fs0 ? "" : "ghost "}sm" id="mesFs">${fs0 ? "Tablet modundan çık" : "Tablet modu (tam ekran)"}</button></div></div>`}
+    <div class="meshead"><div><div class="mesnm">${esc(devObj ? devObj.ad : MES.ist.startsWith("b:") ? PL_BC[MES.ist.slice(2)].l : MES.ist)}</div><div class="note">${mod === "basit" ? "Basit mod · üretim, boyahane, depo aşamaları · lazer/plazma ayrı" : "Detaylı mod · tüm işlemler"} · ${S.size} istasyon</div></div>
+      ${ops.length ? `<div class="mesopsel"><label for="mesOp">İşi yapan</label><select id="mesOp"><option value="">${esc(ME.name)} (hesap)</option>${ops.map(p => opt(p, p, MES.op)).join("")}</select></div>` : ""}
+      <div class="meskpi">${[["Çalışılıyor", J.filter(j => j.st === "devam").length, "#60a5fa"], ["Hazır", J.filter(j => j.st === "hazir" || j.st === "kismi").length, "#4ade80"], ["Bekliyor", J.filter(j => j.st === "bekle").length, "#94a3b8"], ["Bugün biten", bugun, "#c4b5fd"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div>
+      ${dev ? '<button type="button" class="btn ghost sm mesout" id="mesOut">Çıkış</button>' : ""}</div>
+    <div class="mesgr2"><div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipi"], ["renk", "Renk"], ["sip", "Sipariş"], ...(mod === "basit" ? [["asama", "Aşama"]] : []), ["yok", "Yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
+      ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} seçili</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Başlat</button><button type="button" class="mbtn dur" data-ms="dur">Duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Temizle</button></div>` : ""}</div>
+    ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.key), all = keys.length && keys.every(x => MES.sec.has(x));
+      return `${k ? `<div class="mesg"><div><b>${esc(k)}</b> <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Seçimi kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
+      : `<div class="empty"><h3>Bekleyen iş yok</h3><p>Planlama iş emirlerini açtığında bu cihazın istasyonlarına düşen işler burada sırayla görünür.</p></div>`}`;
+  const sel = $("#mesIst"); if (sel) sel.onchange = e => { MES.ist = e.target.value; MES.sec.clear(); try { localStorage.setItem("mesIst", MES.ist); } catch (x) {} plMesView(v); };
+  v.querySelectorAll("[data-mm]").forEach(b => b.onclick = () => { MES.modSec = b.dataset.mm; MES.sec.clear(); plMesView(v); });
   v.querySelectorAll("[data-mg]").forEach(b => b.onclick = () => { MES.grup = b.dataset.mg; try { localStorage.setItem("mesGrup", MES.grup); } catch (x) {} plMesView(v); });
-  $("#mesFs").onclick = () => { const on = document.body.classList.toggle("mesfs"); if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {}); plMesView(v); };
-  const sd = $("#mesSeed"); if (sd) sd.onclick = () => plMesSeed(MES.ist.startsWith("b:") ? "TST-1" : MES.ist);
-  const find = key => { const [id, k] = key.split("|"); const e = PL.ie.find(x => x.id === id); return e ? { e, k: Number(k) } : null; };
-  v.querySelectorAll("[data-mk]").forEach(c => c.querySelectorAll("[data-ma]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); const key = c.dataset.mk, a = b.dataset.ma;
+  const fsb = $("#mesFs"); if (fsb) fsb.onclick = () => { const on = document.body.classList.toggle("mesfs"); if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {}); plMesView(v); };
+  const opS = $("#mesOp"); if (opS) opS.onchange = e => { MES.op = e.target.value; try { localStorage.setItem("mesOp", MES.op); } catch (x) {} };
+  const out = $("#mesOut"); if (out) out.onclick = () => signOut(auth);
+  const sd = $("#mesSeed"); if (sd) sd.onclick = () => plMesSeed([...S].find(x => /^TST/.test(x)) || [...S][0] || "TST-1");
+  const byKey = new Map(J.map(j => [j.key, j]));
+  const fresh = j => { const e = PL.ie.find(x => x.id === j.e.id) || j.e; return { ...j, e }; };
+  const act = async (j, a, n, fire) => { j = fresh(j); if (j.stage) await mesAsamaAction(j.e, j.ks, a, n, fire, j.stage); else { if (fire) { await plOpAction(j.e, j.k, "fire", (Number(j.e.ops[j.k].fire) || 0) + Number(fire)); await new Promise(r => setTimeout(r, 150)); j = fresh(j); } await plOpAction(j.e, j.k, a, n); } };
+  v.querySelectorAll("[data-mk]").forEach(c => c.querySelectorAll("[data-ma]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); const key = c.dataset.mk, a = b.dataset.ma, j = byKey.get(key);
     if (a === "sec") { MES.sec.has(key) ? MES.sec.delete(key) : MES.sec.add(key); plMesView(v); return; }
-    const f = find(key); if (!f) return; b.disabled = true;
-    if (a === "bit") { const r = await mesBitir([f]); if (!r) { b.disabled = false; return; } } else await plOpAction(f.e, f.k, a); }));
-  v.querySelectorAll("[data-gs]").forEach(b => b.onclick = () => { const L = G.get(b.dataset.gs).filter(j => j.st !== "bekle").map(j => j.e.id + "|" + j.k), all = L.every(x => MES.sec.has(x)); L.forEach(x => all ? MES.sec.delete(x) : MES.sec.add(x)); plMesView(v); });
+    if (!j) return; b.disabled = true;
+    if (a === "bit") { const r = await mesBitir([j], act); if (!r) { b.disabled = false; return; } } else await act(j, a); }));
+  v.querySelectorAll("[data-gs]").forEach(b => b.onclick = () => { const L = G.get(b.dataset.gs).filter(j => j.st !== "bekle").map(j => j.key), all = L.every(x => MES.sec.has(x)); L.forEach(x => all ? MES.sec.delete(x) : MES.sec.add(x)); plMesView(v); });
   v.querySelectorAll("[data-ms]").forEach(b => b.onclick = async () => { const a = b.dataset.ms; if (a === "temizle") { MES.sec.clear(); plMesView(v); return; }
-    const F = [...MES.sec].map(find).filter(Boolean); b.disabled = true;
-    if (a === "bit") { const r = await mesBitir(F); if (!r) { b.disabled = false; return; } }
-    else for (const f of F) { const e = PL.ie.find(x => x.id === f.e.id) || f.e; const o = (e.ops || [])[f.k]; if (!o || (a === "bas" && o.durum === "devam") || (a === "dur" && o.durum !== "devam") || !mesHazir(e, f.k)) continue; await plOpAction(e, f.k, a); await new Promise(r => setTimeout(r, 120)); }
+    const F = [...MES.sec].map(k => byKey.get(k)).filter(j => j && j.st !== "bekle"); b.disabled = true;
+    if (a === "bit") { const r = await mesBitir(F, act); if (!r) { b.disabled = false; return; } }
+    else for (const j of F) { if ((a === "bas" && j.st === "devam") || (a === "dur" && j.st !== "devam")) continue; await act(j, a); await new Promise(r => setTimeout(r, 150)); }
     MES.sec.clear(); plMesView(v); });
 }
 // Bitirirken yapılan adet ve fire sorulur (grup halinde de)
-function mesBitir(F) {
-  return spModal(`<label>${F.length > 1 ? F.length + " işi bitir" : "İşi bitir"}</label><p class="note" style="margin:0">Yapılan sağlam adedi ve varsa fireyi girin. Adet eksikse iş "yarım kaldı" olarak kalır.</p>
-    <div class="mesbl">${F.map((f, i) => { const o = f.e.ops[f.k], q = Number(f.e.miktar) || 0; return `<div class="mesbr"><div><b>${esc(f.e.no)}</b><small>${esc(f.e.urunAd || "")} · ${esc(o.ad || "")}</small></div><label>Sağlam<input class="kin num" type="number" min="0" max="${q}" data-ba="${i}" value="${q}"></label><label>Fire<input class="kin num" type="number" min="0" data-bf="${i}" value="${Number(o.fire) || 0}"></label></div>`; }).join("")}</div>
+function mesBitir(F, act) {
+  return spModal(`<label>${F.length > 1 ? F.length + " işi bitir" : "Bitir"}</label><p class="note" style="margin:0">Sağlam adedi ve varsa fireyi girin. Adet eksikse iş "yarım kaldı" olarak kalır, sonra devam edilir.</p>
+    <div class="mesbl">${F.map((j, i) => { const q = Number(j.e.miktar) || 0; return `<div class="mesbr"><div><b>${esc(j.e.no)}</b><small>${esc(j.e.urunAd || "")} · ${j.stage ? esc(MES_ASM[j.stage][0]) : esc((j.e.ops[j.k] || {}).ad || "")}</small></div><label>Sağlam<input class="kin num" type="number" min="0" max="${q}" data-ba="${i}" value="${q}"></label><label>Fire<input class="kin num" type="number" min="0" data-bf="${i}" value="0"></label></div>`; }).join("")}</div>
     <div class="r"><button type="button" class="btn ghost" id="mbC">Vazgeç</button><button type="button" class="btn" id="mbO">Kaydet</button></div>`, (h, done) => {
     h.querySelector("#mbC").onclick = () => done(false);
     h.querySelector("#mbO").onclick = async () => { h.querySelector("#mbO").disabled = true;
-      for (let i = 0; i < F.length; i++) { const e0 = PL.ie.find(x => x.id === F[i].e.id) || F[i].e, n = Number(h.querySelector(`[data-ba="${i}"]`).value) || 0, fi = Number(h.querySelector(`[data-bf="${i}"]`).value) || 0;
-        if (fi) { await plOpAction(e0, F[i].k, "fire", fi); await new Promise(r => setTimeout(r, 150)); }
-        const e1 = PL.ie.find(x => x.id === F[i].e.id) || e0, tam = n >= (Number(e1.miktar) || 0); await plOpAction(e1, F[i].k, tam ? "bit" : "adet", n); await new Promise(r => setTimeout(r, 150));
-        if (!tam) { const e2 = PL.ie.find(x => x.id === F[i].e.id) || e1; if ((e2.ops[F[i].k] || {}).durum === "devam") { await plOpAction(e2, F[i].k, "dur"); await new Promise(r => setTimeout(r, 120)); } } }
+      for (let i = 0; i < F.length; i++) { const j = F[i], q = Number(j.e.miktar) || 0, n = Math.max(0, Number(h.querySelector(`[data-ba="${i}"]`).value) || 0), fi = Math.max(0, Number(h.querySelector(`[data-bf="${i}"]`).value) || 0);
+        if (n >= q) await act(j, "bit", n, fi); else { await act(j, "adet", n, fi); if (!j.stage) { await new Promise(r => setTimeout(r, 150)); const e2 = PL.ie.find(x => x.id === j.e.id); if (e2 && (e2.ops[j.k] || {}).durum === "devam") await plOpAction(e2, j.k, "dur"); } }
+        await new Promise(r => setTimeout(r, 150)); }
       done(true); };
   });
 }
@@ -8235,3 +8269,239 @@ async function plMesSeed(istKod) {
   }
   try { await bt.commit(); toast("20 deneme işi oluşturuldu"); } catch (x) { toast(writeErr(x)); }
 }
+
+/* ================= FABRİKA PANOSU (Smart TV) =================
+   Ziyaretçiye açık ekran: müşteri, proje ve fiyat bilgisi gösterilmez. 1920×1080 tasarlanır, ekrana ölçeklenir. */
+const PANO = { cfg: { menu: {} }, tick: null, unsub: null, kur: null, kurAt: 0 };
+// Döviz kurları: Avrupa Merkez Bankası verisi (Frankfurter), yedek: open.er-api.com, son çare: satınalma ayarlarındaki elle girilen kur
+async function panoKurGetir() {
+  if (PANO.kurAt && Date.now() - PANO.kurAt < 30 * 60000) return; PANO.kurAt = Date.now();
+  const bas = isoOf(dnum(TODAY) - 10), inv = r => r ? 1 / r : null;
+  const yolla = async u => { const c = new AbortController(), t = setTimeout(() => c.abort(), 8000); try { const r = await fetch(u, { signal: c.signal }); if (!r.ok) throw new Error(r.status); return await r.json(); } finally { clearTimeout(t); } };
+  try {
+    let j = null; for (const u of [`https://api.frankfurter.app/${bas}..?from=TRY&to=USD,EUR,GBP`, `https://api.frankfurter.dev/v1/${bas}..?from=TRY&to=USD,EUR,GBP`]) { try { j = await yolla(u); if (j && j.rates) break; } catch (e) { j = null; } }
+    if (j && j.rates) { const G = Object.keys(j.rates).sort(), son = j.rates[G[G.length - 1]], once = j.rates[G[G.length - 2]] || son;
+      PANO.kur = { kaynak: "Avrupa Merkez Bankası", tarih: G[G.length - 1], usd: inv(son.USD), eur: inv(son.EUR), gbp: inv(son.GBP), usd0: inv(once.USD), eur0: inv(once.EUR), gbp0: inv(once.GBP) }; }
+    else { const k = await yolla("https://open.er-api.com/v6/latest/TRY"); if (k && k.rates) PANO.kur = { kaynak: "open.er-api.com", tarih: TODAY, usd: inv(k.rates.USD), eur: inv(k.rates.EUR), gbp: inv(k.rates.GBP) }; }
+  } catch (e) { PANO.kur = null; }
+  if (!PANO.kur && SA.cfg && SA.cfg.kur && SA.cfg.kur.USD) PANO.kur = { kaynak: "Satınalma ayarlarındaki kur", tarih: "", usd: Number(SA.cfg.kur.USD) || null, eur: Number(SA.cfg.kur.EUR) || null, gbp: null };
+  if (!PANO.kur) PANO.kurAt = Date.now() - 25 * 60000;   // 5 dk sonra yeniden dene
+  if (ROUTE === "pano") renderPano();
+}
+function panoKurHtml() {
+  const K = PANO.kur; if (!K) return `<div class="pn-kur"><div class="pn-ku"><span>DÖVİZ</span><b>—</b><em>kur alınıyor…</em></div></div>`;
+  const f = n => n == null ? "—" : n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ok = (a, b) => a == null || b == null || Math.abs(a - b) < 0.0005 ? "" : a > b ? '<i class="up">▲</i>' : '<i class="dn">▼</i>';
+  return `<div class="pn-kur">${[["USD", K.usd, K.usd0], ["EUR", K.eur, K.eur0], ["GBP", K.gbp, K.gbp0]].filter(x => x[1]).map(([c, v, o]) => `<div class="pn-ku"><span>${c} / TL</span><b>${f(v)}${ok(v, o)}</b></div>`).join("")}${K.usd && K.eur ? `<div class="pn-ku pp"><span>EUR / USD</span><b>${(K.eur / K.usd).toLocaleString("tr-TR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</b></div>` : ""}
+    <div class="pn-kk">${esc(K.kaynak)}${K.tarih ? " · " + fmtS(K.tarih) : ""}</div></div>`;
+}
+function startPano() {
+  if (PANO.unsub) return;
+  PANO.unsub = onSnapshot(doc(fs, "config", "pano"), s => { PANO.cfg = { menu: {}, ...(s.exists() ? s.data() : {}) }; if (ROUTE === "pano") renderPano(); }, () => {});
+  dataUnsubs.push(() => { try { PANO.unsub(); } catch (e) {} PANO.unsub = null; });
+}
+function panoTile(m) {
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} ekranını aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">TV</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div><div class="stats"><span>Tam ekran açılır · çıkmak için Esc</span></div></div></a>`;
+}
+function panoVeri() {
+  const tday = TODAY, ay = ayOf(TODAY), q = e => Number(e.miktar) || 0;
+  const bitenIE = PL.ie.filter(e => e.durum === "bitti" && e.bitis), bugunIE = bitenIE.filter(e => dayOf(e.bitis) === tday), ayIE = bitenIE.filter(e => ayOf(dayOf(e.bitis)) === ay);
+  const ops = []; PL.ie.forEach(e => (e.ops || []).forEach(o => { if (o.durum === "bitti" && o.bitis && !o.atlandi) ops.push({ e, o, t: o.bitis }); }));
+  const opBugun = ops.filter(x => dayOf(x.t) === tday), opAy = ops.filter(x => ayOf(dayOf(x.t)) === ay);
+  const gunler = []; for (let d = dnum(tday) - 13; d <= dnum(tday); d++) { const iso = isoOf(d); if (!plWorkDay(iso)) continue; gunler.push({ iso, adet: bitenIE.filter(e => dayOf(e.bitis) === iso).reduce((a, e) => a + q(e), 0), op: ops.filter(x => dayOf(x.t) === iso).length }); }
+  const vs = PL.ie.filter(e => e.durum === "bitti" || e.durum === "uretim").map(plStats).filter(s => s.verim), verim = vs.length ? Math.round(vs.reduce((a, x) => a + x.verim, 0) / vs.length) : null;
+  const fire = plFireStats(30), A = PL.ie.filter(plIeOpen), risk = A.map(plStats).filter(s => s.late || s.over).length;
+  const sv = []; SP.list.forEach(s => (s.sevkiyatlar || []).forEach(x => sv.push({ s, x, adet: (x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0) })));
+  const sBugun = sv.filter(r => r.x.tarih === tday), sAy = sv.filter(r => (r.x.tarih || "").slice(0, 7) === ay);
+  const kapan = SP.list.filter(s => (s.sevkiyatlar || []).length && !spAcik(s) && s.verilenTermin && dnum(s.sevkiyatlar[s.sevkiyatlar.length - 1].tarih) >= dnum(tday) - 90);
+  const zam = kapan.length ? Math.round(kapan.filter(s => s.sevkiyatlar[s.sevkiyatlar.length - 1].tarih <= s.verilenTermin).length / kapan.length * 100) : null;
+  // makineler
+  const M = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr")).map(i => {
+    const cal = []; A.forEach(e => (e.ops || []).forEach(o => { if (o.ist === i.kod && o.durum === "devam") cal.push({ e, o }); }));
+    const sira = []; A.forEach(e => (e.ops || []).forEach((o, k) => { if (o.ist === i.kod && o.durum !== "bitti" && o.durum !== "devam" && mesHazir(e, k)) sira.push(o); }));
+    const st = ["ariza", "bakim", "pasif"].includes(i.durum) ? i.durum : cal.length ? "calisiyor" : sira.length ? "sirada" : "bos";
+    const c = cal[0], pct = c ? Math.round(plOpDone(c.o, q(c.e)) * 100) : 0, tip = c ? String(c.e.akisAd || "").split(" · ").slice(1).join(" · ") || c.o.ad : "";
+    return { i, st, cal: cal.length, sira: sira.length, pct, tip, bolum: plBolumOf(i.kod), bugun: ops.filter(x => x.o.ist === i.kod && dayOf(x.t) === tday).length };
+  });
+  // personel (yalnızca sayılar)
+  const P = PT.people.filter(p => pkActiveOn(p, tday)), pc = {}; P.forEach(p => { const d = pkEff(p, tday).d || "bos"; pc[d] = (pc[d] || 0) + 1; });
+  const akis = ops.filter(x => dayOf(x.t) === tday).sort((a, b) => b.t - a.t).slice(0, 12).map(x => ({ t: x.t, ist: x.o.ist, ad: x.o.ad, tip: String(x.e.akisAd || "").split(" · ").slice(1).join(" · "), adet: q(x.e) }));
+  return { bugunIE, ayIE, opBugun, opAy, gunler, verim, fire, A, risk, sBugun, sAy, svTop: sv.length, zam, M, P, pc, akis, adetBugun: bugunIE.reduce((a, e) => a + q(e), 0), adetAy: ayIE.reduce((a, e) => a + q(e), 0) };
+}
+const PANO_MST = { calisiyor: ["ÇALIŞIYOR", "#22c55e"], sirada: ["İŞ SIRADA", "#38bdf8"], bos: ["BOŞTA", "#64748b"], bakim: ["BAKIMDA", "#f59e0b"], ariza: ["ARIZALI", "#ef4444"], pasif: ["PASİF", "#475569"] };
+function renderPano() {
+  if (!ME || $("#modPano").hidden) return;
+  document.body.classList.add("panofs");
+  const V = panoVeri(), now = new Date(), D = V, gmx = Math.max(1, ...D.gunler.map(g => g.adet));
+  const work = D.P.length - (D.pc.tatil || 0), inn = (D.pc.fabrikada || 0) + (D.pc.gec || 0), izn = (D.pc.gunluk || 0) + (D.pc.yillik || 0) + (D.pc.ucretsiz || 0), rap = D.pc.rapor || 0, yok = D.pc.izinsiz || 0, bos = D.pc.bos || 0;
+  const devam = work ? Math.round(inn / work * 100) : 0, R = 120, C = 2 * Math.PI * R;
+  const seg = [[inn, "#22c55e"], [izn, "#a78bfa"], [rap, "#38bdf8"], [yok, "#ef4444"], [bos, "#334155"]]; let off = 0;
+  const ring = seg.filter(s => s[0]).map(([n, c]) => { const L = work ? n / work * C : 0, s = `<circle cx="150" cy="150" r="${R}" fill="none" stroke="${c}" stroke-width="34" stroke-dasharray="${L} ${C - L}" stroke-dashoffset="${-off}" transform="rotate(-90 150 150)"/>`; off += L; return s; }).join("");
+  const menu = String((PANO.cfg.menu || {})[TODAY] || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const mby = {}; D.M.forEach(m => (mby[m.st] = (mby[m.st] || 0) + 1));
+  const bol = PL_BOLUM.map(([k, l, c]) => ({ k, l, c, L: D.M.filter(m => m.bolum === k) })).filter(b => b.L.length);
+  const gunAd = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"][now.getDay()];
+  $("#panoStage").innerHTML = `
+  <div class="pn-head"><img src="${LOGO_SRC}" alt="Kar-Men Airtech" class="pn-logo"><div class="pn-ttl"><b>FABRİKA KONTROL MERKEZİ</b><span><i class="pn-live"></i>Canlı üretim verisi · ${esc(gunAd)}, ${now.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })}</span></div>
+    ${panoKurHtml()}<div class="pn-clock" id="pnClock">${now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</div></div>
+  <div class="pn-kpis">
+    <div class="pn-k"><span>BUGÜNKÜ ÜRETİM</span><b>${nf(D.adetBugun)}<small> adet</small></b><em>${D.bugunIE.length} iş emri · ${D.opBugun.length} operasyon tamamlandı</em></div>
+    <div class="pn-k"><span>BU AYKİ ÜRETİM</span><b>${nf(D.adetAy)}<small> adet</small></b><em>${D.ayIE.length} iş emri · ${nf(D.opAy.length)} operasyon</em></div>
+    <div class="pn-k"><span>VERİMLİLİK</span><b class="${D.verim == null ? "" : D.verim >= 90 ? "g" : D.verim < 75 ? "r" : "o"}">${D.verim == null ? "—" : "%" + D.verim}</b><em>Planlanan / gerçekleşen süre</em></div>
+    <div class="pn-k"><span>ZAMANINDA TESLİM</span><b class="${D.zam == null ? "" : D.zam >= 90 ? "g" : D.zam < 75 ? "r" : "o"}">${D.zam == null ? "—" : "%" + D.zam}</b><em>Son 90 gün</em></div>
+    <div class="pn-k"><span>FİRE ORANI</span><b class="${D.fire.oran == null ? "" : D.fire.oran < 2 ? "g" : D.fire.oran >= 5 ? "r" : "o"}">${D.fire.oran == null ? "—" : "%" + nf(D.fire.oran, 1)}</b><em>Son 30 gün</em></div>
+    <div class="pn-k"><span>SEVKİYAT</span><b>${D.sBugun.length}<small> bugün</small></b><em>Bu ay ${D.sAy.length} sevkiyat · ${nf(D.sAy.reduce((a, r) => a + r.adet, 0))} adet · toplam ${nf(D.svTop)}</em></div>
+  </div>
+  <div class="pn-body">
+    <section class="pn-card pn-mak"><div class="pn-ch"><h2>ÜRETİM HATTI · MAKİNE DURUMU</h2><div class="pn-leg">${Object.entries(PANO_MST).filter(([k]) => mby[k]).map(([k, [l, c]]) => `<span><i style="background:${c}"></i>${l} <b>${mby[k]}</b></span>`).join("")}</div></div>
+      <div class="pn-bleg">${bol.map(b => `<span style="--bc:${b.c}">${esc(b.l)}</span>`).join("")}</div>
+      <div class="pn-ms">${bol.flatMap(b => b.L.map(m => { const [l, c] = PANO_MST[m.st];
+        return `<div class="pn-m ${m.st}" style="--mc:${c};--bc:${b.c}"><div class="pn-mt"><b>${esc(m.i.kod)}</b><i></i></div><div class="pn-ma">${esc(m.st === "calisiyor" ? m.tip || "Çalışıyor" : m.st === "sirada" ? m.sira + " iş sırada" : m.bugun ? l + " · bugün " + m.bugun + " işlem" : l)}</div>${m.st === "calisiyor" ? `<div class="pn-mb"><span style="width:${m.pct}%"></span></div>` : ""}</div>`; })).join("")}</div></section>
+    <div class="pn-side">
+      <section class="pn-card pn-per"><div class="pn-ch"><h2>PERSONEL · BUGÜN</h2></div>
+        <div class="pn-pw"><svg viewBox="0 0 300 300" class="pn-ring"><circle cx="150" cy="150" r="${R}" fill="none" stroke="#1e293b" stroke-width="34"/>${ring}<text x="150" y="150" text-anchor="middle" class="pn-rv">%${devam}</text><text x="150" y="190" text-anchor="middle" class="pn-rl">devam</text></svg>
+          <div class="pn-pl"><div><i style="background:#22c55e"></i>Fabrikada<b>${inn} / ${work}</b></div><div><i style="background:#f59e0b"></i>Geç geldi<b>${D.pc.gec || 0}</b></div><div><i style="background:#a78bfa"></i>İzinli<b>${izn}</b></div><div><i style="background:#38bdf8"></i>Raporlu<b>${rap}</b></div><div><i style="background:#ef4444"></i>Gelmedi<b>${yok}</b></div>${bos ? `<div><i style="background:#334155"></i>Henüz girilmedi<b>${bos}</b></div>` : ""}</div></div></section>
+      <section class="pn-card pn-menu"><div class="pn-ch"><h2>GÜNÜN MENÜSÜ</h2>${isAdmin() || can("k.list") || can("pano.menu") ? '<button type="button" class="pn-ed" id="pnMenu" title="Menüyü düzenle">✎</button>' : ""}</div>
+        ${menu.length ? `<ul>${menu.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="pn-bos">Bugünün menüsü girilmedi</p>'}</section>
+    </div>
+    <section class="pn-card pn-graf"><div class="pn-ch"><h2>SON 2 HAFTA · TAMAMLANAN ÜRETİM (ADET)</h2><span class="pn-sub">${D.A.length} açık iş emri · ${D.risk ? D.risk + " iş termin takibinde" : "tüm işler terminine yetişiyor"}</span></div>
+      <div class="pn-bars">${D.gunler.map(g => { const v0 = g.adet; return `<div class="pn-bar${g.iso === TODAY ? " bu" : ""}"><b>${v0 ? nf(v0) : ""}</b><span style="height:${Math.max(2, v0 / gmx * 100)}%"></span><em>${fmtS(g.iso).slice(0, 5)}</em></div>`; }).join("")}</div></section>
+    <section class="pn-card pn-akis"><div class="pn-ch"><h2>CANLI AKIŞ</h2></div>
+      ${D.akis.length ? D.akis.slice(0, 7).map(x => `<div class="pn-ai"><span>${new Date(x.t).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span><b>${esc(x.ist)}</b><em>${esc(x.ad)}${x.tip ? " · " + esc(x.tip) : ""}</em></div>`).join("") : '<p class="pn-bos">Bugün henüz tamamlanan işlem yok</p>'}</section>
+  </div>
+  <button type="button" class="pn-x" id="pnX" title="Panodan çık (Esc)">×</button>`;
+  panoFit();
+  $("#pnX").onclick = () => { location.hash = "home"; };
+  const me = $("#pnMenu"); if (me) me.onclick = panoMenuEdit;
+}
+function panoFit() { const st = $("#panoStage"); if (!st) return; const k = Math.min(window.innerWidth / 1920, window.innerHeight / 1080); st.style.transform = `scale(${k})`; st.style.left = (window.innerWidth - 1920 * k) / 2 + "px"; st.style.top = (window.innerHeight - 1080 * k) / 2 + "px"; }
+function panoGir() {
+  startPano(); if (lvl("personel") !== "none") pkWatch(); panoKurGetir();
+  clearInterval(PANO.tick); let n = 0;
+  PANO.tick = setInterval(() => { if (ROUTE !== "pano") { clearInterval(PANO.tick); document.body.classList.remove("panofs"); return; } const c = $("#pnClock"); if (c) c.textContent = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); if (++n % 15 === 0) renderPano(); if (n % 300 === 0) panoKurGetir(); }, 1000);
+  renderPano();
+}
+window.addEventListener("resize", () => { if (ROUTE === "pano") panoFit(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && ROUTE === "pano" && !document.querySelector(".p2")) location.hash = "home"; });
+function panoMenuEdit() {
+  const gun = []; for (let d = 0; d < 7; d++) gun.push(isoOf(dnum(TODAY) + d));
+  const ad = iso => ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"][new Date(iso + "T12:00:00Z").getUTCDay()];
+  spModal(`<label>Yemek menüsü · önümüzdeki 7 gün</label><p class="note" style="margin:0">Her satıra bir yemek. Boş bırakılan günde panoda "menü girilmedi" yazar.</p>
+    <div class="pn-me">${gun.map(g => `<div><b>${ad(g)} <small>${fmtS(g)}</small></b><textarea data-pm="${g}" rows="4">${esc((PANO.cfg.menu || {})[g] || "")}</textarea></div>`).join("")}</div>
+    <div class="r"><button type="button" class="btn ghost" id="pmC">Vazgeç</button><button type="button" class="btn" id="pmO">Kaydet</button></div>`, (h, done) => {
+    h.querySelector(".p2b").style.width = "min(900px,100%)";
+    h.querySelector("#pmC").onclick = () => done(false);
+    h.querySelector("#pmO").onclick = async () => { const M2 = { ...(PANO.cfg.menu || {}) }; Object.keys(M2).forEach(k => { if (k < isoOf(dnum(TODAY) - 30)) delete M2[k]; });
+      h.querySelectorAll("[data-pm]").forEach(t => { const v0 = t.value.trim(); if (v0) M2[t.dataset.pm] = v0.slice(0, 400); else delete M2[t.dataset.pm]; });
+      try { await setDoc(doc(fs, "config", "pano"), { menu: M2, updatedAt: Date.now(), updatedBy: ME.name }, { merge: false }); toast("Menü kaydedildi"); done(true); } catch (x) { toast(writeErr(x)); } };
+  });
+}
+
+/* ================= MES v2: cihazlar, basit mod (aşamalar), planlama menü yetkileri ================= */
+const MESC = { cfg: { cihazlar: [], plTabs: {}, mod: "basit" }, ready: false, unsub: null };
+const MES_DEV_DEF = () => [
+  { id: "t1", ad: "Tablet-1 · Depo, sevkiyat, boyahane", email: "", mod: "basit", ist: ["DEPO-1", "BKL-1", "DLD-1", "DLD-2", "BTBC-1", "BTBC-2", "FRN-1", "PKT-1", "ARB-1"], op: ["Şahin Tan"] },
+  { id: "t2", ad: "Tablet-2 · Menfez", email: "", mod: "basit", ist: ["TST-1", "TST-2", "MNT-1", "MNT-2", "MNT-3", "EP-1", "EP-2", "EP-3", "EP-4", "EP-5", "EP-6", "EP-7", "EP-8", "EP-9", "EP-10", "EP-11", "EP-12", "MK-1"], op: ["Selim Tan"] },
+  { id: "t3", ad: "Tablet-3 · Kanal imalat", email: "", mod: "basit", ist: ["KKM-1", "SPR-1", "SPR-2", "KNT-1"], op: ["Enes Büyüktaş"] },
+  { id: "pc1", ad: "Plazma-PC", email: "", mod: "basit", ist: ["PLZ-1"], op: ["Mahir Elhac"] },
+  { id: "pc2", ad: "Lazer-PC", email: "", mod: "basit", ist: ["LZR-1"], op: ["Ahiret Tan"] }];
+const PL_TABS = [["genel", "Genel bakış"], ["havuz", "Planlanacak işler"], ["ie", "İş emirleri"], ["mes", "MES (tablet)"], ["gantt", "Planlama çizelgesi"], ["akis", "İş akış şemaları"], ["ist", "İş istasyonları"]];
+function startMesCfg() {
+  if (MESC.unsub) return;
+  MESC.unsub = onSnapshot(doc(fs, "config", "mes"), s => { const d = s.exists() ? s.data() : null; MESC.cfg = d ? { cihazlar: d.cihazlar || [], plTabs: d.plTabs || {}, mod: d.mod || "basit", kayitli: true } : { cihazlar: MES_DEV_DEF(), plTabs: {}, mod: "basit", kayitli: false }; MESC.ready = true;
+    if (mesMyDev() && ROUTE !== "planlama") route(); else { if (ROUTE === "planlama") renderPlan(); if (ROUTE === "yetki") renderYtMes(); } }, () => { MESC.ready = true; });
+  dataUnsubs.push(() => { try { MESC.unsub(); } catch (e) {} MESC.unsub = null; });
+}
+const mesMyDev = () => !ME || isAdmin() ? null : (MESC.cfg.cihazlar || []).find(d => d.email && lower(d.email) === ME.email) || null;
+const plTabIzin = () => { if (!ME || isAdmin()) return new Set(PL_TABS.map(t => t[0])); if (mesMyDev()) return new Set(["mes"]); const L = (MESC.cfg.plTabs || {})[ME.email]; return new Set(Array.isArray(L) ? L : PL_TABS.map(t => t[0])); };
+const mesBy = () => (MES.op || "").trim() || ME.name;
+const MES_LP = ist => /^(LZR|PLZ)/i.test(ist || "");
+const MES_ASM = { uretim: ["ÜRETİM", "Kesimden boyahane öncesine", "Başla", "Bitir"], boya: ["BOYAHANE", "Boyaya giriş / çıkış", "Boyaya girdi", "Boyadan çıktı"], depo: ["DEPO", "Sevke hazır", "", "Depoya alındı"] };
+function mesAsamalar(e) {
+  const O = e.ops || [], A = { lp: [], uretim: [], boya: [], depo: [] }, b = o => plBolumOf(o.ist), isB = o => b(o) === "boya" || /^BKL/i.test(o.ist || ""), isPA = o => ["paket", "alan"].includes(b(o));
+  let lastProd = -1, lastB = -1; O.forEach((o, k) => { if (isB(o)) lastB = k; else if (!MES_LP(o.ist) && !isPA(o)) lastProd = k; });
+  O.forEach((o, k) => { if (MES_LP(o.ist)) A.lp.push(k); else if (isB(o)) A.boya.push(k); else if (isPA(o) && k > lastProd && k > lastB) A.depo.push(k); else A.uretim.push(k); });
+  return A;
+}
+function mesAsamaSt(e, ks) { const O = ks.map(k => e.ops[k]); if (!O.length) return null; if (O.every(o => o.durum === "bitti")) return "bitti"; if (O.some(o => o.durum === "devam")) return "devam"; if (O.some(o => o.durum === "durdu" || (o.durum === "bitti" && !o.atlandi) || Number(o.tamam) > 0)) return "kismi"; return "bekliyor"; }
+const mesStations = () => { const v = MES.ist || ""; if (v.startsWith("d:")) { const d = (MESC.cfg.cihazlar || []).find(x => x.id === v.slice(2)); return new Set(d ? d.ist || [] : []); } if (v.startsWith("b:")) return new Set(PL.ist.filter(i => plBolumOf(i.kod) === v.slice(2)).map(i => i.kod)); return new Set(v ? [v] : []); };
+const mesModu = () => { const v = MES.ist || ""; if (v.startsWith("d:")) { const d = (MESC.cfg.cihazlar || []).find(x => x.id === v.slice(2)); if (d && d.mod) return d.mod; } return MES.modSec || MESC.cfg.mod || "basit"; };
+// Basit modda kartlar: lazer/plazma işlemleri tek tek, diğerleri 3 aşama
+function mesIslerBasit(S) {
+  const L = [], onc = { cokacil: 0, acil: 1, normal: 2 };
+  PL.ie.filter(e => plIeOpen(e) && e.durum !== "bekle").forEach(e => {
+    const A = mesAsamalar(e), q = Number(e.miktar) || 0, base = { e, q, tip: e.akisAd || "Diğer", renk: e.renkAd || "Renk belirtilmedi", sip: e.siparisNo || "Stoka üretim" };
+    A.lp.forEach(k => { const o = e.ops[k]; if (o.durum === "bitti" || !S.has(o.ist)) return; const lpPrev = (o.onceki || []).map(String).every(n => { const p = (e.ops || []).find((x, j) => String(plNo(x, j)) === n); return !p || !MES_LP(p.ist) || p.durum === "bitti"; });
+      L.push({ ...base, k, key: e.id + "|" + k, st: o.durum === "devam" ? "devam" : lpPrev ? (o.durum === "durdu" ? "kismi" : "hazir") : "bekle", kalan: Math.max(0, q - (Number(o.tamam) || 0)), dk: plStepPlan(o, q) * (1 - plOpDone(o, q)), o }); });
+    const stU = mesAsamaSt(e, A.uretim), stB = mesAsamaSt(e, A.boya), stD = mesAsamaSt(e, A.depo);
+    const lpDone = A.lp.every(k => e.ops[k].durum === "bitti");
+    [["uretim", A.uretim, stU, true], ["boya", A.boya, stB, !stU || stU === "bitti"], ["depo", A.depo, stD, (!stU || stU === "bitti") && (!stB || stB === "bitti")]].forEach(([s, ks, st, hazir]) => {
+      if (!ks.length || st === "bitti") return;
+      if (!hazir && s !== "uretim") { const once = s === "boya" ? stU : (A.boya.length && stB !== "bitti" ? stB : stU); if (!once || once === "bekliyor") return; }
+      const vis = ks.map(k => e.ops[k]).filter(o => s !== "uretim" || !["paket", "alan"].includes(plBolumOf(o.ist))); if (!vis.some(o => S.has(o.ist))) return;
+      const done = Math.min(...ks.map(k => e.ops[k].durum === "bitti" ? q : Number(e.ops[k].tamam) || 0));
+      L.push({ ...base, stage: s, ks, key: e.id + "|s:" + s, st: st === "devam" ? "devam" : hazir ? (st === "kismi" ? "kismi" : "hazir") : "bekle", kalan: Math.max(0, q - done), done, dk: ks.reduce((a, k) => a + plStepPlan(e.ops[k], q) * (1 - plOpDone(e.ops[k], q)), 0), lpDone, lpVar: A.lp.length > 0 }); });
+  });
+  const so = { devam: 0, kismi: 1, hazir: 2, bekle: 3 };
+  return L.sort((a, b) => (so[a.st] - so[b.st]) || ((onc[a.e.oncelik] ?? 2) - (onc[b.e.oncelik] ?? 2)) || String(a.e.termin || "9").localeCompare(String(b.e.termin || "9")));
+}
+// Aşama işlemi: aşamadaki tüm işlemler birlikte; süre planlanan paya göre bölünür
+async function mesAsamaAction(e, ks, act, n, fire, stage) {
+  const O = (e.ops || []).map(o => ({ ...o, calisma: (o.calisma || []).map(c => ({ ...c })) })), now = Date.now(), q = Number(e.miktar) || 0, by = mesBy();
+  const S = ks.map(k => O[k]), acik = S.filter(o => o.durum !== "bitti");
+  const kapat = () => { const op = acik.filter(o => o.calisma.some(c => !c.bit && c.asama)); if (!op.length) return; const bas = Math.min(...op.map(o => o.calisma.find(c => !c.bit && c.asama).bas)), T = now - bas;
+    const w = op.map(o => plStepPlan(o, q) || 0), W = w.reduce((a, x) => a + x, 0); op.forEach((o, i) => { const c = o.calisma.find(x => !x.bit && x.asama); c.bas = bas; c.bit = bas + Math.round(T * (W ? w[i] / W : 1 / op.length)); }); acik.forEach(o => o.calisma.forEach(c => { if (!c.bit) c.bit = now; })); };
+  const ad = (MES_ASM[stage] || MES_ASM.uretim)[0];
+  let msg = "";
+  if (act === "bas") { acik.forEach(o => { if (!o.calisma.some(c => !c.bit)) o.calisma.push({ bas: now, by, asama: true }); o.durum = "devam"; o.operator = o.operator || by; }); msg = `${ad} başladı`; }
+  if (act === "dur") { kapat(); acik.forEach(o => o.durum = "durdu"); msg = `${ad} duraklatıldı`; }
+  if (act === "bit") { kapat(); acik.forEach(o => { o.durum = "bitti"; o.tamam = q; o.bitis = now; o.operator = o.operator || by; }); msg = `${ad} bitti`; }
+  if (act === "adet") { const m = Math.max(0, Math.min(q, Number(n) || 0)); kapat(); acik.forEach(o => { o.tamam = m; o.durum = "durdu"; }); msg = `${ad}: ${nf(m)}/${nf(q)} tamamlandı`; }
+  if (fire) { const L = S.filter(o => !o.atlandi); const t = L[L.length - 1]; if (t) t.fire = (Number(t.fire) || 0) + Math.max(0, Number(fire) || 0); msg += ` · fire ${nf(fire)}`; }
+  const all = O.every(x => x.durum === "bitti"), any = O.some(x => x.durum !== "bekliyor");
+  const patch = { ops: O, durum: all ? "bitti" : e.durum === "bekle" ? "bekle" : any ? "uretim" : "plan", updatedAt: now, updatedBy: by, log: [...(e.log || []), { at: now, by, t: msg }, ...(all && e.durum !== "bitti" ? [{ at: now, by, t: "İş emri tamamlandı" }] : [])].slice(-80) };
+  if (all && e.durum !== "bitti") patch.bitis = now; if (any && !e.basladi) patch.basladi = now;
+  try { await updateDoc(doc(fs, "isemri", e.id), patch); toast(all && e.durum !== "bitti" ? `${e.no} tamamlandı` : `${e.no} · ${msg}`); } catch (x) { toast(writeErr(x)); }
+}
+
+/* --- Yetkilendirme: Planlama ve MES --- */
+function renderYtMes() {
+  const host = $("#ytMes"); if (!host || !isAdmin()) return;
+  const C = MESC.cfg, D = YTM.dev || (YTM.dev = JSON.parse(JSON.stringify(C.cihazlar || []))), T = YTM.tabs || (YTM.tabs = JSON.parse(JSON.stringify(C.plTabs || {})));
+  const users = (YT.rows || []).filter(r => r.email && r.role !== "admin"), ist = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr"));
+  const per = sortTr([...(typeof PT !== "undefined" ? PT.people.filter(p => p.aktif !== false).map(p => p.ad) : []), ...D.flatMap(d => d.op || [])]);
+  host.innerHTML = `<h2 class="sec-t" style="margin-top:28px">Planlama ve MES yetkilendirme</h2>
+    ${!C.kayitli ? '<div class="izbal" style="--tc:var(--k-gec)"><b>Cihazlar henüz kaydedilmedi.</b> Aşağıda tablet ve bilgisayarlarınız önerilen istasyonlarla doldurulmuş geldi; kontrol edip <b>Planlama ve MES ayarlarını kaydet</b>\'e basın.</div>' : ""}
+    <section class="plcard ytm"><h3 class="sec-t">Planlama menü yetkileri <small>işaretli sekmeleri görür · yöneticiler hepsini görür</small></h3>
+      <div class="yt-tw"><table class="ytt"><thead><tr><th>Kişi</th>${PL_TABS.map(t => `<th class="c">${t[1]}</th>`).join("")}</tr></thead><tbody>
+      ${users.map(u => { const dev = D.find(d => d.email && lower(d.email) === lower(u.email)), L = T[lower(u.email)]; return `<tr><td><b>${esc(u.name || u.email)}</b><div class="note">${esc(u.email)}${dev ? ` · <b>cihaz hesabı: ${esc(dev.ad)}</b>` : (u.mods || {}).planlama === "none" ? " · Planlama erişimi yok" : ""}</div></td>
+        ${PL_TABS.map(([k]) => `<td class="c">${dev ? (k === "mes" ? "✓" : "—") : `<input type="checkbox" data-pt="${esc(lower(u.email))}" data-tk="${k}"${!L || L.includes(k) ? " checked" : ""}>`}</td>`).join("")}</tr>`; }).join("") || '<tr><td colspan="8" class="note">Yönetici dışında kullanıcı yok.</td></tr>'}</tbody></table></div></section>
+    <section class="plcard ytm"><h3 class="sec-t">MES cihazları <small>tablet ve bilgisayarlar · cihaz hesabıyla girilince program doğrudan o cihazın MES ekranında, kilitli açılır</small></h3>
+      <div class="fgrid" style="margin-bottom:10px"><div class="field"><label for="ymMod">Varsayılan MES modu</label><select id="ymMod">${[["basit", "Basit: üretim · boyahane · depo aşamaları"], ["detayli", "Detaylı: akış şemasındaki tüm işlemler"]].map(([a, l]) => opt(a, l, YTM.mod || C.mod || "basit")).join("")}</select></div></div>
+      <div class="ymdevs">${D.map((d, i) => { const u = users.find(x => lower(x.email) === lower(d.email || "")), uyar = d.email && u && ((u.mods || {}).planlama === "none" || !(u.acts || {})["pl.op"]);
+        return `<div class="ymdev"><div class="ymh"><input class="kin" data-dad="${i}" value="${esc(d.ad)}" aria-label="Cihaz adı" style="font-weight:700;flex:1"><button type="button" class="btn ghost sm dangerb" data-drm="${i}">Sil</button></div>
+          <div class="fgrid"><div class="field"><label>Cihaz hesabı (giriş e-postası)</label><select data-dem="${i}"><option value="">— Hesap seçin —</option>${users.map(x => opt(lower(x.email), `${x.name || x.email} · ${x.email}`, lower(d.email || ""))).join("")}</select>${uyar ? '<span class="note late">Bu hesaba Planlama modülünde "Kullanıcı" yetkisi (operasyon başlatma/bitirme) verin.</span>' : ""}</div>
+          <div class="field"><label>Mod</label><select data-dmo="${i}">${[["basit", "Basit (aşamalar)"], ["detayli", "Detaylı (tüm işlemler)"]].map(([a, l]) => opt(a, l, d.mod || "basit")).join("")}</select></div></div>
+          <label class="ymlb">İstasyonlar <small>${(d.ist || []).length} seçili</small></label><div class="ymist">${PL_BOLUM.map(([bk, bl, bc]) => { const B = ist.filter(x => plBolumOf(x.kod) === bk); return B.length ? `<div class="ymb"><b style="--bc:${bc}">${esc(bl)}</b>${B.map(x => `<label class="chk sm" title="${esc(x.ad)}"><input type="checkbox" data-dis="${i}" value="${esc(x.kod)}"${(d.ist || []).includes(x.kod) ? " checked" : ""}> ${esc(x.kod)}</label>`).join("")}</div>` : ""; }).join("")}</div>
+          <label class="ymlb">Operatörler <small>tablette "işi kim yapıyor" listesi</small></label><div class="ymop">${per.map(p => `<label class="chk sm"><input type="checkbox" data-dop="${i}" value="${esc(p)}"${(d.op || []).includes(p) ? " checked" : ""}> ${esc(p)}</label>`).join("")}</div></div>`; }).join("")}</div>
+      <button type="button" class="btn ghost" id="ymAdd">+ Cihaz ekle</button></section>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin:12px 0 40px"><button type="button" class="btn ghost" id="ymRst">Değişiklikleri geri al</button><button type="button" class="btn" id="ymSv">Planlama ve MES ayarlarını kaydet</button></div>`;
+  const B = host;
+  B.querySelectorAll("[data-pt]").forEach(c => c.onchange = () => { const em = c.dataset.pt; const cur = T[em] || PL_TABS.map(t => t[0]); T[em] = c.checked ? [...new Set([...cur, c.dataset.tk])] : cur.filter(x => x !== c.dataset.tk); });
+  B.querySelectorAll("[data-dad]").forEach(c => c.oninput = () => { D[Number(c.dataset.dad)].ad = c.value; });
+  B.querySelectorAll("[data-dem]").forEach(c => c.onchange = () => { D[Number(c.dataset.dem)].email = c.value; renderYtMes(); });
+  B.querySelectorAll("[data-dmo]").forEach(c => c.onchange = () => { D[Number(c.dataset.dmo)].mod = c.value; });
+  B.querySelectorAll("[data-dis]").forEach(c => c.onchange = () => { const d = D[Number(c.dataset.dis)]; d.ist = c.checked ? [...new Set([...(d.ist || []), c.value])] : (d.ist || []).filter(x => x !== c.value); const s = c.closest(".ymdev").querySelector(".ymlb small"); if (s) s.textContent = d.ist.length + " seçili"; });
+  B.querySelectorAll("[data-dop]").forEach(c => c.onchange = () => { const d = D[Number(c.dataset.dop)]; d.op = c.checked ? [...new Set([...(d.op || []), c.value])] : (d.op || []).filter(x => x !== c.value); });
+  B.querySelectorAll("[data-drm]").forEach(b => { let a = false; b.onclick = () => { if (!a) { a = true; b.textContent = "Silinsin mi?"; return; } D.splice(Number(b.dataset.drm), 1); renderYtMes(); }; });
+  $("#ymMod").onchange = e => { YTM.mod = e.target.value; };
+  $("#ymAdd").onclick = () => { D.push({ id: "d" + Date.now().toString(36), ad: "Yeni cihaz", email: "", mod: "basit", ist: [], op: [] }); renderYtMes(); };
+  $("#ymRst").onclick = () => { YTM.dev = null; YTM.tabs = null; YTM.mod = null; renderYtMes(); };
+  $("#ymSv").onclick = async () => { const em = D.filter(d => d.email).map(d => lower(d.email)); if (new Set(em).size !== em.length) { toast("Aynı hesap iki cihaza atanamaz"); return; }
+    try { await setDoc(doc(fs, "config", "mes"), { cihazlar: D.map(d => ({ id: d.id, ad: String(d.ad || "").trim() || "Cihaz", email: lower(d.email || ""), mod: d.mod || "basit", ist: d.ist || [], op: d.op || [] })), plTabs: T, mod: YTM.mod || C.mod || "basit", updatedAt: Date.now(), updatedBy: ME.name });
+      YTM.dev = null; YTM.tabs = null; YTM.mod = null; toast("Planlama ve MES ayarları kaydedildi"); } catch (x) { toast(writeErr(x)); } };
+}
+const YTM = { dev: null, tabs: null, mod: null };

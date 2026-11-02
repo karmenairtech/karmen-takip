@@ -1224,3 +1224,108 @@ body.mesfs #modPlan main.wrap{max-width:none;padding:14px 18px}
 body.mesfs .messel{top:8px}
 @media (max-width:700px){.mesl{grid-template-columns:1fr}.meso{grid-template-columns:1fr 1fr}.meskpi{gap:14px}.meskpi b{font-size:22px}}
 .meso{grid-template-columns:repeat(3,minmax(0,1fr))}.meso>div:first-child{grid-column:1/-1}
+/* ===== Fabrika panosu (TV, 1920×1080 ölçekli) ===== */
+body.panofs{overflow:hidden;background:#05080e}
+body.panofs .topbar,body.panofs .pvbar,body.panofs #toast{display:none!important}
+#modPano{position:fixed;inset:0;background:radial-gradient(1200px 700px at 15% 0%,#0d1b33 0%,#05080e 60%);z-index:50;overflow:hidden}
+#panoStage{position:absolute;width:1920px;height:1080px;transform-origin:0 0;color:#e6edf6;font-family:'IBM Plex Sans',Arial,sans-serif;padding:34px 44px;box-sizing:border-box;display:flex;flex-direction:column;gap:22px}
+.pn-head{display:flex;align-items:center;gap:30px}
+.pn-logo{height:86px;border-radius:12px}
+.pn-ttl{display:flex;flex-direction:column;gap:6px;flex:1}.pn-ttl b{font-family:'Rubik',sans-serif;font-size:40px;letter-spacing:2px}.pn-ttl span{font-size:20px;color:#8ea3bd;display:flex;align-items:center;gap:10px}
+.pn-live{display:inline-block;width:14px;height:14px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.7);animation:pnp 2s infinite}
+@keyframes pnp{0%{box-shadow:0 0 0 0 rgba(34,197,94,.7)}70%{box-shadow:0 0 0 14px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.pn-clock{font-family:'IBM Plex Mono',monospace;font-size:78px;font-weight:600;color:#fff;letter-spacing:2px}
+.pn-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:16px}
+.pn-k{background:linear-gradient(180deg,#101a2b,#0b1220);border:1px solid #1d2a40;border-radius:18px;padding:18px 22px;display:flex;flex-direction:column;gap:6px}
+.pn-k span{font-size:15px;letter-spacing:1.5px;color:#8ea3bd;font-weight:600}.pn-k b{font-family:'IBM Plex Mono',monospace;font-size:52px;line-height:1.05;color:#fff}.pn-k b small{font-size:20px;color:#8ea3bd;font-family:'IBM Plex Sans',sans-serif;font-weight:500}
+.pn-k b.g{color:#22c55e}.pn-k b.o{color:#f59e0b}.pn-k b.r{color:#ef4444}.pn-k em{font-style:normal;font-size:15px;color:#7d90a8}
+.pn-body{flex:1;min-height:0;display:grid;grid-template-columns:1fr 520px;grid-template-rows:1fr 250px;gap:18px}
+.pn-card{background:#0b1220cc;border:1px solid #1d2a40;border-radius:18px;padding:18px 22px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.pn-ch{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.pn-ch h2{margin:0;font-size:19px;letter-spacing:2px;color:#cbd6e4;font-weight:700}
+.pn-sub{font-size:16px;color:#7d90a8}
+.pn-leg{display:flex;gap:18px;font-size:15px;color:#a9b8cb}.pn-leg span{display:flex;align-items:center;gap:7px}.pn-leg i{width:12px;height:12px;border-radius:3px}.pn-leg b{color:#fff}
+.pn-mak{grid-row:1}
+.pn-bols{display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.pn-bol{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:stretch}
+.pn-bl{border-left:5px solid var(--bc);padding-left:10px;font-size:14px;font-weight:700;color:#cbd6e4;display:flex;align-items:center;line-height:1.2}
+.pn-ms{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px}
+.pn-m{background:#111b2c;border:1px solid #1f2d44;border-top:4px solid var(--mc);border-radius:10px;padding:7px 10px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pn-m.calisiyor{background:linear-gradient(180deg,#0f2a1c,#0e1a24);box-shadow:0 0 18px -6px #22c55e}
+.pn-m.ariza{background:#2a1215}.pn-m.bakim{background:#2a1f0e}
+.pn-mt{display:flex;justify-content:space-between;align-items:center}.pn-mt b{font-family:'IBM Plex Mono',monospace;font-size:17px;color:#fff}
+.pn-mt i{width:11px;height:11px;border-radius:50%;background:var(--mc)}.pn-m.calisiyor .pn-mt i{animation:pnp2 1.4s infinite}
+@keyframes pnp2{50%{opacity:.25}}
+.pn-ma{font-size:13px;color:#cfe0f2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.pn-mn{font-size:12px;color:#7d90a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pn-mb{height:6px;border-radius:3px;background:#1e293b;overflow:hidden;margin-top:3px}.pn-mb span{display:block;height:100%;background:#22c55e;border-radius:3px}
+.pn-side{grid-row:1/3;grid-column:2;display:flex;flex-direction:column;gap:18px;min-height:0}
+.pn-per{flex:0 0 auto}.pn-pw{display:flex;align-items:center;gap:20px}
+.pn-ring{width:230px;height:230px;flex:none}.pn-rv{font-family:'IBM Plex Mono',monospace;font-size:64px;font-weight:700;fill:#fff}.pn-rl{font-size:22px;fill:#8ea3bd}
+.pn-pl{display:flex;flex-direction:column;gap:9px;flex:1;font-size:18px;color:#cbd6e4}.pn-pl div{display:flex;align-items:center;gap:10px}.pn-pl i{width:14px;height:14px;border-radius:4px}.pn-pl b{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:22px;color:#fff}
+.pn-menu{flex:1}.pn-menu ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
+.pn-menu li{font-size:26px;font-weight:600;color:#fff;padding:12px 18px;border-radius:12px;background:linear-gradient(90deg,#1a2a44,#0f1a2c);border-left:5px solid #1a8fe3}
+.pn-ed{background:none;border:1px solid #2a3a55;color:#8ea3bd;border-radius:8px;width:36px;height:36px;font-size:18px;cursor:pointer}
+.pn-bos{color:#5e728c;font-size:18px;margin:6px 0}
+.pn-graf{grid-column:1;grid-row:2}
+.pn-bars{flex:1;display:flex;align-items:flex-end;gap:12px;min-height:0}
+.pn-bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px}
+.pn-bar span{width:100%;background:linear-gradient(180deg,#1a8fe3,#0f4f8a);border-radius:8px 8px 3px 3px;min-height:4px}.pn-bar.bu span{background:linear-gradient(180deg,#22c55e,#14773a)}
+.pn-bar b{font-family:'IBM Plex Mono',monospace;font-size:16px;color:#fff}.pn-bar em{font-style:normal;font-size:14px;color:#7d90a8}
+.pn-akis{display:none}
+.pn-x{position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;border:1px solid #1d2a40;background:transparent;color:#3c4d66;font-size:22px;cursor:pointer;opacity:.4}.pn-x:hover{opacity:1;color:#fff}
+.pn-me{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;max-height:60vh;overflow:auto}.pn-me div{display:flex;flex-direction:column;gap:4px}.pn-me textarea{min-height:90px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg)}
+body.panofs .p2{z-index:70}
+.pn-bleg{display:flex;gap:16px;flex-wrap:wrap;margin:-4px 0 10px;font-size:13px;color:#8ea3bd}.pn-bleg span{border-left:4px solid var(--bc);padding-left:7px}
+.pn-mak .pn-ms{grid-template-columns:repeat(8,minmax(0,1fr));gap:7px;align-content:start}
+.pn-mak .pn-m{border-top:0;border-left:5px solid var(--bc);padding:6px 9px;gap:2px;min-height:56px}
+.pn-mak .pn-mt b{font-size:16px}.pn-mak .pn-ma{font-size:12.5px;color:#9fb1c7;font-weight:600}
+.pn-mak .pn-m.calisiyor .pn-ma{color:#86efac}.pn-mak .pn-m.ariza .pn-ma{color:#fca5a5}.pn-mak .pn-m.bakim .pn-ma{color:#fcd34d}.pn-mak .pn-m.sirada .pn-ma{color:#7dd3fc}
+.pn-menu ul{gap:9px}.pn-menu li{font-size:22px;padding:9px 16px}
+.pn-mak .pn-ms{grid-template-columns:repeat(9,minmax(0,1fr))}
+.pn-body{grid-template-rows:1fr 230px}
+.pn-kur{display:flex;gap:12px;align-items:stretch;position:relative;padding-bottom:20px;margin-right:18px}
+.pn-ku{background:#0f1a2c;border:1px solid #1d2a40;border-radius:14px;padding:8px 16px;display:flex;flex-direction:column;min-width:150px}
+.pn-ku span{font-size:14px;letter-spacing:1.5px;color:#8ea3bd;font-weight:600}.pn-ku b{font-family:'IBM Plex Mono',monospace;font-size:34px;color:#fff;display:flex;align-items:center;gap:8px}
+.pn-ku.pp b{font-size:28px;color:#cbd6e4}.pn-ku em{font-style:normal;font-size:13px;color:#7d90a8}
+.pn-ku i{font-style:normal;font-size:18px}.pn-ku i.up{color:#22c55e}.pn-ku i.dn{color:#ef4444}
+.pn-kk{position:absolute;right:0;bottom:0;font-size:12px;color:#5e728c;white-space:nowrap}
+.pn-ttl b{font-size:36px}.pn-clock{font-size:70px}
+/* MES v2: kompakt kartlar (10" tablette yatay 4 sütun) */
+.mesl{grid-template-columns:repeat(auto-fill,minmax(222px,1fr));gap:10px}
+.mesk{padding:10px 12px;gap:6px;border-left-width:6px;border-radius:12px}
+.mesh{gap:5px}.mest{font-size:10.5px;padding:2px 6px;letter-spacing:.4px}.mesonc{font-size:10.5px;padding:2px 6px}.mester{font-size:11px;padding:2px 7px}
+.masm{font-size:10.5px;font-weight:800;letter-spacing:1px;color:var(--ink-3)}
+.mesk.asm-uretim .masm{color:var(--brand)}.mesk.asm-boya .masm{color:#b0367a}.mesk.asm-depo .masm{color:#b26b00}.mesk.asm-lp .masm{color:#c24a1e}
+.mesu{font-size:15px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mesr{display:flex;gap:6px;align-items:center;font-size:13px}
+.messp{font-size:12.5px;color:var(--ink-2);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.messp b{color:var(--ink);font-family:var(--mono);font-weight:600}
+.mesio{display:flex;flex-direction:column;gap:1px;font-size:12px;color:var(--ink-2);background:var(--surface-2);border-radius:8px;padding:5px 8px}.mesio .num{font-weight:700;color:var(--ink)}
+.mesio span:last-child{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mesad{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}.mesad b{font-size:17px;color:var(--ink)}
+.mlp{margin-left:auto;font-size:11px;font-weight:700;padding:2px 7px;border-radius:12px;background:#fde2c8;color:#9a4a0c}.mlp.ok{background:#d3f2dc;color:#1a7a3a}
+.mesnot{font-size:12px;padding:4px 8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mesbk{font-size:12px;padding:6px 8px}
+.mesb{gap:6px;margin-top:auto}.mbtn{min-height:48px;padding:0 10px;font-size:15px;border-radius:10px}.mbtn.bas,.mbtn.bit{flex:1}.mbtn.dur{min-width:52px}.mbtn.sec{min-height:48px;font-size:13px;min-width:52px;padding:0 8px}
+.messure{font-size:11px}
+.meshead{padding:10px 16px;margin-bottom:10px;border-radius:14px}.mesnm{font-size:22px}.meskpi{gap:16px}.meskpi b{font-size:24px;filter:none}
+.mesopsel{display:flex;flex-direction:column;gap:3px}.mesopsel label{font-size:11px;color:#aab4c3}.mesopsel select{font-size:16px;padding:8px 10px;border-radius:10px;background:#111827;color:#fff;border:1px solid #334155;min-width:200px}
+.mesout{color:#fff;border-color:#475569}
+.mesgr2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.mesgr2 .messel{position:static;margin:0;padding:6px 10px;box-shadow:none}.messel .mbtn{min-height:42px;font-size:14px}
+.mesg{margin:12px 0 6px}
+/* cihaz kilidi: yalnızca MES */
+body.mesdev .topbar,body.mesdev #modPlan>header.band,body.mesdev #plTabs,body.mesdev #plCfgBtn,body.mesdev #plAdd,body.mesdev .pvbar{display:none!important}
+body.mesdev #modPlan main.wrap{max-width:none;padding:10px 12px}
+body.mesdev .toolbar{display:none}
+@media (max-width:700px){.mesl{grid-template-columns:repeat(2,minmax(0,1fr))}.meshead{flex-direction:column;align-items:flex-start}}
+@media (max-width:430px){.mesl{grid-template-columns:1fr}}
+/* Yetkilendirme: Planlama ve MES */
+.ytm{margin-bottom:16px}
+.ymdevs{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:14px;margin-bottom:12px}
+.ymdev{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.ymh{display:flex;gap:8px;align-items:center}
+.ymlb{font-size:12px;font-weight:700;color:var(--ink-2);margin-top:4px}.ymlb small{font-weight:500;color:var(--ink-3)}
+.ymist{display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+.ymb{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}.ymb b{font-size:11.5px;border-left:3px solid var(--bc);padding-left:6px;min-width:120px}
+.ymop{display:flex;flex-wrap:wrap;gap:4px 14px;max-height:120px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+@media (max-width:600px){.ymdevs{grid-template-columns:1fr}}
