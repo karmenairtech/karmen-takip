@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "39";
+const APP_V = "40";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -990,9 +990,11 @@ function route() {
   let r = (location.hash || "").replace(/^#/, "") || "home";
   if (r === "yetki" && !isAdmin()) { r = "home"; try { history.replaceState(null, "", "#home"); } catch (e) {} }
   if (r !== "home" && r !== "yetki" && !MODULES.some(m => m.id === r)) r = "home";
-  const mdev = typeof mesMyDev === "function" ? mesMyDev() : null;
-  document.body.classList.toggle("mesdev", !!mdev);
-  if (mdev) { r = "planlama"; PL.view = "mes"; MES.ist = "d:" + mdev.id; if (location.hash !== "#planlama") { try { history.replaceState(null, "", "#planlama"); } catch (e) {} } }
+  const mdev = typeof mesMyDev === "function" ? mesMyDev() : null, mkil = !!(mdev && mdev.kilit === "tam");
+  document.body.classList.toggle("mesdev", mkil);
+  // tam kilit: yalnızca MES · esnek: girişte bir kez MES açılır, diğer modüllere geçilebilir
+  const mIlk = mdev && !MES.ilkAcilis; if (mdev) MES.ilkAcilis = true;
+  if (mkil || (mIlk && r === "home")) { r = "planlama"; PL.view = "mes"; MES.ist = "d:" + mdev.id; if (location.hash !== "#planlama") { try { history.replaceState(null, "", "#planlama"); } catch (e) {} } }
   let mod = MODULES.find(m => m.id === r);
   if (mod && lvl(mod.id) === "none") { toast(mod.name + " için yetkiniz yok"); r = "home"; mod = null; try { history.replaceState(null, "", "#home"); } catch (e) {} }
   const changed = r !== ROUTE; ROUTE = r;
@@ -8205,8 +8207,8 @@ function mesKart(j) {
 }
 const plDur = dk => { dk = Math.round(dk); return dk >= 60 ? `${Math.floor(dk / 60)} sa ${dk % 60} dk` : dk + " dk"; };
 function plMesView(v) {
-  const istler = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr")), dev = mesMyDev(), D = MESC.cfg.cihazlar || [];
-  if (dev) MES.ist = "d:" + dev.id;
+  const istler = PL.ist.slice().sort((a, b) => String(a.kod).localeCompare(String(b.kod), "tr")), cdev = mesMyDev(), dev = cdev && cdev.kilit === "tam" ? cdev : null, D = MESC.cfg.cihazlar || [];
+  if (cdev) MES.ist = "d:" + cdev.id;
   if (!MES.ist || (MES.ist.startsWith("d:") && !D.some(d => "d:" + d.id === MES.ist))) MES.ist = D.length ? "d:" + D[0].id : ((istler.find(i => /^TST/.test(i.kod)) || istler[0] || {}).kod || "");
   const S = mesStations(), mod = mesModu(), devObj = MES.ist.startsWith("d:") ? D.find(d => "d:" + d.id === MES.ist) : null;
   const J = mod === "basit" ? mesIslerBasit(S) : mesIsler(S);
@@ -8216,7 +8218,7 @@ function plMesView(v) {
   const fs0 = document.body.classList.contains("mesfs") || !!dev, ops = devObj ? devObj.op || [] : [];
   if (MES.op && ops.length && !ops.includes(MES.op)) MES.op = "";
   v.innerHTML = `${dev ? "" : `<div class="mesbar">
-      <div class="mesis"><label for="mesIst">Cihaz / istasyon</label><select id="mesIst" class="f">${D.length ? `<optgroup label="MES cihazları">${D.map(d => `<option value="d:${esc(d.id)}"${MES.ist === "d:" + d.id ? " selected" : ""}>${esc(d.ad)}</option>`).join("")}</optgroup>` : ""}<optgroup label="Bölümler">${PL_BOLUM.map(([k, l]) => `<option value="b:${k}"${MES.ist === "b:" + k ? " selected" : ""}>${esc(l)} (tümü)</option>`).join("")}</optgroup><optgroup label="İstasyonlar">${istler.map(i => opt(i.kod, `${i.kod} · ${i.ad}`, MES.ist)).join("")}</optgroup></select></div>
+      <div class="mesis"${cdev ? ' style="display:none"' : ""}><label for="mesIst">Cihaz / istasyon</label><select id="mesIst" class="f">${D.length ? `<optgroup label="MES cihazları">${D.map(d => `<option value="d:${esc(d.id)}"${MES.ist === "d:" + d.id ? " selected" : ""}>${esc(d.ad)}</option>`).join("")}</optgroup>` : ""}<optgroup label="Bölümler">${PL_BOLUM.map(([k, l]) => `<option value="b:${k}"${MES.ist === "b:" + k ? " selected" : ""}>${esc(l)} (tümü)</option>`).join("")}</optgroup><optgroup label="İstasyonlar">${istler.map(i => opt(i.kod, `${i.kod} · ${i.ad}`, MES.ist)).join("")}</optgroup></select></div>
       ${devObj ? "" : `<div class="mesgr seg" role="group" aria-label="Mod">${[["basit", "Basit"], ["detayli", "Detaylı"]].map(([k, l]) => `<button type="button" data-mm="${k}" aria-pressed="${mod === k}">${l}</button>`).join("")}</div>`}
       <div class="mesact">${window.__CALL_DEMO && can("pl.ie") ? '<button type="button" class="btn ghost sm" id="mesSeed">20 deneme işi oluştur</button>' : ""}<button type="button" class="btn ${fs0 ? "" : "ghost "}sm" id="mesFs">${fs0 ? "Tablet modundan çık" : "Tablet modu (tam ekran)"}</button></div></div>`}
     <div class="meshead"><div><div class="mesnm">${esc(devObj ? devObj.ad : MES.ist.startsWith("b:") ? PL_BC[MES.ist.slice(2)].l : MES.ist)}</div><div class="note">${mod === "basit" ? "Basit mod · üretim, boyahane, depo aşamaları · lazer/plazma ayrı" : "Detaylı mod · tüm işlemler"} · ${S.size} istasyon</div></div>
@@ -8425,11 +8427,11 @@ const PL_TABS = [["genel", "Genel bakış"], ["havuz", "Planlanacak işler"], ["
 function startMesCfg() {
   if (MESC.unsub) return;
   MESC.unsub = onSnapshot(doc(fs, "config", "mes"), s => { const d = s.exists() ? s.data() : null; MESC.cfg = d ? { cihazlar: d.cihazlar || [], plTabs: d.plTabs || {}, mod: d.mod || "basit", kayitli: true } : { cihazlar: MES_DEV_DEF(), plTabs: {}, mod: "basit", kayitli: false }; MESC.ready = true;
-    if (mesMyDev() && ROUTE !== "planlama") route(); else { if (ROUTE === "planlama") renderPlan(); if (ROUTE === "yetki") renderYtMes(); } }, () => { MESC.ready = true; });
+    const md = mesMyDev(); if (md && ((md.kilit === "tam" && ROUTE !== "planlama") || (!MES.ilkAcilis && ROUTE === "home"))) route(); else { if (ROUTE === "planlama") renderPlan(); if (ROUTE === "yetki") renderYtMes(); } }, () => { MESC.ready = true; });
   dataUnsubs.push(() => { try { MESC.unsub(); } catch (e) {} MESC.unsub = null; });
 }
 const mesMyDev = () => !ME || isAdmin() ? null : (MESC.cfg.cihazlar || []).find(d => d.email && lower(d.email) === ME.email) || null;
-const plTabIzin = () => { if (!ME || isAdmin()) return new Set(PL_TABS.map(t => t[0])); if (mesMyDev()) return new Set(["mes"]); const L = (MESC.cfg.plTabs || {})[ME.email]; return new Set(Array.isArray(L) ? L : PL_TABS.map(t => t[0])); };
+const plTabIzin = () => { if (!ME || isAdmin()) return new Set(PL_TABS.map(t => t[0])); const md = mesMyDev(); if (md && md.kilit === "tam") return new Set(["mes"]); const L = (MESC.cfg.plTabs || {})[lower(ME.email)]; return new Set(Array.isArray(L) ? L : md ? ["mes"] : PL_TABS.map(t => t[0])); };
 const mesBy = () => (MES.op || "").trim() || ME.name;
 const MES_LP = ist => /^(LZR|PLZ)/i.test(ist || "");
 const MES_ASM = { uretim: ["ÜRETİM", "Kesimden boyahane öncesine", "Başla", "Bitir"], boya: ["BOYAHANE", "Boyaya giriş / çıkış", "Boyaya girdi", "Boyadan çıktı"], depo: ["DEPO", "Sevke hazır", "", "Depoya alındı"] };
@@ -8496,23 +8498,25 @@ function renderYtMes() {
     ${!C.kayitli ? '<div class="izbal" style="--tc:var(--k-gec)"><b>Cihazlar henüz kaydedilmedi.</b> Aşağıda tablet ve bilgisayarlarınız önerilen istasyonlarla doldurulmuş geldi; kontrol edip <b>Planlama ve MES ayarlarını kaydet</b>\'e basın.</div>' : ""}
     <section class="plcard ytm"><h3 class="sec-t">Planlama menü yetkileri <small>işaretli sekmeleri görür · yöneticiler hepsini görür</small></h3>
       <div class="yt-tw"><table class="ytt"><thead><tr><th>Kişi</th>${PL_TABS.map(t => `<th class="c">${t[1]}</th>`).join("")}</tr></thead><tbody>
-      ${users.map(u => { const dev = D.find(d => d.email && lower(d.email) === lower(u.email)), L = T[lower(u.email)]; return `<tr><td><b>${esc(u.name || u.email)}</b><div class="note">${esc(u.email)}${dev ? ` · <b>cihaz hesabı: ${esc(dev.ad)}</b>` : (u.mods || {}).planlama === "none" ? " · Planlama erişimi yok" : ""}</div></td>
-        ${PL_TABS.map(([k]) => `<td class="c">${dev ? (k === "mes" ? "✓" : "—") : `<input type="checkbox" data-pt="${esc(lower(u.email))}" data-tk="${k}"${!L || L.includes(k) ? " checked" : ""}>`}</td>`).join("")}</tr>`; }).join("") || '<tr><td colspan="8" class="note">Yönetici dışında kullanıcı yok.</td></tr>'}</tbody></table></div></section>
-    <section class="plcard ytm"><h3 class="sec-t">MES cihazları <small>tablet ve bilgisayarlar · cihaz hesabıyla girilince program doğrudan o cihazın MES ekranında, kilitli açılır</small></h3>
+      ${users.map(u => { const dev = D.find(d => d.email && lower(d.email) === lower(u.email)), L = T[lower(u.email)]; return `<tr><td><b>${esc(u.name || u.email)}</b><div class="note">${esc(u.email)}${dev ? ` · <b>cihaz hesabı: ${esc(dev.ad)}${dev.kilit === "tam" ? " (tam kilit)" : ""}</b>` : (u.mods || {}).planlama === "none" ? " · Planlama erişimi yok" : ""}</div></td>
+        ${PL_TABS.map(([k]) => `<td class="c">${dev && dev.kilit === "tam" ? (k === "mes" ? "✓" : "—") : `<input type="checkbox" data-pt="${esc(lower(u.email))}" data-tk="${k}"${(L ? L.includes(k) : (!dev || k === "mes")) ? " checked" : ""}>`}</td>`).join("")}</tr>`; }).join("") || '<tr><td colspan="8" class="note">Yönetici dışında kullanıcı yok.</td></tr>'}</tbody></table></div></section>
+    <section class="plcard ytm"><h3 class="sec-t">MES cihazları <small>tablet ve bilgisayarlar · cihaz hesabıyla girilince program o cihazın MES ekranıyla açılır</small></h3>
       <div class="fgrid" style="margin-bottom:10px"><div class="field"><label for="ymMod">Varsayılan MES modu</label><select id="ymMod">${[["basit", "Basit: üretim · boyahane · depo aşamaları"], ["detayli", "Detaylı: akış şemasındaki tüm işlemler"]].map(([a, l]) => opt(a, l, YTM.mod || C.mod || "basit")).join("")}</select></div></div>
       <div class="ymdevs">${D.map((d, i) => { const u = users.find(x => lower(x.email) === lower(d.email || "")), uyar = d.email && u && ((u.mods || {}).planlama === "none" || !(u.acts || {})["pl.op"]);
         return `<div class="ymdev"><div class="ymh"><input class="kin" data-dad="${i}" value="${esc(d.ad)}" aria-label="Cihaz adı" style="font-weight:700;flex:1"><button type="button" class="btn ghost sm dangerb" data-drm="${i}">Sil</button></div>
           <div class="fgrid"><div class="field"><label>Cihaz hesabı (giriş e-postası)</label><select data-dem="${i}"><option value="">— Hesap seçin —</option>${users.map(x => opt(lower(x.email), `${x.name || x.email} · ${x.email}`, lower(d.email || ""))).join("")}</select>${uyar ? '<span class="note late">Bu hesaba Planlama modülünde "Kullanıcı" yetkisi (operasyon başlatma/bitirme) verin.</span>' : ""}</div>
-          <div class="field"><label>Mod</label><select data-dmo="${i}">${[["basit", "Basit (aşamalar)"], ["detayli", "Detaylı (tüm işlemler)"]].map(([a, l]) => opt(a, l, d.mod || "basit")).join("")}</select></div></div>
+          <div class="field"><label>Mod</label><select data-dmo="${i}">${[["basit", "Basit (aşamalar)"], ["detayli", "Detaylı (tüm işlemler)"]].map(([a, l]) => opt(a, l, d.mod || "basit")).join("")}</select></div>
+          <div class="field full"><label>Kilit</label><select data-dkl="${i}">${[["esnek", "Esnek: girişte MES açılır, diğer modüllere de geçilebilir"], ["tam", "Tam: yalnızca MES ekranı (ana menü ve diğer modüller kapalı)"]].map(([a, l]) => opt(a, l, d.kilit || "esnek")).join("")}</select></div></div>
           <label class="ymlb">İstasyonlar <small>${(d.ist || []).length} seçili</small></label><div class="ymist">${PL_BOLUM.map(([bk, bl, bc]) => { const B = ist.filter(x => plBolumOf(x.kod) === bk); return B.length ? `<div class="ymb"><b style="--bc:${bc}">${esc(bl)}</b>${B.map(x => `<label class="chk sm" title="${esc(x.ad)}"><input type="checkbox" data-dis="${i}" value="${esc(x.kod)}"${(d.ist || []).includes(x.kod) ? " checked" : ""}> ${esc(x.kod)}</label>`).join("")}</div>` : ""; }).join("")}</div>
           <label class="ymlb">Operatörler <small>tablette "işi kim yapıyor" listesi</small></label><div class="ymop">${per.map(p => `<label class="chk sm"><input type="checkbox" data-dop="${i}" value="${esc(p)}"${(d.op || []).includes(p) ? " checked" : ""}> ${esc(p)}</label>`).join("")}</div></div>`; }).join("")}</div>
       <button type="button" class="btn ghost" id="ymAdd">+ Cihaz ekle</button></section>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin:12px 0 40px"><button type="button" class="btn ghost" id="ymRst">Değişiklikleri geri al</button><button type="button" class="btn" id="ymSv">Planlama ve MES ayarlarını kaydet</button></div>`;
   const B = host;
-  B.querySelectorAll("[data-pt]").forEach(c => c.onchange = () => { const em = c.dataset.pt; const cur = T[em] || PL_TABS.map(t => t[0]); T[em] = c.checked ? [...new Set([...cur, c.dataset.tk])] : cur.filter(x => x !== c.dataset.tk); });
+  B.querySelectorAll("[data-pt]").forEach(c => c.onchange = () => { const em = c.dataset.pt; T[em] = [...B.querySelectorAll("[data-pt]")].filter(x => x.dataset.pt === em && x.checked).map(x => x.dataset.tk); });
   B.querySelectorAll("[data-dad]").forEach(c => c.oninput = () => { D[Number(c.dataset.dad)].ad = c.value; });
   B.querySelectorAll("[data-dem]").forEach(c => c.onchange = () => { D[Number(c.dataset.dem)].email = c.value; renderYtMes(); });
   B.querySelectorAll("[data-dmo]").forEach(c => c.onchange = () => { D[Number(c.dataset.dmo)].mod = c.value; });
+  B.querySelectorAll("[data-dkl]").forEach(c => c.onchange = () => { D[Number(c.dataset.dkl)].kilit = c.value; });
   B.querySelectorAll("[data-dis]").forEach(c => c.onchange = () => { const d = D[Number(c.dataset.dis)]; d.ist = c.checked ? [...new Set([...(d.ist || []), c.value])] : (d.ist || []).filter(x => x !== c.value); const s = c.closest(".ymdev").querySelector(".ymlb small"); if (s) s.textContent = d.ist.length + " seçili"; });
   B.querySelectorAll("[data-dop]").forEach(c => c.onchange = () => { const d = D[Number(c.dataset.dop)]; d.op = c.checked ? [...new Set([...(d.op || []), c.value])] : (d.op || []).filter(x => x !== c.value); });
   B.querySelectorAll("[data-drm]").forEach(b => { let a = false; b.onclick = () => { if (!a) { a = true; b.textContent = "Silinsin mi?"; return; } D.splice(Number(b.dataset.drm), 1); renderYtMes(); }; });
@@ -8520,7 +8524,7 @@ function renderYtMes() {
   $("#ymAdd").onclick = () => { D.push({ id: "d" + Date.now().toString(36), ad: "Yeni cihaz", email: "", mod: "basit", ist: [], op: [] }); renderYtMes(); };
   $("#ymRst").onclick = () => { YTM.dev = null; YTM.tabs = null; YTM.mod = null; renderYtMes(); };
   $("#ymSv").onclick = async () => { const em = D.filter(d => d.email).map(d => lower(d.email)); if (new Set(em).size !== em.length) { toast("Aynı hesap iki cihaza atanamaz"); return; }
-    try { await setDoc(doc(fs, "config", "mes"), { cihazlar: D.map(d => ({ id: d.id, ad: String(d.ad || "").trim() || "Cihaz", email: lower(d.email || ""), mod: d.mod || "basit", ist: d.ist || [], op: d.op || [] })), plTabs: T, mod: YTM.mod || C.mod || "basit", updatedAt: Date.now(), updatedBy: ME.name });
+    try { await setDoc(doc(fs, "config", "mes"), { cihazlar: D.map(d => ({ id: d.id, ad: String(d.ad || "").trim() || "Cihaz", email: lower(d.email || ""), mod: d.mod || "basit", kilit: d.kilit || "esnek", ist: d.ist || [], op: d.op || [] })), plTabs: T, mod: YTM.mod || C.mod || "basit", updatedAt: Date.now(), updatedBy: ME.name });
       YTM.dev = null; YTM.tabs = null; YTM.mod = null; toast("Planlama ve MES ayarları kaydedildi"); } catch (x) { toast(writeErr(x)); } };
 }
 const YTM = { dev: null, tabs: null, mod: null };
