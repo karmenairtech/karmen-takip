@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "41";
+const APP_V = "42";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -8244,12 +8244,40 @@ function mesKart(j) {
     <div class="mesu">${esc(e.urunAd || "")}</div>
     <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
     <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
+    ${mesProje(e) ? `<div class="mespj" title="Proje">${esc(mesProje(e))}</div>` : ""}
+    ${e.siparisNo ? `<button type="button" class="mesd" data-ma="sd">Sipariş detay</button>` : ""}
     <div class="mesio"><span class="num">${esc(e.no)}</span><span>${islem}</span></div>
     <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlps">${(j.onDurum || []).map(x => `<span class="mlp ${x.ok ? "ok" : ""}">${esc(x.ad)} ${x.ok ? "✓" : "bekleniyor"}</span>`).join("")}</span>` : ""}</div>
     ${e.not ? `<div class="mesnot">${esc(e.not)}</div>` : ""}
     ${st === "bekle" ? `<div class="mesbk">${j.stage ? (j.stage === "boya" ? "Üretim bitince boyahaneye düşer" : "Önceki aşama bitince düşer") : "Önceki işlem bekleniyor"}</div>` : `<div class="mesb">${btn}<button type="button" class="mbtn sec" data-ma="sec" aria-pressed="${MES.sec.has(key)}" title="Seç">${MES.sec.has(key) ? "✓" : "Seç"}</button></div>`}
     ${son ? `<div class="messure">Başladı ${skTs(son.bas).split(" ").pop()} · ${esc(son.by || "")}</div>` : ""}
   </div>`;
+}
+const mesSip = e => (e.siparisIds && e.siparisIds.length && SP.list.find(x => x.id === e.siparisIds[0])) || SP.list.find(x => x.no === e.siparisNo) || null;
+const mesProje = e => { const sp = mesSip(e); return (sp && sp.proje && sp.proje.ad) || e.proje || ""; };
+// MES · sipariş detay: işin bağlı olduğu siparişin (ve aynı projedeki diğer siparişlerin) kalemleri, durum: Tamamlandı / Devam ediyor
+function mesSipDetay(e) {
+  const sp0 = mesSip(e), pro = mesProje(e), cari = (sp0 && (sp0.cariId || sp0.cariAd)) || e.musteri || "";
+  const L = sp0 ? (pro ? SP.list.filter(s => s.durum !== "iptal" && (s.cariId || s.cariAd) === cari && ((s.proje && s.proje.ad) || "") === pro) : [sp0]) : [];
+  if (sp0 && !L.some(s => s.id === sp0.id)) L.unshift(sp0);
+  L.sort((a, b) => (a.id === (sp0 || {}).id ? -1 : b.id === (sp0 || {}).id ? 1 : String(a.no).localeCompare(String(b.no), "tr")));
+  const IE = PL.ie.filter(x => x.durum !== "iptal");
+  const ieOf = (s, k) => IE.filter(x => (x.spKalem || []).some(r => r.spId === s.id && (k == null || r.k === k)) || (k == null && x.siparisNo === s.no));
+  const sat = (ad, m, br, ies, cur) => { const ok = ies.length && ies.every(x => !plIeOpen(x));
+    return `<div class="msdr${cur ? " cur" : ""}"><div><b>${esc(ad)}</b><div class="note">${ies.length ? ies.map(x => esc(x.no)).join(", ") : "iş emri açılmadı"}</div></div><span class="num">${nf(m)} <small>${esc(br || "adet")}</small></span><span class="msds ${ok ? "ok" : ""}">${ok ? "Tamamlandı" : "Devam ediyor"}</span></div>`; };
+  const blok = s => { const K = s.kalemler || [];
+    const rows = K.length ? K.map(k => { const ies = ieOf(s, k.k); return { h: sat([k.kod, k.ad].filter(Boolean).join(" · ") || "Kalem", k.miktar, k.birim, ies, ies.some(x => x.id === e.id)), ok: ies.length && ies.every(x => !plIeOpen(x)) }; })
+      : ieOf(s).map(x => ({ h: sat(x.urunAd || x.no, x.miktar, x.birim, [x], x.id === e.id), ok: !plIeOpen(x) }));
+    const n = rows.filter(r => r.ok).length;
+    return `<section><h3 class="sec-t">${esc(s.no)}${s.id === (sp0 || {}).id ? " · bu iş" : ""} <small>${n} / ${rows.length} kalem tamamlandı${s.termin ? " · termin " + fmtS(s.termin) : ""}</small></h3>${rows.map(r => r.h).join("") || '<p class="note">Kalem yok.</p>'}</section>`; };
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="msdT" style="width:min(720px,100%)">
+    <div class="dh"><h2 id="msdT">Sipariş detay <small class="note">${esc(e.musteri || (sp0 && sp0.cariAd) || "")}</small></h2><button class="x" id="msdX" aria-label="Kapat">×</button></div>
+    <div class="db">${pro ? `<div class="izbal">Proje: <b>${esc(pro)}</b>${L.length > 1 ? ` · ${L.length} sipariş` : ""}</div>` : ""}
+      ${sp0 ? L.map(blok).join("") : ieOf({ id: "", no: e.siparisNo }).length ? blok({ id: "", no: e.siparisNo, kalemler: [] }) : '<div class="empty"><p>Sipariş kaydı bulunamadı.</p></div>'}</div>
+    <div class="df"><span></span><div class="r"><button class="btn" id="msdK" type="button">Kapat</button></div></div>
+  </aside>`;
+  $("#scrim").onclick = closeDrawer; $("#msdX").onclick = closeDrawer; $("#msdK").onclick = closeDrawer;
 }
 const plDur = dk => { dk = Math.round(dk); return dk >= 60 ? `${Math.floor(dk / 60)} sa ${dk % 60} dk` : dk + " dk"; };
 function plMesView(v) {
@@ -8288,6 +8316,7 @@ function plMesView(v) {
   const act = async (j, a, n, fire) => { j = fresh(j); if (j.stage) await mesAsamaAction(j.e, j.ks, a, n, fire, j.stage); else { if (fire) { await plOpAction(j.e, j.k, "fire", (Number(j.e.ops[j.k].fire) || 0) + Number(fire)); await new Promise(r => setTimeout(r, 150)); j = fresh(j); } await plOpAction(j.e, j.k, a, n); } };
   v.querySelectorAll("[data-mk]").forEach(c => c.querySelectorAll("[data-ma]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); const key = c.dataset.mk, a = b.dataset.ma, j = byKey.get(key);
     if (a === "sec") { MES.sec.has(key) ? MES.sec.delete(key) : MES.sec.add(key); plMesView(v); return; }
+    if (a === "sd") { const jj = byKey.get(key); if (jj) mesSipDetay(jj.e); return; }
     if (!j) return; b.disabled = true;
     if (a === "bit") { const r = await mesBitir([j], act); if (!r) { b.disabled = false; return; } } else await act(j, a); }));
   v.querySelectorAll("[data-gs]").forEach(b => b.onclick = () => { const L = G.get(b.dataset.gs).filter(j => j.st !== "bekle").map(j => j.key), all = L.every(x => MES.sec.has(x)); L.forEach(x => all ? MES.sec.delete(x) : MES.sec.add(x)); plMesView(v); });
@@ -8324,7 +8353,7 @@ async function plMesSeed(istKod) {
     if (i % 7 === 3) ops[0] = { ...ops[0], durum: "devam", tamam: 0, calisma: [{ bas: now - 1800e3, by: "Depo" }] };
     if (i === 0) ops[ti] = { ...ops[ti], durum: "devam", calisma: [{ bas: now - 1200e3, by: ME.name }] };
     if (i === 5) ops[ti] = { ...ops[ti], durum: "durdu", tamam: Math.floor(q / 2), calisma: [{ bas: now - 7200e3, bit: now - 5400e3, by: ME.name }] };
-    bt.set(doc(collection(fs, "isemri")), { no, tur: "sip", siparisNo: `SP-${y}-${String(940 + Math.floor(i / 3)).padStart(4, "0")}`, musteri: M[i % M.length], urunId: "", urunAd: `${a.kod.replace("AKS-", "")} · ${a.ad.toLocaleUpperCase("tr")} ${olc[i % olc.length]} MM`, renk: r, renkAd: spRenkAd(r), varyasyon: "",
+    bt.set(doc(collection(fs, "isemri")), { no, tur: "sip", siparisNo: `SP-${y}-${String(940 + Math.floor(i / 3)).padStart(4, "0")}`, musteri: M[i % M.length], proje: ["Merkez Hastanesi B Blok", "Lojistik Depo Genişletme", "Rezidans A Kule", "AVM Yenileme"][Math.floor(i / 3) % 4], urunId: "", urunAd: `${a.kod.replace("AKS-", "")} · ${a.ad.toLocaleUpperCase("tr")} ${olc[i % olc.length]} MM`, renk: r, renkAd: spRenkAd(r), varyasyon: "",
       akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: q, birim: "Adet", plBas: TODAY, termin: addDays(TODAY, [2, 5, 9, 12, 18, 25, 4, 30][i % 8]), oncelik: i % 9 === 2 ? "acil" : "normal", sorumlu: "", not: i % 6 === 1 ? "Kanatlar 45° ayarlı teslim" : "", durum: "uretim", deneme: true,
       ops, log: [{ at: now, by: ME.name, t: "MES deneme işi" }], createdAt: now, createdBy: ME.name, createdByUid: ME.uid, updatedAt: now, updatedBy: ME.name });
   }
