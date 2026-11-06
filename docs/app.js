@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "40";
+const APP_V = "41";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -52,7 +52,7 @@ let ME = null;            // {uid,email,name,role}
 let unsubs = [];
 /* ================= Yetki modeli ================= */
 // Modül seviyesi: none (erişim yok) · view (gözlemci) · use (kullanıcı) · edit (düzenleyici). Sistem yöneticisi her şeyi yapar.
-const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat", "pano"];
+const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat", "pano", "urun"];
 const PERM_LEVELS = [["none", "Erişim yok"], ["view", "Gözlemci"], ["use", "Kullanıcı"], ["edit", "Düzenleyici"]];
 const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
@@ -65,7 +65,8 @@ const PERM_ACTS = {
   cari: [["c.edit", "Cari kart ekleme ve düzenleme"], ["c.puan", "Tedarikçiye iletişim/hizmet puanı verme"], ["c.delete", "Cari kart silme"]],
   siparis: [["sp.teklif", "Teklif hazırlama, gönderme ve siparişe dönüştürme"], ["sp.edit", "Sipariş girme, onaylama ve düzenleme"], ["sp.fiyat", "Satış ve liste fiyatlarını görme ve girme"], ["sp.cfg", "Varyasyon, renk ve teklif ayarları"], ["sp.delete", "Teklif ve sipariş silme"]],
   sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"]],
-  pano: [["pano.menu", "Günün yemek menüsünü girme"]]
+  pano: [["pano.menu", "Günün yemek menüsünü girme"]],
+  urun: [["ut.edit", "Ürün kartlarını, çizimleri ve açıklamaları düzenleme"], ["ut.takip", "Personelin eğitim durumunu görme"]]
 };
 // Modülden bağımsız genel yetkiler
 const PERM_GLOBAL = [["p.msg", "Mesaj gönderme (üst çubuktaki Mesajlar)"]];
@@ -80,19 +81,20 @@ const PERM_DEF = {
   cv: { none: [], view: [], use: ["cv.gorusme"], edit: PERM_ACTS.cv.map(a => a[0]) },
   siparis: { none: [], view: [], use: ["sp.teklif", "sp.edit"], edit: PERM_ACTS.siparis.map(a => a[0]) },
   sevkiyat: { none: [], view: [], use: ["sv.sevk"], edit: PERM_ACTS.sevkiyat.map(a => a[0]) },
-  pano: { none: [], view: [], use: [], edit: ["pano.menu"] }
+  pano: { none: [], view: [], use: [], edit: ["pano.menu"] },
+  urun: { none: [], view: [], use: [], edit: ["ut.edit", "ut.takip"] }
 };
 function effPerms(e) {
   if (!e) return null;
   if (e.role === "admin") return { role: "admin", mods: {}, acts: {} };
   if (e.mods && typeof e.mods === "object") return { role: "user", mods: { ...e.mods }, acts: { ...(e.acts || {}) } };
   const L = e.role === "viewer" ? "view" : "use", mods = {}, acts = {};   // eski kayıt (üye / izleyici)
-  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (["pano"].includes(m)) { mods[m] = "none"; return; } if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
+  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (["pano"].includes(m)) { mods[m] = "none"; return; } if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat", "urun"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
   return { role: "user", mods, acts };
 }
 const isAdmin = () => !!ME && ME.role === "admin";
 const can = a => !!ME && (ME.role === "admin" || !!(ME.acts && ME.acts[a]));
-const lvl = m => !ME ? "none" : ME.role === "admin" ? "edit" : ((ME.mods && ME.mods[m]) || "none");
+const lvl = m => !ME ? "none" : ME.role === "admin" ? "edit" : ((ME.mods && ME.mods[m]) || (m === "urun" ? "view" : "none"));   // ürün tanıtımı varsayılan olarak herkese açık
 const canFeedback = () => can("p.feedback");
 const canProgress = t => can("p.progress.all") || (can("p.progress.own") && (t.owners || []).includes(ME.name));
 const isBoot = email => BOOT_ADMINS.map(lower).includes(lower(email));
@@ -186,7 +188,7 @@ function noAccessScreen(email) {
 }
 
 /* ================= Oturum akışı ================= */
-function stopSubs() { unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; }
+function stopSubs() { unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; if (typeof UT !== "undefined") { UT.unsub.forEach(u => { try { u(); } catch (e) {} }); UT.unsub = []; UT.eg = null; UT.ov = {}; UT.takip = null; } }
 onAuthStateChanged(auth, user => {
   stopSubs(); state.ready = false; ME = null;
   if (!user) { loginScreen(); return; }
@@ -233,6 +235,7 @@ function startData() {
   if (lvl("siparis") !== "none" || lvl("planlama") !== "none" || lvl("sevkiyat") !== "none") startSP(); else { SP.list = []; SP.ready = true; }
   if (can("sp.teklif")) startTK(); else { TK.list = []; TK.ready = true; }
   startMesCfg();
+  if (lvl("urun") !== "none") startUT();
   if (lvl("cv") !== "none") startCV(); else { CV.list = []; CV.ready = true; }
   if (lvl("personel") !== "none") startPersonel(); else { PT.people = []; PT.izin = []; PT.ozel = {}; PT.ready = true; }
   if (lvl("proje") === "none") { state.ready = true; render(); return; }
@@ -966,6 +969,7 @@ const ICONS = {
   planlama: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M7 13h6M10 17h7"/>',
   siparis: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>',
   pano: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-3 3 2 4-5"/>',
+  urun: '<path d="M4 4h16v16H4z"/><path d="M4 15l4-4 4 4 3-3 5 5"/><circle cx="15.5" cy="8.5" r="1.6"/>',
   sevkiyat: '<path d="M1 5h13v11H1z"/><path d="M14 9h4.5l3.5 3.5V16h-8z"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/><path d="M4 9h6M4 12h4"/>',
   cari: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.5 17c.6-1.9 2-3 3.5-3s2.9 1.1 3.5 3"/><path d="M14.5 9.5h4M14.5 13h4"/>',
   cv: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><circle cx="11" cy="11.5" r="2.2"/><path d="M7.8 17.5c.5-1.7 1.7-2.7 3.2-2.7s2.7 1 3.2 2.7"/>',
@@ -983,6 +987,7 @@ const MODULES = [
   { id: "planlama", name: "PLANLAMA MODÜLÜ", desc: "İş istasyonları, ürün iş akış şemaları ve iş emirleri", active: true },
   { id: "siparis", name: "SİPARİŞ TAKİP MODÜLÜ", desc: "Teklifler, müşteri siparişleri, renk teyidi, termin ve planlama havuzu", active: true },
   { id: "sevkiyat", name: "SEVKİYAT MODÜLÜ", desc: "Sevke hazır ürünler, irsaliye, paketleme listesi ve müşteriye gönderim", active: true },
+  { id: "urun", name: "ÜRÜN TANITIM", desc: "Ürünlerimiz, fotoğrafları, teknik çizimleri ve ölçü harfleri · personel eğitimi ve kendini dene testi", active: true },
   { id: "pano", name: "FABRİKA PANOSU", desc: "Smart TV için canlı fabrika ekranı: üretim, verimlilik, makineler, personel ve günün menüsü", active: true }
 ];
 let ROUTE = "home";
@@ -1009,6 +1014,7 @@ function route() {
   $("#modCV").hidden = r !== "cv";
   $("#modSP").hidden = r !== "siparis";
   $("#modSV").hidden = r !== "sevkiyat";
+  $("#modUT").hidden = r !== "urun";
   $("#modPano").hidden = r !== "pano"; if (r !== "pano") document.body.classList.remove("panofs");
   $("#modYetki").hidden = r !== "yetki";
   $("#modPh").hidden = !(mod && !mod.active);
@@ -1026,6 +1032,7 @@ function route() {
   if (r === "siparis") renderSP();
   if (r === "sevkiyat") renderSV();
   if (r === "pano") panoGir();
+  if (r === "urun") renderUT();
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); renderYtMes(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
@@ -1049,6 +1056,7 @@ function renderHome() {
     if (m.id === "siparis") return spTile(m);
     if (m.id === "sevkiyat") return svTile(m);
     if (m.id === "pano") return panoTile(m);
+    if (m.id === "urun") return utTile(m);
     if (m.active) return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
@@ -1913,7 +1921,7 @@ function wireDisisToolbar() {
 wireDisisToolbar();
 
 /* ================= YETKİLENDİRME (yalnızca yönetici) ================= */
-const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", pano: "Fabrika Panosu", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
+const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", pano: "Fabrika Panosu", urun: "Ürün Tanıtım", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
 const LV_SHORT = { none: "Yok", view: "Gözlemci", use: "Kullanıcı", edit: "Düzenleyici" };
 const YT = { rows: [], dirty: false, msg: "" };
 function yetkiTile() {
@@ -1928,7 +1936,7 @@ function ytLoad() {
   YT.rows = Object.entries(acc).map(([email, e]) => { const p = effPerms(e) || { role: "user", mods: {}, acts: {} }; return { email, name: e.name || "", role: p.role, mods: { ...p.mods }, acts: { ...p.acts }, orig: email }; })
     .sort((a, b) => (a.role === b.role ? 0 : a.role === "admin" ? -1 : 1) || a.name.localeCompare(b.name, "tr"));
   if (ME && !YT.rows.some(r => r.email === ME.email)) YT.rows.unshift({ email: ME.email, name: ME.name, role: "admin", mods: {}, acts: {}, orig: ME.email });
-  YT.rows.forEach(r => PERM_MODS.forEach(m => { if (!r.mods[m]) r.mods[m] = "none"; }));
+  YT.rows.forEach(r => PERM_MODS.forEach(m => { if (!r.mods[m]) r.mods[m] = m === "urun" ? "view" : "none"; }));
   YT.dirty = false; YT.msg = "";
 }
 function ytCustom(r, m) {
@@ -5715,20 +5723,42 @@ function saCompareHtml(t, Tk) {
 }
 
 /* ===== Fiyat talebi (birden çok tedarikçiye) ===== */
+// Serbest tedarikçi: cari kartı açılmamış firma; iletişim bilgisi fiyat talebinin içinde durur
+const saCari = d => crFind(d.cariId) || (d.serbest ? { unvan: d.serbest.ad, tel: d.serbest.tel || "", whatsapp: d.serbest.tel || "", eposta: d.serbest.eposta || "", yetkililer: d.serbest.yetkili ? [{ ad: d.serbest.yetkili, tel: d.serbest.tel || "", eposta: d.serbest.eposta || "" }] : [], serbest: true } : null);
+async function saSerbestCari(tk) {   // siparişe geçerken serbest tedarikçiden cari kart açar
+  const S = tk.serbest || {}, now = Date.now(), ref = doc(collection(fs, "cari")), kod = crNextKod();
+  const data = { kod, unvan: String(S.ad || tk.cariAd || "Tedarikçi").slice(0, 160), kisaAd: "", tedarikci: true, musteri: false, kategori: "", vd: "", vergiNo: "", adres: "", il: "", ilce: "", tel: S.tel || "", whatsapp: S.tel || "", eposta: S.eposta || "", web: "", vade: null, pb: tk.pb || "TRY", iban: "", yetkililer: S.yetkili ? [{ ad: S.yetkili, gorev: "", tel: S.tel || "", eposta: S.eposta || "" }] : [], aktif: true, kaynak: "serbest", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+  await setDoc(ref, data);
+  if (!crFind(ref.id)) CR.list.push({ id: ref.id, ...data });
+  const B = writeBatch(fs); SA.teklif.filter(x => !x.cariId && x.serbest && lower(x.serbest.ad || "") === lower(S.ad || "")).forEach(x => B.update(doc(fs, "sa_teklif", x.id), { cariId: ref.id, cariAd: data.unvan, updatedAt: now, updatedBy: ME.name }));
+  await B.commit().catch(() => {});
+  toast(`${data.unvan} için cari kart açıldı (${kod})`); return ref.id;
+}
 function saOpenRFQNew(talepId) {
   if (!can("sa.siparis")) return;
   const t = talepId ? saFind("talep", talepId) : null; let K = t ? JSON.parse(JSON.stringify(t.kalemler || [])) : [], f = null;
-  const sel = new Set(t && t.oneriCariId ? [t.oneriCariId] : []);
-  const keep = () => { if (!$("#rqSon")) return; f = { son: $("#rqSon").value, not: $("#rqNot").value, q: ($("#rqQ") || {}).value || "" }; saKalemRead(K, "rfq"); };
+  const sel = new Set(t && t.oneriCariId ? [t.oneriCariId] : []), SB = []; let sbAc = false;
+  const sbv = id => ($("#" + id) || {}).value || "";
+  const keep = () => { if (!$("#rqSon")) return; f = { son: $("#rqSon").value, not: $("#rqNot").value, q: ($("#rqQ") || {}).value || "", sbAd: sbv("rqSbAd"), sbYet: sbv("rqSbYet"), sbTel: sbv("rqSbTel"), sbEp: sbv("rqSbEp") }; saKalemRead(K, "rfq"); };
+  const say = () => `${sel.size + SB.length} seçili${SB.length ? ` (${SB.length} serbest)` : ""} · her birine ayrı numaralı form`;
   const paint = () => {
     const v = (k, d) => f && k in f ? f[k] : d, q = skNorm(v("q", "")), T = crTeds().filter(c => !q || skNorm([c.unvan, c.kisaAd, c.kategori].join(" ")).includes(q));
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="rqT" style="width:min(820px,100%)">
       <div class="dh"><h2 id="rqT">Fiyat talebi${t ? ` · <span class="num skk">${esc(t.no)}</span>` : ""}</h2><button class="x" id="rqX" aria-label="Kapat">×</button></div>
       <div class="db">
-        <section><h3 class="sec-t">Tedarikçiler <small>${sel.size} seçili · her birine ayrı numaralı form</small></h3>
+        <section><h3 class="sec-t">Tedarikçiler <small id="rqSay">${say()}</small></h3>
           <input class="f" id="rqQ" type="search" placeholder="Tedarikçi ya da kategori ara…" value="${esc(v("q", ""))}" style="width:100%;margin-bottom:8px">
-          <div class="onl" style="max-height:220px">${T.map(c => { const s = saScore(c.id); return `<label class="chk"><input type="checkbox" data-rc="${esc(c.id)}"${sel.has(c.id) ? " checked" : ""}> ${esc(crAd(c))} <small class="note">${esc(c.kategori || "")}${s.sinif ? " · " + s.sinif : ""}${!c.eposta && !c.whatsapp && !c.tel ? " · iletişim bilgisi yok" : ""}</small></label>`; }).join("") || '<p class="note">Tedarikçi bulunamadı.</p>'}</div></section>
+          <div class="onl" style="max-height:220px">${T.map(c => { const s = saScore(c.id); return `<label class="chk"><input type="checkbox" data-rc="${esc(c.id)}"${sel.has(c.id) ? " checked" : ""}> ${esc(crAd(c))} <small class="note">${esc(c.kategori || "")}${s.sinif ? " · " + s.sinif : ""}${!c.eposta && !c.whatsapp && !c.tel ? " · iletişim bilgisi yok" : ""}</small></label>`; }).join("") || '<p class="note">Tedarikçi bulunamadı.</p>'}</div>
+          ${SB.map((x, i) => `<div class="sbrow"><span class="kst" style="--tc:var(--warn,#b45309)">Serbest</span> <b>${esc(x.ad)}</b> <small class="note">${esc([x.yetkili, x.tel, x.eposta].filter(Boolean).join(" · ") || "iletişim bilgisi yok")}</small><button type="button" class="btn ghost sm" data-sbx="${i}" aria-label="Serbest tedarikçiyi kaldır">×</button></div>`).join("")}
+          ${sbAc ? `<div class="sbform"><div class="fgrid">
+            <div class="field full"><label for="rqSbAd">Firma adı *</label><input id="rqSbAd" maxlength="160" value="${esc(v("sbAd", ""))}" placeholder="Cari kartı olmayan firma"></div>
+            <div class="field"><label for="rqSbYet">Yetkili</label><input id="rqSbYet" maxlength="80" value="${esc(v("sbYet", ""))}"></div>
+            <div class="field"><label for="rqSbTel">Telefon / WhatsApp</label><input id="rqSbTel" type="tel" maxlength="30" value="${esc(v("sbTel", ""))}"></div>
+            <div class="field full"><label for="rqSbEp">E-posta</label><input id="rqSbEp" type="email" maxlength="120" value="${esc(v("sbEp", ""))}"></div></div>
+            <div class="r" style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px"><button type="button" class="btn ghost sm" id="rqSbC">Vazgeç</button><button type="button" class="btn sm" id="rqSbOk">Listeye ekle</button></div>
+            <p class="note" style="margin:6px 0 0">Cari kart açılmaz. Bu firmanın teklifiyle sipariş oluşturursanız cari kartı o anda otomatik açılır.</p></div>`
+          : `<button type="button" class="btn ghost sm" id="rqSb" style="margin-top:8px">+ Serbest tedarikçi ekle</button>`}</section>
         <section><h3 class="sec-t">Kalemler</h3>${saKalemHtml(K, "rfq", true)}</section>
         <div class="fgrid"><div class="field"><label for="rqSon">Son teklif tarihi</label><input id="rqSon" type="date" min="${TODAY}" value="${esc(v("son", ""))}"></div><div></div>
           <div class="field full"><label for="rqNot">Tedarikçiye not</label><textarea id="rqNot" maxlength="600" placeholder="Teslim süresi, ödeme şartı ve geçerlilik süresini de belirtmenizi rica ederiz.">${esc(v("not", ""))}</textarea></div></div>
@@ -5736,16 +5766,28 @@ function saOpenRFQNew(talepId) {
       <div class="df"><span class="note">Kaydettikten sonra her formu PDF, WhatsApp ya da e-posta ile gönderebilirsiniz.</span><div class="r"><button class="btn ghost" id="rqC" type="button">Vazgeç</button><button class="btn" id="rqS" type="button">Fiyat taleplerini oluştur</button></div></div>
     </aside>`;
     $("#scrim").onclick = closeDrawer; $("#rqX").onclick = closeDrawer; $("#rqC").onclick = closeDrawer;
-    document.querySelectorAll("[data-rc]").forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.rc) : sel.delete(c.dataset.rc); const h = $("#drawerHost .sec-t small"); if (h) h.textContent = sel.size + " seçili · her birine ayrı numaralı form"; });
+    document.querySelectorAll("[data-rc]").forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.rc) : sel.delete(c.dataset.rc); const h = $("#rqSay"); if (h) h.textContent = say(); });
+    const sb = $("#rqSb"); if (sb) sb.onclick = () => { keep(); sbAc = true; paint(); const i = $("#rqSbAd"); if (i) i.focus(); };
+    const sbc = $("#rqSbC"); if (sbc) sbc.onclick = () => { keep(); sbAc = false; Object.assign(f, { sbAd: "", sbYet: "", sbTel: "", sbEp: "" }); paint(); };
+    const sbo = $("#rqSbOk"); if (sbo) sbo.onclick = () => { keep(); const ad = f.sbAd.trim(); if (!ad) { toast("Firma adını yazın"); $("#rqSbAd").focus(); return; }
+      if (SB.some(x => lower(x.ad) === lower(ad))) { toast("Bu firma zaten listede"); return; }
+      const c = CR.list.find(x => lower(crAd(x)) === lower(ad) || lower(x.unvan || "") === lower(ad)); if (c && c.tedarikci) { sel.add(c.id); toast(`${crAd(c)} zaten cari kartlarda var; listeden seçildi`); }
+      else SB.push({ ad: ad.slice(0, 160), yetkili: f.sbYet.trim(), tel: f.sbTel.trim(), eposta: f.sbEp.trim() });
+      sbAc = false; Object.assign(f, { sbAd: "", sbYet: "", sbTel: "", sbEp: "" }); paint(); };
+    document.querySelectorAll("[data-sbx]").forEach(b => b.onclick = () => { keep(); SB.splice(Number(b.dataset.sbx), 1); paint(); });
     let qt = null; $("#rqQ").oninput = () => { clearTimeout(qt); qt = setTimeout(() => { keep(); paint(); const i = $("#rqQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
     saKalemBind(K, "rfq", () => { keep(); paint(); });
     $("#rqS").onclick = async () => {
-      keep(); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size) { toast("En az bir tedarikçi seçin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
+      keep(); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size && !SB.length) { toast("En az bir tedarikçi seçin ya da serbest tedarikçi ekleyin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
       $("#rqS").disabled = true; const now = Date.now(), b = writeBatch(fs), ids = []; let L0 = SA.teklif.slice();
       for (const cid of sel) { const c = crFind(cid), ref = doc(collection(fs, "sa_teklif")), no = saNextNo("FT", L0); L0.push({ no }); ids.push(ref.id);
         b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: cid, cariAd: crAd(c), pb: c.pb || "TRY", sonTarih: f.son || "", not: f.not.trim(),
           kalemler: L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), tedKod: k.tedKod || "", fiyat: null, isk: 0, kdv: 20, teslimGun: null })),
           durum: "hazir", proformaNo: "", gonderim: [], createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, log: [{ at: now, by: ME.name, t: "Fiyat talebi oluşturuldu" }] }); }
+      for (const x of SB) { const ref = doc(collection(fs, "sa_teklif")), no = saNextNo("FT", L0); L0.push({ no }); ids.push(ref.id);
+        b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: "", cariAd: x.ad, serbest: x, pb: "TRY", sonTarih: f.son || "", not: f.not.trim(),
+          kalemler: L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), tedKod: "", fiyat: null, isk: 0, kdv: 20, teslimGun: null })),
+          durum: "hazir", proformaNo: "", gonderim: [], createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, log: [{ at: now, by: ME.name, t: "Fiyat talebi oluşturuldu (serbest tedarikçi)" }] }); }
       if (t) b.update(doc(fs, "sa_talep", t.id), { durum: "teklif", teklifIds: [...(t.teklifIds || []), ...ids], updatedAt: now, updatedBy: ME.name, log: saLog(t, `${ids.length} firmaya fiyat talebi hazırlandı`) });
       try { await b.commit(); toast(`${ids.length} fiyat talebi oluşturuldu; şimdi gönderin`); if (t) saOpenTalep(t.id); else { closeDrawer(); SA.view = "teklif"; renderSA(); } } catch (x) { $("#rqS").disabled = false; toast(writeErr(x)); }
     };
@@ -5759,10 +5801,10 @@ function saOpenRFQ(id) {
   const paint = () => {
     const t = saFind("teklif", id); if (!t) { closeDrawer(); return; }
     const ed = can("sa.siparis") && ["hazir", "gonderildi", "geldi"].includes(t.durum); K = JSON.parse(JSON.stringify(t.kalemler || []));
-    const c = crFind(t.cariId) || {}, tl0 = SA.talep.find(x => x.id === t.talepId), sib = SA.teklif.filter(x => x.talepId && x.talepId === t.talepId);
+    const c = saCari(t) || {}, tl0 = SA.talep.find(x => x.id === t.talepId), sib = SA.teklif.filter(x => x.talepId && x.talepId === t.talepId);
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="rvT" style="width:min(900px,100%)">
-      <div class="dh"><h2 id="rvT"><span class="num skk">${esc(t.no)}</span> Fiyat talebi · ${esc(t.cariAd || "")}</h2><button class="x" id="rvX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="rvT"><span class="num skk">${esc(t.no)}</span> Fiyat talebi · ${esc(t.cariAd || "")}${!crFind(t.cariId) && t.serbest ? ' <span class="kst" style="--tc:var(--warn,#b45309)">Serbest</span>' : ""}</h2><button class="x" id="rvX" aria-label="Kapat">×</button></div>
       <div class="skhead"><div class="skbig" style="--tc:${(SA_FDUR[t.durum] || [])[1]}"><b>${saTotals(t.kalemler).net ? money(saTotals(t.kalemler).net, t.pb) : "—"}</b><span>${(SA_FDUR[t.durum] || [t.durum])[0]}</span></div>
         <div class="skhm"><span>${fmtS(t.tarih)}${t.sonTarih ? " · son teklif " + fmtS(t.sonTarih) : ""}</span><span>${t.talepNo ? "Talep " + esc(t.talepNo) : "Talepsiz"}${t.proformaNo ? " · proforma " + esc(t.proformaNo) : ""}</span><span>${(t.gonderim || []).length ? "Gönderildi: " + t.gonderim.map(g => SA_KANAL[g.kanal] + " " + skTs(g.at).split(" ")[0]).join(", ") : "Henüz gönderilmedi"}</span></div>
         <div class="skhb">${saSendBtns()}</div></div>
@@ -5776,6 +5818,7 @@ function saOpenRFQ(id) {
             <div class="field full"><label for="rvOd">Ödeme şartı</label><input id="rvOd" maxlength="120" value="${esc(t.odeme || "")}"${ed ? "" : " disabled"}></div></div>
           ${ed ? '<button type="button" class="btn" id="rvSv" style="margin-top:10px">Fiyatları kaydet</button>' : ""}</section>
         ${sib.length > 1 && tl0 ? `<section><h3 class="sec-t">Karşılaştırma <small>${esc(tl0.no)}</small></h3>${saCompareHtml(tl0, sib)}</section>` : ""}
+        ${!crFind(t.cariId) && t.serbest ? `<div class="izbal"><b>Serbest tedarikçi</b> · cari kartı yok<div class="note">${esc([t.serbest.yetkili, t.serbest.tel, t.serbest.eposta].filter(Boolean).join(" · ") || "İletişim bilgisi girilmedi")}</div>${can("sa.siparis") ? '<button type="button" class="btn ghost sm" id="rvCr" style="margin-top:6px">Cari kart olarak kaydet</button>' : ""}</div>` : ""}
         ${t.not ? `<div class="izbal">Tedarikçiye not: ${esc(t.not)}</div>` : ""}
         <section><h3 class="sec-t">Geçmiş</h3>${(t.log || []).slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>
       </div>
@@ -5795,6 +5838,7 @@ function saOpenRFQ(id) {
         toast("Teklif fiyatları kaydedildi"); } catch (x) { sv.disabled = false; toast(writeErr(x)); }
     };
     const po = $("#rvPo"); if (po) po.onclick = () => saOpenPOForm(null, { teklifId: t.id });
+    const rc = $("#rvCr"); if (rc) rc.onclick = async () => { rc.disabled = true; try { await saSerbestCari(t); } catch (x) { rc.disabled = false; toast(writeErr(x)); } };
     const tl = $("#rvTl"); if (tl) tl.onclick = () => saOpenTalep(tl0.id);
     const dl = $("#rvDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_teklif", t.id)); toast("Fiyat talebi silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
   };
@@ -5804,7 +5848,9 @@ function saOpenRFQ(id) {
 /* ===== Sipariş ===== */
 async function saOpenPOForm(id, opts = {}) {
   if (!can("sa.siparis")) return;
-  const cur = id ? saFind("siparis", id) : null, tk = opts.teklifId ? saFind("teklif", opts.teklifId) : null, tl = cur ? saFind("talep", cur.talepId) : opts.talepId ? saFind("talep", opts.talepId) : tk && tk.talepId ? saFind("talep", tk.talepId) : null;
+  let tk = opts.teklifId ? saFind("teklif", opts.teklifId) : null;
+  if (tk && tk.serbest && !crFind(tk.cariId)) { try { const nid = await saSerbestCari(tk); tk = { ...tk, cariId: nid, cariAd: (crFind(nid) || {}).unvan || tk.cariAd }; } catch (x) { toast(writeErr(x)); return; } }
+  const cur = id ? saFind("siparis", id) : null, tl = cur ? saFind("talep", cur.talepId) : opts.talepId ? saFind("talep", opts.talepId) : tk && tk.talepId ? saFind("talep", tk.talepId) : null;
   let K = cur ? JSON.parse(JSON.stringify(cur.kalemler)) : tk ? JSON.parse(JSON.stringify(tk.kalemler)) : tl ? JSON.parse(JSON.stringify(tl.kalemler)).map(k => ({ ...k, fiyat: null, isk: 0, kdv: 20 })) : [];
   let f = null, cariId = cur ? cur.cariId : tk ? tk.cariId : opts.cariId || (tl && tl.oneriCariId) || "";
   const c0 = crFind(cariId) || {};
@@ -6015,14 +6061,14 @@ function saSendBind(kind, d) {
   document.querySelectorAll("#drawerHost [data-snd]").forEach(b => b.onclick = async () => { b.disabled = true; try { await saSend(kind, d.id, b.dataset.snd); } finally { b.disabled = false; } });
 }
 function saMsg(kind, d) {
-  const c = crFind(d.cariId) || {}, y = (c.yetkililer || [])[0], hit = y && y.ad ? `Sayın ${y.ad},` : `Sayın ${crAd(c) || "Yetkili"},`, F = SA.cfg.firma.unvan || "Kar-Men Airtech";
+  const c = saCari(d) || {}, y = (c.yetkililer || [])[0], hit = y && y.ad ? `Sayın ${y.ad},` : `Sayın ${crAd(c) || "Yetkili"},`, F = SA.cfg.firma.unvan || "Kar-Men Airtech";
   if (kind === "siparis") { const T = d.toplam || saTotals(d.kalemler);
     return { konu: `${d.no} numaralı satın alma siparişi · ${F}`, metin: `${hit}\n\n${F} olarak ${d.no} numaralı satın alma siparişimizi ekte iletiyoruz.\n${d.termin ? `Termin: ${fmtS(d.termin)}\n` : ""}Toplam: ${money(T.genel, d.pb)} (KDV dahil)\n${d.proformaNo ? `Teklifiniz: ${d.proformaNo}\n` : ""}\nSipariş numaramızın irsaliye ve faturada belirtilmesini, siparişi aldığınızı teyit etmenizi rica ederiz.\n\nİyi çalışmalar,\n${ME.name}\n${F}${SA.cfg.firma.tel ? "\n" + SA.cfg.firma.tel : ""}` }; }
   return { konu: `${d.no} numaralı fiyat talebi · ${F}`, metin: `${hit}\n\nEkteki ${d.no} numaralı fiyat talep formunda yer alan ürünler için birim fiyat, para birimi, teslim süresi, ödeme şartı ve teklif geçerlilik sürenizi ${d.sonTarih ? fmtS(d.sonTarih) + " tarihine kadar" : "en kısa sürede"} iletmenizi rica ederiz.\n\nİyi çalışmalar,\n${ME.name}\n${F}${SA.cfg.firma.tel ? "\n" + SA.cfg.firma.tel : ""}` };
 }
 async function saSend(kind, id, kanal) {
   const col = kind === "siparis" ? "sa_siparis" : "sa_teklif", d = saFind(kind === "siparis" ? "siparis" : "teklif", id); if (!d) return;
-  const c = crFind(d.cariId) || {}, m = saMsg(kind, d), name = d.no + ".pdf";
+  const c = saCari(d) || {}, m = saMsg(kind, d), name = d.no + ".pdf";
   try {
     if (kanal !== "isaret") {
       toast("PDF hazırlanıyor…");
@@ -6049,7 +6095,7 @@ async function saPdf(kind, d) {
   const W = 1240, H = 1754, M = 64, CW = W - 2 * M, po = kind === "siparis";
   const F = { b: "'IBM Plex Sans', 'Segoe UI', Roboto, Arial, sans-serif", d: "'Rubik', 'Segoe UI', Roboto, Arial, sans-serif", m: "'IBM Plex Mono', Consolas, monospace" };
   const C = { ink: "#0d1118", ink2: "#4a5466", ink3: "#7d8799", line: "#d8dee9", soft: "#eef2f8", brand: "#1747c9" };
-  const FI = SA.cfg.firma, c = crFind(d.cariId) || { unvan: d.cariAd }, y = (c.yetkililer || [])[0] || {};
+  const FI = SA.cfg.firma, c = saCari(d) || { unvan: d.cariAd }, y = (c.yetkililer || [])[0] || {};
   let logo = null; try { logo = await loadSrc(LOGO_SRC); } catch (e) {}
   const pages = []; let cv, x, Y;
   const font = (w, s, f = F.b) => { x.font = `${w} ${s}px ${f}`; };
@@ -8673,4 +8719,269 @@ function saSifirla() {
     SK.cache.clear(); SA.fiyat = {}; skCounts(500);
     toast("Satın alma verileri sıfırlandı");
   });
+}
+
+/* ================= ÜRÜN TANITIM (eğitim kataloğu) =================
+   Hazır ürünler: UT_SEED (görseller docs/urun/ klasöründe)
+   urun_tanitim/{id}: kartta yapılan düzenlemeler ya da yeni ürün · urun_foto/{id}: sonradan eklenen görsel (base64)
+   urun_egitim/{eposta}: kişinin öğrendiği ürünler ve test sonuçları */
+const UT_INLINE = null;   // önizlemede görseller buraya gömülür
+const utSrc = f => !f ? "" : /^data:/.test(f) ? f : (UT_INLINE && UT_INLINE[f]) || ("urun/" + f);
+const UT_GRUPLAR = ["Dikdörtgen kanal ve fittingler", "Yuvarlak (spiral) kanal ve fittingler", "Askı ve montaj malzemeleri", "Sızdırmazlık ve izolasyon"];
+const UT_SEED = [
+  { id: "kanal", grup: 0, ad: "Kanal", kod: "M-1901", tanim: "Galvaniz sactan bükülerek imal edilen dikdörtgen kesitli düz hava kanalı. Havalandırma ve klima hatlarının ana gövdesini oluşturur; uçları flanşlıdır, diğer parçalara flanşla birleşir.",
+    olcu: [["A", "Kanal genişliği (üst kenar)"], ["B", "Kanal yüksekliği"], ["E", "Kanal boyu"]], notlar: [], foto: ["kanal-f1.jpg"], cizim: ["kanal-c1.png"] },
+  { id: "dirsek", grup: 0, ad: "Dirsek", kod: "", tanim: "Hava akışının yönünü değiştiren dikdörtgen kesitli kavisli parça. Standart dönüş 90°; farklı açılar (örn. 45°) siparişte belirtilir.",
+    olcu: [["A", "Dirseğin döndüğü yöndeki kenar (ağız genişliği)"], ["B", "Diğer kenar (derinlik)"], ["R", "İç dönüş yarıçapı"]], notlar: ["Açı 90° değilse siparişte mutlaka yazılmalıdır."], foto: ["dirsek-f1.jpg", "dirsek-f2.jpg"], cizim: ["dirsek-c1.png"] },
+  { id: "reduksiyon", grup: 0, ad: "Redüksiyon", kod: "", tanim: "Farklı ölçüdeki iki dikdörtgen kanalı birbirine bağlayan geçiş (daralma/genişleme) parçası. Hangi yüzeylerin düz kalacağı tip numarasıyla belirtilir.",
+    olcu: [["A × B", "Büyük ağız (giriş) ölçüsü"], ["C × D", "Küçük ağız (çıkış) ölçüsü"], ["L", "Parça boyu"]],
+    notlar: ["Tip-1: Parçanın A-B kısmını önümüze alarak baktığımızda solu ve üstü düz.", "Tip-2: A-B kısmını önümüze alarak baktığımızda sağı ve üstü düz.", "Tip-3: A-B kısmını önümüze alarak baktığımızda konsantrik (eşit) ve üstü düz.", "Tip-4: A-B kısmını önümüze alarak baktığımızda her iki tarafta konsantrik (eşit)."],
+    foto: ["reduksiyon-f1.jpg"], cizim: ["reduksiyon-c1.png", "reduksiyon-c2.png", "reduksiyon-c3.png", "reduksiyon-c4.png", "reduksiyon-c5.png"], cap: ["Ölçü çizimi", "Tip-1 · sol ve üstü düz", "Tip-2 · sağ ve üstü düz", "Tip-3 · konsantrik, üstü düz", "Tip-4 · iki taraftan konsantrik"] },
+  { id: "es", grup: 0, ad: "Es (S parça)", kod: "", tanim: "Kanal eksenini kaydırmak için kullanılan S biçimli parça. Kirişin, borunun ya da başka bir engelin altından/üstünden geçerken kanal aynı yönde devam eder ama kot ya da hat değiştirir.",
+    olcu: [["A", "Giriş ağzı yüksekliği"], ["B", "Kanal genişliği (derinlik)"], ["C", "Çıkış ağzı yüksekliği"], ["L", "Parça boyu"], ["ES", "Eksen kaçıklığı (es miktarı)"], ["D1 / D2", "Uçlardaki düz kısımlar"]], notlar: [], foto: ["es-f1.jpg"], cizim: ["es-c1.png"] },
+  { id: "red-dirsek", grup: 0, ad: "Redüksiyonlu dirsek", kod: "", tanim: "Hem yön değiştiren hem de kesit ölçüsünü değiştiren dirsek. Dirsek ve redüksiyonu tek parçada birleştirerek yer ve işçilik kazandırır.",
+    olcu: [["A × B", "Giriş ağzı"], ["C × D", "Çıkış ağzı"]], notlar: ["Parçanın sırtında (B-D ölçülerinde) düşüş varsa örnek resimdeki gibi üstü düz olarak imal edilecektir. Altı düz veya konsantrik ise mutlaka açıklama kısmına belirtiniz."],
+    foto: ["red-dirsek-f1.jpg"], cizim: ["red-dirsek-c1.png"] },
+  { id: "pantolon", grup: 0, ad: "Pantolon", kod: "", tanim: "Bir ana kanaldan iki kola ayrılan (ya da iki kolu birleştiren) branşman parçası. Kollar iki yana dönen ya da biri düz devam eden tipte olabilir.",
+    olcu: [["A1 + A2", "Ana giriş genişliği (iki kolun toplamı)"], ["Y", "Ana giriş yüksekliği"], ["B × Y1", "Sol kol çıkışı"], ["C × Y2", "Sağ kol çıkışı"], ["R1 / R2", "Kolların dönüş yarıçapları"], ["E", "Düz kollu tipte boy"]],
+    notlar: ["Parçanın sırtında (Y-Y1-Y2 ölçülerinde) düşüş varsa örnek resimdeki gibi üstü düz olarak imal edilecektir. Altı düz ise mutlaka açıklama kısmına belirtiniz."],
+    foto: ["pantolon-f1.jpg", "pantolon-f2.jpg"], cizim: ["pantolon-c1.png", "pantolon-c2.png"], cap: ["İki yana dönen pantolon", "Bir kolu düz pantolon"] },
+  { id: "yaka", grup: 0, ad: "Yaka", kod: "", tanim: "Kanalı cihaza, menfeze ya da başka bir kanala bağlayan kısa geçiş parçası. Bir ucu flanşlı, diğer ucu gönyelidir (kenarı dışa kıvrık).",
+    olcu: [["A × B", "Gönyeli taban ölçüsü"], ["C × D", "Flanşlı ağız ölçüsü"], ["L", "Yükseklik"]], notlar: [], foto: ["yaka-f1.jpg"], cizim: ["yaka-c1.png"] },
+  { id: "kor-tapa", grup: 0, ad: "Kör tapa", kod: "", tanim: "Kanal ucunu kapatmak için kullanılan, kenarları kıvrık düz kapak. Hattın sonunda ya da ileride devam edecek kanal ağızlarında kullanılır.",
+    olcu: [["A × B", "Kapatılacak kanal ağzının ölçüsü"]], notlar: [], foto: ["kor-tapa-f1.jpg"], cizim: ["kor-tapa-c1.png"] },
+  { id: "menfez-kutusu", grup: 0, ad: "Menfez kutusu", kod: "", tanim: "Menfez ya da difüzörün arkasına takılan, yanından yuvarlak bağlantı ağzı çıkan plenum kutusu. Spiral ya da flexible kanaldan gelen havayı menfeze dağıtır.",
+    olcu: [["A × B", "Kutu ağzı (menfez ölçüsü)"], ["L", "Kutu yüksekliği"], ["Ø", "Yan bağlantı ağzı çapı (ayrıca belirtilir)"]], notlar: [], foto: ["menfez-kutusu-f1.jpg"], cizim: ["menfez-kutusu-c1.png"] },
+  { id: "kare-yuvarlak", grup: 0, ad: "Kareden yuvarlağa redüksiyon", kod: "", tanim: "Dikdörtgen kanalı yuvarlak kanala ya da cihaz ağzına bağlayan geçiş parçası.",
+    olcu: [["A", "Yuvarlak ağız çapı"], ["B × C", "Dikdörtgen ağız ölçüsü"]], notlar: [], foto: ["kare-yuvarlak-f1.jpg"], cizim: ["kare-yuvarlak-c1.png"] },
+  { id: "y-kanal", grup: 1, ad: "Yuvarlak (spiral) kanal", kod: "M-18", tanim: "Sac şeridin spiral olarak sarılıp kilitlenmesiyle üretilen yuvarlak kanal. Galvaniz, SS304, SS316 ve SS430 malzemeden; metre birimiyle stoklanır.",
+    olcu: [["A (Ø)", "Kanal çapı"], ["Gönye", "Uçtaki kıvrık kenar"]], notlar: [], foto: ["y-kanal-f1.jpg"], cizim: ["y-kanal-c1.png"] },
+  { id: "y-dirsek", grup: 1, ad: "Yuvarlak dirsek", kod: "M-21 … M-25", tanim: "Yuvarlak kanalda yön değiştiren segmentli dirsek. 30°, 45°, 60°, 90° ve 120° açılarda üretilir (stok kodları M-21 … M-25).",
+    olcu: [["Ød", "Dirsek çapı"], ["l", "Uçlardaki düz bağlantı boyu"], ["Açı", "30° · 45° · 60° · 90° · 120°"]], notlar: [], foto: ["y-dirsek-f1.jpg"], cizim: ["y-dirsek-c1.png", "y-dirsek-c2.png"], cap: ["90° dirsek", "Açılı dirsek"] },
+  { id: "y-tee", grup: 1, ad: "Yuvarlak tee (T parça)", kod: "", tanim: "Yuvarlak ana hattan 90° branşman almak için kullanılan T biçimli parça.",
+    olcu: [["Ød1", "Ana hat çapı"], ["Ød3", "Branşman çapı"]], notlar: [], foto: ["y-tee-f1.jpg"], cizim: ["y-tee-c1.png"] },
+  { id: "y-pantolon", grup: 1, ad: "Yuvarlak pantolon", kod: "", tanim: "Yuvarlak ana hattı iki kola ayıran Y biçimli branşman parçası.",
+    olcu: [["Ød1", "Giriş çapı"], ["Ød2 / Ød3", "Kol çapları"]], notlar: [], foto: ["y-pantolon-f1.jpg"], cizim: [] },
+  { id: "y-reduksiyon", grup: 1, ad: "Yuvarlak redüksiyon", kod: "M-20", tanim: "Farklı çaptaki iki yuvarlak kanalı birbirine bağlayan konik geçiş parçası.",
+    olcu: [["ØD1", "Büyük çap"], ["ØD2", "Küçük çap"], ["L", "Konik kısmın boyu"], ["20°", "Koniklik açısı"]], notlar: [], foto: ["y-reduksiyon-f1.jpg"], cizim: ["y-reduksiyon-c1.png"] },
+  { id: "y-mason", grup: 1, ad: "Yuvarlak maşon", kod: "", tanim: "İki yuvarlak kanalı ya da kanal ile fittingi uç uca bağlamak için içlerine geçirilen manşon.",
+    olcu: [["Ød", "Bağlanacak kanalın çapı"]], notlar: [], foto: ["y-mason-f1.jpg"], cizim: [] },
+  { id: "klape", grup: 1, ad: "Klape (ayar damperi)", kod: "", tanim: "Yuvarlak kanal içindeki kanadı kolla döndürerek hava debisini ayarlayan ya da kesen parça.",
+    olcu: [["Ød", "Klape çapı"], ["L", "Boy"]], notlar: [], foto: ["klape-f1.jpg"], cizim: ["klape-c1.png"] },
+  { id: "aski-kelepcesi", grup: 2, ad: "Askı kelepçesi", kod: "", tanim: "Yuvarlak kanalı saran, tij ile tavana asılmasını sağlayan kelepçe. Kanal çapına göre seçilir.",
+    olcu: [["Ød", "Kanal çapı"]], notlar: [], foto: ["aski-kelepcesi-f1.jpg"], cizim: [] },
+  { id: "l-konsol", grup: 2, ad: "L konsol", kod: "", tanim: "Delikli galvaniz L profil. Kanalın altına ya da duvara taşıyıcı olarak kullanılır, tij ile asılır.", olcu: [], notlar: [], foto: ["l-konsol-f1.jpg"], cizim: [] },
+  { id: "u-konsol", grup: 2, ad: "U konsol", kod: "", tanim: "Delikli galvaniz U profil. Ağır ve geniş kanallarda alttan taşıyıcı askı olarak kullanılır.", olcu: [], notlar: [], foto: ["u-konsol-f1.jpg"], cizim: [] },
+  { id: "flans", grup: 2, ad: "Flanş", kod: "", tanim: "Dikdörtgen kanal ağızlarına geçirilen profil. Köşelerine kanal köşesi takılır; iki kanal flanşlarından cıvata ve klipsle birleştirilir.", olcu: [], notlar: [], foto: ["flans-f1.jpg"], cizim: [] },
+  { id: "tij", grup: 2, ad: "Tij", kod: "", tanim: "Dişli çubuk. Tavana dübelle sabitlenir; konsol ve kelepçeleri taşıyarak kanalı asar.", olcu: [], notlar: [], foto: ["tij-f1.jpg"], cizim: [] },
+  { id: "g-klips", grup: 2, ad: "G klips", kod: "", tanim: "Vidalı sıkıştırma klipsi. Delme yapmadan çelik profile ya da kirişe askı bağlantısı yapmak için kullanılır.", olcu: [], notlar: [], foto: ["g-klips-f1.jpg"], cizim: [] },
+  { id: "kanal-kosesi", grup: 2, ad: "Kanal köşesi", kod: "", tanim: "Flanş profillerinin köşelerine takılan delikli köşe parçası. İki kanal köşelerden cıvatayla birbirine bağlanır.", olcu: [], notlar: [], foto: ["kanal-kosesi-f1.jpg"], cizim: [] },
+  { id: "dubel", grup: 2, ad: "Dübel", kod: "", tanim: "Tij ve askıları beton tavana ya da duvara sabitlemek için kullanılan çelik dübel.", olcu: [], notlar: [], foto: ["dubel-f1.jpg"], cizim: [] },
+  { id: "folyo-bant", grup: 3, ad: "Folyo bant", kod: "", tanim: "Alüminyum folyo yapışkan bant. İzolasyon ek yerlerinin kapatılmasında ve sızdırmazlıkta kullanılır.", olcu: [], notlar: [], foto: ["folyo-bant-f1.jpg"], cizim: [] },
+  { id: "mastik", grup: 3, ad: "Mastik / silikon", kod: "", tanim: "Kanal ek yerlerinde ve flanş köşelerinde hava kaçağını önlemek için sürülen sızdırmazlık malzemesi.", olcu: [], notlar: [], foto: ["mastik-f1.jpg"], cizim: [] },
+  { id: "conta", grup: 3, ad: "Kanal contası / neopren", kod: "", tanim: "İki flanş arasına yapıştırılan conta. Birleşim yerinde hava sızdırmazlığı sağlar.", olcu: [], notlar: [], foto: ["conta-f1.jpg"], cizim: [] },
+  { id: "kaucuk-bant", grup: 3, ad: "Kauçuk bant", kod: "", tanim: "Yapışkanlı kauçuk köpük bant. Titreşimi ve yoğuşmayı önlemek, ek yerlerini kapatmak için kullanılır.", olcu: [], notlar: [], foto: ["kaucuk-bant-f1.jpg"], cizim: [] },
+  { id: "kaucuk-izolasyon", grup: 3, ad: "Kauçuk izolasyon", kod: "", tanim: "Kanal yüzeyine kaplanan kauçuk köpük levha. Isı kaybını ve yoğuşmayı önler; ek yerleri folyo bantla kapatılır.", olcu: [], notlar: [], foto: ["kaucuk-izolasyon-f1.jpg"], cizim: [] }
+];
+const UT = { ready: false, unsub: [], ov: {}, ekFoto: {}, eg: null, view: "liste", F: { q: "", g: "" }, quiz: null, takip: null };
+const utCanEdit = () => can("ut.edit");
+const utCanTakip = () => can("ut.takip") || can("ut.edit");
+function utList() {   // hazır + düzenlenmiş + yeni ürünler
+  const L = UT_SEED.map((s, i) => { const o = UT.ov[s.id] || {}; return { ...s, sira: i, ...o, olcu: o.olcu ? o.olcu.map(x => [x.h, x.a]) : s.olcu, notlar: o.notlar || s.notlar, grup: o.grup ?? s.grup, foto: [...s.foto, ...(o.ekFoto || [])], cizim: [...s.cizim, ...(o.ekCizim || [])], cap: o.cap || s.cap || [] }; });
+  Object.entries(UT.ov).filter(([id, o]) => o.yeni && !UT_SEED.some(s => s.id === id)).forEach(([id, o]) => L.push({ id, olcu: [], notlar: [], cap: [], kod: "", tanim: "", sira: 1000 + (o.createdAt || 0) / 1e12, ...o, olcu: (o.olcu || []).map(x => [x.h, x.a]), foto: o.ekFoto || [], cizim: o.ekCizim || [] }));
+  return L.filter(u => !u.gizli || utCanEdit()).sort((a, b) => (a.grup - b.grup) || (a.sira - b.sira));
+}
+const utImg = f => UT.ekFoto[f] !== undefined ? UT.ekFoto[f] : utSrc(f);   // "fid:xxx" → urun_foto
+function utNeedFoto(L) { L.forEach(u => [...u.foto, ...u.cizim].filter(f => /^fid:/.test(f) && UT.ekFoto[f] === undefined).forEach(f => { UT.ekFoto[f] = ""; getDoc(doc(fs, "urun_foto", f.slice(4))).then(s => { UT.ekFoto[f] = s.exists() ? s.data().data : ""; if (ROUTE === "urun") renderUT(); }).catch(() => {}); })); }
+function startUT() {
+  if (UT.unsub.length || !ME) return;
+  UT.unsub.push(onSnapshot(collection(fs, "urun_tanitim"), s => { UT.ov = {}; s.docs.forEach(d => UT.ov[d.id] = d.data()); UT.ready = true; if (ROUTE === "urun") renderUT(); if (ROUTE === "home") renderHome(); }, () => { UT.ready = true; if (ROUTE === "urun") renderUT(); }));
+  UT.unsub.push(onSnapshot(doc(fs, "urun_egitim", lower(ME.email)), s => { UT.eg = s.exists() ? s.data() : { ogrenilen: [] }; if (ROUTE === "urun") renderUT(); if (ROUTE === "home") renderHome(); }, () => { UT.eg = { ogrenilen: [] }; }));
+}
+const utOgr = () => new Set(((UT.eg || {}).ogrenilen) || []);
+function utTile(m) {
+  const L = utList(), o = utOgr(), n = L.filter(u => o.has(u.id)).length, q = (UT.eg || {}).quiz;
+  const p = L.length ? Math.round(n / L.length * 100) : 0;
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${utCanEdit() ? "DÜZENLEYİCİ" : "AKTİF"}</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div>
+        <div class="meter" title="Öğrenilen ürünler %${p}"><i style="width:${p}%"></i></div>
+        <div class="stats"><span>${L.length} ürün</span><span>${n} öğrenildi</span>${q ? `<span>Test en iyi %${q.enIyi}</span>` : '<span>Test çözülmedi</span>'}</div>
+      </div></a>`;
+}
+function renderUT() {
+  if (!ME || $("#modUT").hidden) return;
+  startUT();
+  const L = utList(), o = utOgr(), q = (UT.eg || {}).quiz, nO = L.filter(u => o.has(u.id)).length;
+  utNeedFoto(L);
+  $("#utKpis").innerHTML = [["Ürün", L.length, `${UT_GRUPLAR.length} grup`, ""], ["Çizimli ürün", L.filter(u => u.cizim.length).length, "ölçü harfleri açıklamalı", ""],
+    ["Öğrendiğiniz", `${nO} / ${L.length}`, nO === L.length && L.length ? "Hepsini tamamladınız" : "Ürün kartında “Öğrendim” deyin", nO === L.length && L.length ? "ok" : ""],
+    ["Görsel", L.reduce((a, u) => a + u.foto.length + u.cizim.length, 0), `${L.reduce((a, u) => a + u.foto.length, 0)} fotoğraf · ${L.reduce((a, u) => a + u.cizim.length, 0)} çizim`, ""],
+    ["Test en iyi", q ? "%" + q.enIyi : "—", q ? `${q.sayi} kez çözüldü · son %${q.son}` : "Kendini dene sekmesinden", q && q.enIyi >= 80 ? "ok" : ""]]
+    .map(([k, v, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  const tabs = [["liste", "Ürünler"], ["quiz", "Kendini dene"], ...(utCanTakip() ? [["takip", "Eğitim takibi"]] : [])];
+  if (!tabs.some(t => t[0] === UT.view)) UT.view = "liste";
+  $("#utTabs").innerHTML = tabs.map(([k, l]) => `<button type="button" data-ut="${k}" aria-pressed="${UT.view === k}">${l}</button>`).join("");
+  $("#utTabs").querySelectorAll("[data-ut]").forEach(b => b.onclick = () => { UT.view = b.dataset.ut; if (UT.view !== "quiz") UT.quiz = null; renderUT(); });
+  const add = $("#utAdd"); add.hidden = !(utCanEdit() && UT.view === "liste"); add.onclick = () => utOpenEdit(null);
+  const v = $("#utView");
+  if (UT.view === "quiz") return utQuizView(v, L);
+  if (UT.view === "takip") return utTakipView(v, L);
+  const qf = araFold(UT.F.q), R = L.filter(u => (UT.F.g === "" || String(u.grup) === UT.F.g) && (!qf || qf.split(" ").every(w => araFold([u.ad, u.kod, u.tanim, UT_GRUPLAR[u.grup]].join(" ")).includes(w))));
+  v.innerHTML = `<div class="pkbar"><div class="filters"><input class="f" id="utQ" type="search" placeholder="Ürün ara: dirsek, pantolon, M-18…" value="${esc(UT.F.q)}" aria-label="Ürünlerde ara">
+      <div class="utchips">${[["", "Tümü"], ...UT_GRUPLAR.map((g, i) => [String(i), g])].map(([k, l]) => `<button type="button" class="utchip${UT.F.g === k ? " on" : ""}" data-utg="${k}">${esc(l)}</button>`).join("")}</div></div>
+      <div class="filters"><span class="sortinfo">${R.length} ürün</span></div></div>
+    ${UT_GRUPLAR.map((g, gi) => { const G = R.filter(u => u.grup === gi); return G.length ? `<h3 class="sec-t utgt">${esc(g)} <small>${G.length} ürün · ${G.filter(u => o.has(u.id)).length} öğrenildi</small></h3>
+      <div class="utgrid">${G.map(u => `<button type="button" class="utc${o.has(u.id) ? " ok" : ""}${u.gizli ? " gz" : ""}" data-uo="${esc(u.id)}">
+        <span class="utim">${u.foto[0] || u.cizim[0] ? `<img src="${esc(utImg(u.foto[0] || u.cizim[0]))}" alt="" loading="lazy">` : '<span class="note">Görsel yok</span>'}${u.cizim.length ? `<span class="utcz" title="Teknik çizim var">Çizim${u.cizim.length > 1 ? " × " + u.cizim.length : ""}</span>` : ""}</span>
+        <span class="utnm"><b>${esc(u.ad)}</b>${u.kod ? `<span class="num skk">${esc(u.kod)}</span>` : ""}</span>
+        <span class="note">${o.has(u.id) ? "✓ Öğrenildi" : u.olcu.length ? u.olcu.length + " ölçü tanımı" : "Tanıtım"}${u.gizli ? " · gizli" : ""}</span></button>`).join("")}</div>` : ""; }).join("") || '<div class="empty"><h3>Ürün bulunamadı</h3><p>Aramayı ya da grup filtresini değiştirin.</p></div>'}`;
+  const i0 = $("#utQ"); i0.oninput = e => { UT.F.q = e.target.value; renderUT(); const j = $("#utQ"); j.focus(); j.setSelectionRange(j.value.length, j.value.length); };
+  v.querySelectorAll("[data-utg]").forEach(b => b.onclick = () => { UT.F.g = b.dataset.utg; renderUT(); });
+  v.querySelectorAll("[data-uo]").forEach(b => b.onclick = () => utOpen(b.dataset.uo));
+}
+function utLightbox(src, cap) {
+  const d = document.createElement("div"); d.className = "utlb"; d.setAttribute("role", "dialog"); d.setAttribute("aria-label", "Görseli büyüt");
+  d.innerHTML = `<img src="${esc(src)}" alt="${esc(cap || "")}">${cap ? `<div class="utlbc">${esc(cap)}</div>` : ""}<button type="button" class="x" aria-label="Kapat">×</button>`;
+  const off = () => { d.remove(); removeEventListener("keydown", k); }, k = e => { if (e.key === "Escape") off(); };
+  d.onclick = off; addEventListener("keydown", k); document.body.appendChild(d);
+}
+async function utOgrenildi(id, on) {
+  const s = utOgr(); on ? s.add(id) : s.delete(id);
+  const data = { ad: ME.name, ogrenilen: [...s], updatedAt: Date.now() }; UT.eg = { ...(UT.eg || {}), ...data };
+  try { await setDoc(doc(fs, "urun_egitim", lower(ME.email)), data, { merge: true }); } catch (x) { toast(writeErr(x)); }
+}
+function utOpen(id, sel = 0) {
+  const paint = () => {
+    const L = utList(), i = L.findIndex(u => u.id === id), u = L[i]; if (!u) { closeDrawer(); return; }
+    const G = [...u.foto.map(f => ({ f, t: "Fotoğraf" })), ...u.cizim.map((f, k) => ({ f, t: (u.cap || [])[k] || "Teknik çizim", cz: true }))], g = G[Math.min(sel, G.length - 1)], ok = utOgr().has(u.id);
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="utT" style="width:min(860px,100%)">
+      <div class="dh"><h2 id="utT">${esc(u.ad)} <small class="note">${esc(UT_GRUPLAR[u.grup] || "")}</small></h2><button class="x" id="utX" aria-label="Kapat">×</button></div>
+      <div class="db">
+        ${g ? `<figure class="utbig${g.cz ? " cz" : ""}"><img id="utBig" src="${esc(utImg(g.f))}" alt="${esc(u.ad + " · " + g.t)}"><figcaption>${esc(g.t)} · büyütmek için dokunun</figcaption></figure>
+        ${G.length > 1 ? `<div class="utth">${G.map((x, k) => `<button type="button" class="${k === sel ? "on" : ""}${x.cz ? " cz" : ""}" data-us="${k}" aria-label="${esc(x.t)}"><img src="${esc(utImg(x.f))}" alt=""><span>${x.cz ? "Çizim" : "Foto"}</span></button>`).join("")}</div>` : ""}` : '<div class="empty"><p>Bu ürüne görsel eklenmedi.</p></div>'}
+        ${u.tanim ? `<section><h3 class="sec-t">Ürün nedir, nerede kullanılır?</h3><p class="uttx">${esc(u.tanim)}</p></section>` : ""}
+        ${u.olcu.length ? `<section><h3 class="sec-t">Çizimdeki ölçüler <small>siparişte bu harflerle yazılır</small></h3><div class="utol">${u.olcu.map(([h, a]) => `<div><b>${esc(h)}</b><span>${esc(a)}</span></div>`).join("")}</div></section>` : ""}
+        ${u.notlar.length ? `<section><h3 class="sec-t">Önemli notlar</h3>${u.notlar.map(n => `<div class="utnot">${esc(n)}</div>`).join("")}</section>` : ""}
+        ${u.kod ? `<div class="izbal">Stok kodu: <b class="num">${esc(u.kod)}</b></div>` : ""}
+      </div>
+      <div class="df"><span>${utCanEdit() ? '<button class="btn ghost" id="utEd" type="button">Düzenle</button>' : ""}</span><div class="r">
+        <button class="btn ghost" id="utPv" type="button"${i <= 0 ? " disabled" : ""}>‹ Önceki</button><button class="btn ghost" id="utNx" type="button"${i >= L.length - 1 ? " disabled" : ""}>Sonraki ›</button>
+        <button class="btn${ok ? " ghost" : ""}" id="utOk" type="button">${ok ? "✓ Öğrenildi (geri al)" : "Öğrendim"}</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#utX").onclick = closeDrawer;
+    const bg = $("#utBig"); if (bg) bg.onclick = () => utLightbox(bg.src, u.ad + " · " + g.t);
+    document.querySelectorAll("[data-us]").forEach(b => b.onclick = () => { sel = Number(b.dataset.us); paint(); });
+    $("#utPv").onclick = () => { id = L[i - 1].id; sel = 0; paint(); $("#drawerHost .db").scrollTop = 0; };
+    $("#utNx").onclick = () => { id = L[i + 1].id; sel = 0; paint(); $("#drawerHost .db").scrollTop = 0; };
+    $("#utOk").onclick = async () => { await utOgrenildi(u.id, !ok); if (!ok && i < L.length - 1) toast("Kaydedildi · sıradaki ürüne geçebilirsiniz"); paint(); renderUT(); };
+    const ed = $("#utEd"); if (ed) ed.onclick = () => utOpenEdit(u.id);
+  };
+  paint();
+}
+function utOpenEdit(id) {
+  if (!utCanEdit()) return;
+  const u = id ? utList().find(x => x.id === id) : null, seed = id ? UT_SEED.find(s => s.id === id) : null, o = (id && UT.ov[id]) || {};
+  let ekF = [...(o.ekFoto || [])], ekC = [...(o.ekCizim || [])], yeniF = [], yeniC = [];   // yeni yüklenenler: {data}
+  const paint = () => {
+    const keep = $("#ueAd") ? { ad: $("#ueAd").value, grup: $("#ueGr").value, kod: $("#ueKod").value, tanim: $("#ueTn").value, olcu: $("#ueOl").value, notlar: $("#ueNt").value, gizli: $("#ueGz").checked } : null;
+    const v = (k, d) => keep ? keep[k] : d;
+    const imgs = (L, nw, kind) => `<div class="utue">${L.map((f, k) => `<span><img src="${esc(utImg(f))}" alt=""><button type="button" class="btn ghost sm" data-uxr="${kind}|${k}" aria-label="Görseli kaldır">×</button></span>`).join("")}${nw.map((x, k) => `<span><img src="${esc(x.data)}" alt=""><button type="button" class="btn ghost sm" data-uxn="${kind}|${k}" aria-label="Görseli kaldır">×</button></span>`).join("")}
+      <button type="button" class="btn ghost sm" data-uxa="${kind}">+ ${kind === "f" ? "Fotoğraf" : "Çizim"}</button></div>`;
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+    <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="ueT" style="width:min(760px,100%)">
+      <div class="dh"><h2 id="ueT">${u ? esc(u.ad) + " · düzenle" : "Yeni ürün tanıtımı"}</h2><button class="x" id="ueX" aria-label="Kapat">×</button></div>
+      <div class="db"><div class="fgrid">
+        <div class="field full"><label for="ueAd">Ürün adı *</label><input id="ueAd" maxlength="80" value="${esc(v("ad", u ? u.ad : ""))}"></div>
+        <div class="field"><label for="ueGr">Grup</label><select id="ueGr">${UT_GRUPLAR.map((g, i) => opt(String(i), g, String(v("grup", u ? u.grup : 0)))).join("")}</select></div>
+        <div class="field"><label for="ueKod">Stok kodu / öneki</label><input id="ueKod" maxlength="40" value="${esc(v("kod", u ? u.kod : ""))}" style="font-family:var(--mono)"></div>
+        <div class="field full"><label for="ueTn">Ürün nedir, nerede kullanılır?</label><textarea id="ueTn" maxlength="1200" rows="4">${esc(v("tanim", u ? u.tanim : ""))}</textarea></div>
+        <div class="field full"><label for="ueOl">Çizimdeki ölçüler <small class="note">her satıra bir ölçü · “A: Kanal genişliği” biçiminde</small></label><textarea id="ueOl" maxlength="1500" rows="5">${esc(v("olcu", u ? u.olcu.map(([h, a]) => h + ": " + a).join("\n") : ""))}</textarea></div>
+        <div class="field full"><label for="ueNt">Önemli notlar <small class="note">her satır ayrı not</small></label><textarea id="ueNt" maxlength="2000" rows="4">${esc(v("notlar", u ? u.notlar.join("\n") : ""))}</textarea></div>
+        <div class="field full"><label>Ek fotoğraflar <small class="note">${seed ? "hazır görseller korunur, buradakiler eklenir" : ""}</small></label>${imgs(ekF, yeniF, "f")}</div>
+        <div class="field full"><label>Ek teknik çizimler</label>${imgs(ekC, yeniC, "c")}</div>
+        ${u ? `<label class="chk field full"><input type="checkbox" id="ueGz"${v("gizli", !!u.gizli) ? " checked" : ""}> Personelden gizle</label>` : '<input type="checkbox" id="ueGz" hidden>'}
+      </div><input type="file" id="ueFile" accept="image/*" hidden></div>
+      <div class="df"><span>${o.yeni ? '<button class="btn danger" id="ueDel" type="button">Ürünü sil</button>' : seed && Object.keys(o).length ? '<button class="btn ghost" id="ueRst" type="button">Hazır içeriğe dön</button>' : ""}</span><div class="r"><button class="btn ghost" id="ueC" type="button">Vazgeç</button><button class="btn" id="ueS" type="button">Kaydet</button></div></div>
+    </aside>`;
+    $("#scrim").onclick = closeDrawer; $("#ueX").onclick = closeDrawer; $("#ueC").onclick = () => id ? utOpen(id) : closeDrawer();
+    let kind = "f";
+    document.querySelectorAll("[data-uxa]").forEach(b => b.onclick = () => { kind = b.dataset.uxa; $("#ueFile").value = ""; $("#ueFile").click(); });
+    $("#ueFile").onchange = async e => { const fl = e.target.files[0]; if (!fl) return; try { const img = await loadImage(fl); const data = shrinkImg(img, kind === "c" ? 1400 : 1000, 420000); (kind === "c" ? yeniC : yeniF).push({ data }); paint(); } catch (x) { toast(x.message); } };
+    document.querySelectorAll("[data-uxr]").forEach(b => b.onclick = () => { const [k, n] = b.dataset.uxr.split("|"); (k === "c" ? ekC : ekF).splice(Number(n), 1); paint(); });
+    document.querySelectorAll("[data-uxn]").forEach(b => b.onclick = () => { const [k, n] = b.dataset.uxn.split("|"); (k === "c" ? yeniC : yeniF).splice(Number(n), 1); paint(); });
+    const rs = $("#ueRst"); if (rs) { let a = false; rs.onclick = async () => { if (!a) { a = true; rs.textContent = "Düzenlemeler silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "urun_tanitim", id)); toast("Hazır içeriğe dönüldü"); utOpen(id); } catch (x) { toast(writeErr(x)); } }; }
+    const dl = $("#ueDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { for (const f of [...(o.ekFoto || []), ...(o.ekCizim || [])]) if (/^fid:/.test(f)) await deleteDoc(doc(fs, "urun_foto", f.slice(4))).catch(() => {}); await deleteDoc(doc(fs, "urun_tanitim", id)); toast("Ürün silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
+    $("#ueS").onclick = async () => {
+      const ad = $("#ueAd").value.trim(); if (!ad) { toast("Ürün adını yazın"); return; }
+      const lines = t => t.split("\n").map(x => x.trim()).filter(Boolean);
+      const olcu = lines($("#ueOl").value).map(x => { const m = x.match(/^([^:]{1,24}):\s*(.+)$/); return m ? [m[1].trim(), m[2].trim()] : ["", x]; });
+      const b = $("#ueS"); b.disabled = true; const now = Date.now(), nid = id || "u" + now.toString(36);
+      try {
+        const up = async (L) => { const out = []; for (const x of L) { const r = doc(collection(fs, "urun_foto")); await setDoc(r, { urun: nid, data: x.data, createdAt: now, createdBy: ME.name }); UT.ekFoto["fid:" + r.id] = x.data; out.push("fid:" + r.id); } return out; };
+        const gone = [...(o.ekFoto || []), ...(o.ekCizim || [])].filter(f => !ekF.includes(f) && !ekC.includes(f));
+        const data = { ad: ad.slice(0, 80), grup: Number($("#ueGr").value), kod: $("#ueKod").value.trim(), tanim: $("#ueTn").value.trim(), olcu: olcu.map(([h, a]) => ({ h, a })), notlar: lines($("#ueNt").value),
+          gizli: $("#ueGz").checked, ekFoto: [...ekF, ...await up(yeniF)], ekCizim: [...ekC, ...await up(yeniC)], updatedAt: now, updatedBy: ME.name, ...(id ? {} : { yeni: true, createdAt: now, createdBy: ME.name }) };
+        await setDoc(doc(fs, "urun_tanitim", nid), data, { merge: true });
+        for (const f of gone) if (/^fid:/.test(f)) await deleteDoc(doc(fs, "urun_foto", f.slice(4))).catch(() => {});
+        toast("Ürün tanıtımı kaydedildi"); utOpen(nid);
+      } catch (x) { b.disabled = false; toast(writeErr(x)); }
+    };
+  };
+  paint();
+}
+/* ---- Kendini dene ---- */
+const utShuf = a => { const r = a.slice(); for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
+function utQuizYap(L) {
+  const Q = [], P = L.filter(u => u.foto.length || u.cizim.length);
+  utShuf(P).forEach(u => {
+    const yan = utShuf(L.filter(x => x.id !== u.id && x.grup === u.grup).concat(utShuf(L.filter(x => x.id !== u.id && x.grup !== u.grup)))).slice(0, 3);
+    const tip = u.cizim.length && Math.random() < 0.5 ? "cizim" : u.foto.length ? "foto" : "cizim";
+    Q.push({ t: tip === "cizim" ? "Bu teknik çizim hangi ürüne ait?" : "Fotoğraftaki ürün hangisi?", img: utImg(tip === "cizim" ? u.cizim[0] : u.foto[0]), cz: tip === "cizim", sec: utShuf([u.ad, ...yan.map(x => x.ad)]), dogru: u.ad, uid: u.id });
+  });
+  L.filter(u => u.olcu.length >= 2 && u.olcu.some(o => o[0])).forEach(u => { const o = u.olcu[Math.floor(Math.random() * u.olcu.length)]; if (!o[0]) return;
+    const yan = utShuf(u.olcu.filter(x => x[1] !== o[1]).map(x => x[1]).concat(utShuf(L.flatMap(x => x.olcu.map(y => y[1])).filter(y => y !== o[1])))).filter((x, i, a) => a.indexOf(x) === i).slice(0, 3);
+    Q.push({ t: `${u.ad} çiziminde “${o[0]}” neyi gösterir?`, img: u.cizim[0] ? utImg(u.cizim[0]) : "", cz: true, sec: utShuf([o[1], ...yan]), dogru: o[1], uid: u.id }); });
+  return utShuf(Q).slice(0, 10);
+}
+function utQuizView(v, L) {
+  const Z = UT.quiz, q = (UT.eg || {}).quiz;
+  if (!Z) { v.innerHTML = `<div class="utqs"><h3>Kendini dene</h3><p class="note">10 soru: fotoğraftan ya da teknik çizimden ürünü bulun, çizimdeki ölçü harflerinin anlamını seçin. Yanlış cevapta doğrusu gösterilir.</p>
+      ${q ? `<p>En iyi sonucunuz <b>%${q.enIyi}</b> · son sonuç %${q.son} · ${q.sayi} kez çözüldü</p>` : ""}<button type="button" class="btn" id="utQb">Teste başla</button></div>`;
+    $("#utQb").onclick = () => { UT.quiz = { Q: utQuizYap(L), i: 0, d: 0, cev: null, yanlis: [] }; renderUT(); }; return; }
+  if (Z.i >= Z.Q.length) {
+    const p = Math.round(Z.d / Z.Q.length * 100);
+    v.innerHTML = `<div class="utqs"><h3>Sonuç: %${p}</h3><p>${Z.d} / ${Z.Q.length} doğru. ${p >= 80 ? "Çok iyi!" : p >= 50 ? "İyi gidiyor; yanlış yaptığınız ürünlere bir kez daha bakın." : "Ürün kartlarını inceleyip tekrar deneyin."}</p>
+      ${Z.yanlis.length ? `<p class="note">Tekrar bakın:</p><div class="utchips">${[...new Set(Z.yanlis)].map(id => { const u = L.find(x => x.id === id); return u ? `<button type="button" class="utchip" data-uo="${esc(id)}">${esc(u.ad)}</button>` : ""; }).join("")}</div>` : ""}
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button type="button" class="btn" id="utQb">Yeniden çöz</button><button type="button" class="btn ghost" id="utQl">Ürünlere dön</button></div></div>`;
+    v.querySelectorAll("[data-uo]").forEach(b => b.onclick = () => utOpen(b.dataset.uo));
+    $("#utQb").onclick = () => { UT.quiz = { Q: utQuizYap(L), i: 0, d: 0, cev: null, yanlis: [] }; renderUT(); };
+    $("#utQl").onclick = () => { UT.quiz = null; UT.view = "liste"; renderUT(); };
+    if (!Z.kayit) { Z.kayit = true; const e = (UT.eg || {}).quiz || { enIyi: 0, sayi: 0 }, qz = { son: p, enIyi: Math.max(e.enIyi || 0, p), sayi: (e.sayi || 0) + 1, at: Date.now() };
+      UT.eg = { ...(UT.eg || {}), quiz: qz }; setDoc(doc(fs, "urun_egitim", lower(ME.email)), { ad: ME.name, quiz: qz, updatedAt: Date.now() }, { merge: true }).catch(x => toast(writeErr(x))); }
+    return; }
+  const s = Z.Q[Z.i], c = Z.cev;
+  v.innerHTML = `<div class="utq"><div class="utqh"><span>Soru ${Z.i + 1} / ${Z.Q.length}</span><span>${Z.d} doğru</span></div><div class="meter"><i style="width:${Z.i / Z.Q.length * 100}%"></i></div>
+    <h3>${esc(s.t)}</h3>${s.img ? `<figure class="utbig${s.cz ? " cz" : ""}"><img src="${esc(s.img)}" alt="Soru görseli"></figure>` : ""}
+    <div class="utqo">${s.sec.map((x, k) => `<button type="button" data-qa="${k}" class="${c == null ? "" : x === s.dogru ? "ok" : k === c ? "bad" : "dim"}"${c != null ? " disabled" : ""}>${esc(x)}</button>`).join("")}</div>
+    ${c != null ? `<div class="utqf ${s.sec[c] === s.dogru ? "ok" : "bad"}">${s.sec[c] === s.dogru ? "Doğru!" : "Doğrusu: " + esc(s.dogru)}<button type="button" class="btn sm" id="utQn">${Z.i + 1 < Z.Q.length ? "Sonraki soru" : "Sonucu gör"}</button></div>` : ""}</div>`;
+  v.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => { Z.cev = Number(b.dataset.qa); if (s.sec[Z.cev] === s.dogru) Z.d++; else Z.yanlis.push(s.uid); renderUT(); });
+  const n = $("#utQn"); if (n) n.onclick = () => { Z.i++; Z.cev = null; renderUT(); scrollTo(0, $("#utView").offsetTop - 80); };
+}
+/* ---- Eğitim takibi ---- */
+async function utTakipView(v, L) {
+  if (!UT.takip) { v.innerHTML = '<div class="empty"><h3>Yükleniyor</h3></div>';
+    try { const S = await getDocs(collection(fs, "urun_egitim")); UT.takip = {}; S.docs.forEach(d => UT.takip[d.id] = d.data()); } catch (x) { UT.takip = {}; toast(writeErr(x)); }
+    if (UT.view === "takip" && ROUTE === "urun") renderUT(); return; }
+  const ids = new Set(L.map(u => u.id)), M = Object.entries(state.access || {}).map(([em, m]) => ({ em: lower(em), ad: (m && m.name) || em }));
+  Object.keys(UT.takip).forEach(em => { if (!M.some(x => x.em === em)) M.push({ em, ad: UT.takip[em].ad || em }); });
+  const R = M.map(x => { const e = UT.takip[x.em] || {}, n = (e.ogrenilen || []).filter(id => ids.has(id)).length; return { ...x, n, p: L.length ? Math.round(n / L.length * 100) : 0, q: e.quiz, at: e.updatedAt }; }).sort((a, b) => b.p - a.p || a.ad.localeCompare(b.ad, "tr"));
+  v.innerHTML = `<div class="pkbar"><div class="filters"><span class="sortinfo">${R.filter(r => r.p === 100).length} kişi tüm ürünleri tamamladı · ${R.filter(r => r.q && r.q.enIyi >= 80).length} kişi testte %80 ve üstü</span></div><div class="filters"><button type="button" class="btn ghost sm" id="utTr">Yenile</button></div></div>
+    <div class="ledger utled" role="table"><div class="lhead" role="row"><div>Kişi</div><div>Öğrenilen ürün</div><div>Test (en iyi / son)</div><div>Son çalışma</div></div>
+    ${R.map(r => `<div class="row" role="row" style="cursor:default"><div><b>${esc(r.ad)}</b><div class="note">${esc(r.em)}</div></div>
+      <div><div class="meter" style="max-width:180px"><i style="width:${r.p}%"></i></div><span class="note">${r.n} / ${L.length} · %${r.p}</span></div>
+      <div class="num">${r.q ? `<b>%${r.q.enIyi}</b> / %${r.q.son} <span class="note">· ${r.q.sayi} kez</span>` : '<span class="note">Çözmedi</span>'}</div><div class="note">${r.at ? skTs(r.at) : "—"}</div></div>`).join("")}</div>`;
+  $("#utTr").onclick = () => { UT.takip = null; renderUT(); };
 }

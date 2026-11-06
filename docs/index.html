@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="40">
+<meta name="app-version" content="41">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=40">
+<link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -365,6 +365,30 @@
   <section id="svView"></section>
 </main>
 </div>
+<div id="modUT" data-route="urun" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">ÜRÜN TANITIM</div>
+        <h1>Ürünlerimiz ve teknik çizimleri</h1>
+      </div>
+      <div class="dateblock" aria-label="Bugünün tarihi">
+        <div class="dnum num js-dday">—</div>
+        <div class="dmeta"><div class="dwd js-dwd">—</div><div class="dmy js-dmy">—</div><div class="dclk num js-dclk">—</div></div>
+      </div>
+    </div>
+    <div class="kpis" id="utKpis"></div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="toolbar">
+    <div class="seg pktabs" id="utTabs" role="group" aria-label="Görünüm"></div>
+    <div class="filters"><button class="btn" id="utAdd" type="button" hidden>+ Ürün</button></div>
+  </div>
+  <section id="utView"></section>
+</main>
+</div>
 <div id="modStok" data-route="stok" hidden>
 <header class="band">
   <div class="wrap">
@@ -477,6 +501,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=40"></script>
+<script type="module" src="app.js?v=41"></script>
 </body>
 </html>
