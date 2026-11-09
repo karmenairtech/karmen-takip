@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "42";
+const APP_V = "43";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -5627,7 +5627,7 @@ async function saOpenTalepForm(id, opts = {}) {
       </div>
       <div class="df"><span class="note">Tahmini tutar son alış fiyatlarından hesaplanır; ${moneyR(SA.cfg.limit)} ve üstü büyük onaya gider.</span><div class="r"><button class="btn ghost" id="tfC" type="button">Vazgeç</button><button class="btn" id="tfS" type="button">${cur ? "Kaydet" : "Talebi gönder"}</button></div></div>
     </aside>`;
-    $("#scrim").onclick = closeDrawer; $("#tfX").onclick = closeDrawer; $("#tfC").onclick = closeDrawer;
+    formKapat(() => K.length, "#tfX", "#tfC");
     saKalemBind(K, "talep", () => { keep(); paint(); });
     const kb = $("#tKrit"); if (kb) kb.onclick = async () => { keep(); kb.disabled = true; kb.textContent = "Kritik stoklar okunuyor…";
       try { const L = await saKritikKalemler(), add = L.filter(x => !K.some(k => k.sid === x.sid)); K.push(...add); toast(add.length ? `${add.length} kritik kalem eklendi (hedef: maksimum stok ya da minimumun 2 katı; yoldaki düşüldü)` : "Eklenecek kritik kalem yok"); } catch (x) { toast(writeErr(x)); }
@@ -6844,7 +6844,18 @@ function startSP() {
 }
 function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
 const SP_VAR_DEF = "M-01, M-02, M-03, M-14 | Montaj tipi: Vidalı, Klipsli, Gizli vidalı\nM-11, M-15 | Motor yönü: Sağ, Sol\nM-04, M-05, M-16, M-17 | Sineklik: Var, Yok\n* | Ambalaj: Standart koli, Ahşap kasa, Streç";
-function spVarList(kod) { return String(SP.cfg.varyasyon || "").split("\n").map(l => { const m = l.match(/^\s*([^|]+)\|\s*([^:]+):\s*(.+)$/); if (!m) return null; return { onek: m[1].split(",").map(x => x.trim()).filter(Boolean), ad: m[2].trim(), sec: m[3].split(",").map(x => x.trim()).filter(Boolean) }; }).filter(Boolean).filter(v => v.onek.includes("*") || v.onek.some(o => String(kod || "").startsWith(o))); }
+// Varyasyon satırı: "önekler | Ad: seçenek, seçenek". Önek "~kelime" ürün adında arar; seçenek "#birim" serbest sayı girişidir (örn. Metraj: #m)
+const SP_VAR_SABIT = "~slot | Metraj: #m";   // tüm lineer ve gizli slot difüzörler
+function spVarList(kod, ad) {
+  const txt = String(SP.cfg.varyasyon || ""), L = txt.split("\n"); if (!/\|\s*metraj\s*:/i.test(txt)) L.push(SP_VAR_SABIT);
+  return L.map(l => { const m = l.match(/^\s*([^|]+)\|\s*([^:]+):\s*(.+)$/); if (!m) return null; const t = m[3].trim();
+    return { onek: m[1].split(",").map(x => x.trim()).filter(Boolean), ad: m[2].trim(), serbest: t[0] === "#", birim: t[0] === "#" ? t.slice(1).trim() : "", sec: t[0] === "#" ? [] : t.split(",").map(x => x.trim()).filter(Boolean) }; })
+    .filter(Boolean).filter(v => v.onek.includes("*") || v.onek.some(o => o[0] === "~" ? trFold(ad).includes(trFold(o.slice(1))) : String(kod || "").startsWith(o)));
+}
+const spVarHtml = (i, x, k) => x.serbest
+  ? `<label class="spvm">${esc(x.ad)} <input class="kin num" type="number" min="0" step="0.01" inputmode="decimal" data-qv="${i}" data-va="${esc(x.ad)}" data-vb="${esc(x.birim)}" value="${esc(parseFloat(String((k.var || {})[x.ad] || "").replace(",", ".")) || "")}" placeholder="0,00" aria-label="${esc(x.ad)}">${x.birim ? ` <span>${esc(x.birim)}</span>` : ""}</label>`
+  : `<select class="kin spv" data-qv="${i}" data-va="${esc(x.ad)}" aria-label="${esc(x.ad)}"><option value="">${esc(x.ad)}: —</option>${x.sec.map(o => opt(o, x.ad + ": " + o, (k.var || {})[x.ad] || "")).join("")}</select>`;
+const spVarBind = K => document.querySelectorAll("[data-qv]").forEach(s => { const f = () => { const k = K[Number(s.dataset.qv)]; if (!k) return; const v = s.dataset.vb !== undefined ? (s.value !== "" && Number(s.value) > 0 ? `${String(Number(s.value)).replace(".", ",")} ${s.dataset.vb}`.trim() : "") : s.value; k.var = { ...(k.var || {}), [s.dataset.va]: v }; }; s.onchange = f; if (s.tagName === "INPUT") s.oninput = f; });
 const spVarAd = k => [...Object.entries(k.var || {}).filter(([, v]) => v).map(([a, v]) => `${a}: ${v}`), k.ozel ? "Özel: " + k.ozel : ""].filter(Boolean).join(" · ");
 const spUrunKey = k => [k.sid || k.ad, spRenkKey(k.renk), JSON.stringify(k.var || {}), k.ozel || ""].join("#");
 const spIeOf = id => (typeof PL !== "undefined" ? PL.ie.find(e => e.id === id) : null) || null;
@@ -6918,7 +6929,7 @@ function spRow(s) {
   const d = spDurum(s), p = spPct(s), risk = spRisk(s), e = spEta(s), t = can("sp.fiyat") ? spTotals(s.id) : null, R = [...new Map((s.kalemler || []).filter(k => k.renk).map(k => [spRenkKey(k.renk), k.renk])).values()];
   return `<div class="row" role="row" tabindex="0" data-spid="${esc(s.id)}" style="--stripe:${risk ? "var(--k-izinsiz)" : SP_DUR[d][1]}">
     <div class="skc"><span class="num">${esc(s.no)}</span>${s.oncelik === "acil" ? '<span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}${s.rev ? `<span class="ttag" style="--tc:var(--k-gec)">Rev. ${s.rev}</span>` : ""}</div>
-    <div class="ska"><b>${esc(s.cariAd || "")}</b><div class="desc">${esc((s.proje && s.proje.ad) || "")}${s.musteriSipNo ? " · " + esc(s.musteriSipNo) : ""}</div></div>
+    <div class="ska"><b>${s.cariAd ? esc(s.cariAd) : '<span class="late">Müşteri seçilmedi</span>'}</b><div class="desc">${esc((s.proje && s.proje.ad) || "")}${s.musteriSipNo ? " · " + esc(s.musteriSipNo) : ""}</div></div>
     <div class="izs">${(s.kalemler || []).length} kalem <span class="sprl">${R.slice(0, 5).map(r => spSw(r)).join("")}</span></div>
     <div class="date${risk ? " late" : ""}" data-l="Termin">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}${e.eta ? `<div class="note${e.eta > (s.verilenTermin || "9") ? " late" : ""}">Tahmini ${fmtS(e.eta)}</div>` : e.plansiz && d !== "taslak" ? '<div class="note">Planlanmadı</div>' : ""}</div>
     <div class="spprog" title="Planlanan %${p.plan} · üretilen %${p.uretim} · sevk %${p.sevk}"><div class="bar"><span style="width:${p.plan}%;--fill:color-mix(in srgb,var(--brand) 30%,transparent)"></span><span style="width:${p.uretim}%;--fill:var(--brand)"></span><span style="width:${p.sevk}%;--fill:var(--k-fabrikada)"></span></div><small>Plan %${p.plan} · Üretim %${p.uretim} · Sevk %${p.sevk}</small></div>
@@ -6955,7 +6966,7 @@ function spSevkView(v) {
   const son = []; SP.list.forEach(s => (s.sevkiyatlar || []).forEach(x => son.push({ s, x }))); son.sort((a, b) => (b.x.at || 0) - (a.x.at || 0));
   v.innerHTML = `<div class="plgrid"><section class="plcard"><h3 class="sec-t">Sevk bekleyen siparişler <small>${A.length}</small></h3>
     ${A.length ? A.map(s => { const K = (s.kalemler || []).filter(k => spSevkKalan(k) > 0), hazir = K.reduce((a, k) => a + Math.max(0, Math.floor(spUretilen(k)) - (Number(k.sevk) || 0)), 0);
-      return `<div class="nowr" data-spid="${esc(s.id)}" role="button" tabindex="0"><span class="lk num">${esc(s.no)}</span><div><b>${esc(s.cariAd || "")}</b><div class="note">${esc((s.proje && s.proje.ad) || "")} · ${K.length} kalem bekliyor${hazir ? ` · <b>${nf(hazir)} adet hazır</b>` : ""}</div></div><span class="num ${spRisk(s) ? "late" : "note"}">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</span></div>`; }).join("") : '<p class="note">Sevk bekleyen sipariş yok.</p>'}</section>
+      return `<div class="nowr" data-spid="${esc(s.id)}" role="button" tabindex="0"><span class="lk num">${esc(s.no)}</span><div><b>${s.cariAd ? esc(s.cariAd) : '<span class="late">Müşteri seçilmedi</span>'}</b><div class="note">${esc((s.proje && s.proje.ad) || "")} · ${K.length} kalem bekliyor${hazir ? ` · <b>${nf(hazir)} adet hazır</b>` : ""}</div></div><span class="num ${spRisk(s) ? "late" : "note"}">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</span></div>`; }).join("") : '<p class="note">Sevk bekleyen sipariş yok.</p>'}</section>
     <section class="plcard"><h3 class="sec-t">Son sevkiyatlar <small>${son.length}</small></h3>
     ${son.length ? son.slice(0, 15).map(({ s, x }) => `<div class="nowr" data-spid="${esc(s.id)}" role="button" tabindex="0"><span class="lk num">${fmtS(x.tarih)}</span><div><b>${esc(s.no)} · ${esc(s.cariAd || "")}</b><div class="note">${(x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0)} adet${x.irsaliye ? " · irsaliye " + esc(x.irsaliye) : ""}${x.arac ? " · " + esc(x.arac) : ""}</div></div><span class="note">${esc(x.by || "")}</span></div>`).join("") : '<p class="note">Henüz sevkiyat yok.</p>'}</section></div>`;
   v.querySelectorAll("[data-spid]").forEach(el => { const go = () => spOpen(el.dataset.spid); el.onclick = go; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
@@ -6970,6 +6981,11 @@ function spProjeView(v) {
 }
 
 /* --- renk seçici ve teyitler --- */
+// Uzun formlar: yandaki boşluğa tıklamak formu kapatmaz; × ya da Vazgeç girilen bilgi varsa onay ister
+function formKapat(dolu, ...btn) {
+  const sc = $("#scrim"); if (sc) sc.onclick = () => { const d = $("#drawerHost .drawer"); if (d) { d.classList.remove("shk"); void d.offsetWidth; d.classList.add("shk"); } toast("Formu kapatmak için Vazgeç ya da × kullanın"); };
+  btn.forEach(id => { const b = $(id); if (b) b.onclick = async () => { if (dolu() && !(await spEmin("Kaydetmeden kapat", "<p>Girdiğiniz bilgiler kaydedilmedi ve silinecek. Kapatılsın mı?</p>", "Evet, kapat"))) return; closeDrawer(); }; });
+}
 function spModal(html, onMount) {
   return new Promise(res => {
     const host = document.createElement("div"); host.className = "p2"; host.innerHTML = `<div class="p2b spm" role="dialog" aria-modal="true">${html}</div>`;
@@ -7055,13 +7071,13 @@ async function spOpenForm(id, pre) {
         <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>
           <div class="sprdef"><span>Siparişin varsayılan rengi:</span><button type="button" class="btn ghost sm" id="fRen">${varsR ? spSw(varsR) + " " + esc(spRenkAd(varsR)) : "Renk seç"}</button><span class="note">Yeni kalemlere kendiliğinden gelir; farklı renk seçilen kalemde teyit istenir.</span></div>
           ${pr ? `<div class="fgrid" style="margin:8px 0"><div class="field"><label for="fPb">Para birimi</label><select id="fPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>${pb !== "TRY" ? `<div class="field"><label for="fKur">Kur (${esc(pb)}/TL)</label><input id="fKur" type="number" step="0.0001" min="0" value="${esc(v("fKur", F0.kur || (SA.cfg.kur || {})[pb] || ""))}"></div>` : "<div></div>"}</div>` : ""}
-          <div class="spk">${K.length ? K.map((k, i) => { const vl = spVarList(k.kod), plan = spPlanli(k);
+          <div class="spk">${K.length ? K.map((k, i) => { const vl = spVarList(k.kod, k.ad), plan = spPlanli(k);
             return `<div class="spkr${k.renk && varsR && spRenkKey(k.renk) !== spRenkKey(varsR) ? " fark" : ""}">
               <div class="spk1"><span class="num skk">${esc(k.kod || "Serbest")}</span> <b>${esc(k.ad)}</b>${plan ? ` <span class="kst" style="--tc:var(--brand)">${nf(plan)} planlandı</span>` : ""}
                 <input class="kin num" id="qM${i}" type="number" min="0" step="any" value="${esc(k.miktar)}" aria-label="Miktar"><select class="kin" id="qB${i}" aria-label="Birim">${[...new Set([...ST_BIRIM, k.birim].filter(Boolean))].map(b => opt(b, b, k.birim || "Adet")).join("")}</select>
                 <button type="button" class="btn ghost sm" data-qrm="${i}" aria-label="Kalemi kaldır"${plan ? " disabled title=\"İş emrine çevrilmiş kalem silinemez\"" : ""}>×</button></div>
               <div class="spk2"><button type="button" class="btn ghost sm sprb" data-qr="${i}">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : '<span class="late">Renk seç</span>'}</button>
-                ${vl.map(x => `<select class="kin spv" data-qv="${i}" data-va="${esc(x.ad)}" aria-label="${esc(x.ad)}"><option value="">${esc(x.ad)}: —</option>${x.sec.map(o => opt(o, x.ad + ": " + o, (k.var || {})[x.ad] || "")).join("")}</select>`).join("")}
+                ${vl.map(x => spVarHtml(i, x, k)).join("")}
                 <input class="kin" data-qo="${i}" maxlength="120" value="${esc(k.ozel || "")}" placeholder="Özel istek / varyasyon" style="flex:1 1 160px">
                 <input class="kin" id="qMh${i}" maxlength="60" value="${esc(k.mahal || "")}" placeholder="Mahal / etiket" style="flex:0 1 150px">
                 <input class="kin" id="qT${i}" type="date" value="${esc(k.termin || "")}" title="Kalem termini (boşsa sipariş termini)" style="flex:0 0 140px"></div>
@@ -7073,7 +7089,7 @@ async function spOpenForm(id, pre) {
       </div>
       <div class="df"><span class="note">${cur && onayli ? "Onaylı siparişte değişiklik revizyon olarak kaydedilir." : "Taslak kaydedilebilir; onaylanınca kalemler planlama havuzuna düşer."}</span><div class="r"><button class="btn ghost" id="sfC" type="button">Vazgeç</button>${!onayli ? '<button class="btn ghost" id="sfT1" type="button">Taslak kaydet</button>' : ""}<button class="btn" id="sfS" type="button">${onayli ? "Revizyonu kaydet" : "Onayla"}</button></div></div>
     </aside>`;
-    $("#scrim").onclick = closeDrawer; $("#sfX").onclick = closeDrawer; $("#sfC").onclick = closeDrawer;
+    formKapat(() => K.length || (f && f.fCari), "#sfX", "#sfC");
     $("#fCari").onchange = () => { keep(); paint(); };
     const nc = $("#fNewC"); if (nc) nc.onclick = () => { keep(); toast("Müşteri kartını kaydedip yeniden sipariş girin"); crOpen(null, "mus"); };
     const pbS = $("#fPb"); if (pbS) pbS.onchange = () => { keep(); paint(); };
@@ -7081,7 +7097,7 @@ async function spOpenForm(id, pre) {
     document.querySelectorAll("[data-qr]").forEach(b => b.onclick = async () => { keep(); const i = Number(b.dataset.qr), r = await spRenkSec(K[i].renk, varsR); if (!r) return;
       if (varsR && spRenkKey(r) !== spRenkKey(varsR)) { const ok = await spEmin("Farklı renk", `<div class="spemr">${spSw(r, true)}<div><b>${esc(spRenkAd(r))}</b><small>${esc(K[i].kod || "")} ${esc(K[i].ad)}</small></div></div><p>Siparişin geri kalanı <b>${esc(spRenkAd(varsR))}</b> ${spSw(varsR)}. Bu kalem gerçekten <b>${esc(spRenkAd(r))}</b> olacak mı?</p>`); if (!ok) return; }
       K[i].renk = r; paint(); });
-    document.querySelectorAll("[data-qv]").forEach(s => s.onchange = () => { const k = K[Number(s.dataset.qv)]; k.var = { ...(k.var || {}), [s.dataset.va]: s.value }; });
+    spVarBind(K);
     document.querySelectorAll("[data-qo]").forEach(s => s.oninput = () => { K[Number(s.dataset.qo)].ozel = s.value.trim(); if (s.tagName === "TEXTAREA") { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; } });
     document.querySelectorAll("[data-qrm]").forEach(b => b.onclick = () => { keep(); K.splice(Number(b.dataset.qrm), 1); paint(); });
     if (pr) K.forEach((k, i) => ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const t = $("#qTt" + i); if (t) t.textContent = money(saLine(K[i]).net, ($("#fPb") || {}).value || "TRY"); const s = $("#poSum"); if (s) s.innerHTML = saSumHtml(K, ($("#fPb") || {}).value || "TRY", ($("#fKur") || {}).value); }); }));
@@ -7094,7 +7110,9 @@ async function spOpenForm(id, pre) {
       tm = setTimeout(async () => { const my = ++seq, L = await saStokAra(q); if (my !== seq) return;
         r.innerHTML = L.length ? L.map((it, k) => `<button type="button" class="karr" data-kp="${k}"><span class="num skk">${esc(it.kod)}</span> ${esc(it.ad)} <small class="note">stok ${nf(it.miktar)} ${esc(it.birim || "")}</small></button>`).join("") : '<div class="note">Bulunamadı. Ölçülü ürünse "Ölçüden ekle", değilse "Serbest kalem".</div>';
         r.querySelectorAll("[data-kp]").forEach(b => b.onclick = () => addLine(L[Number(b.dataset.kp)])); }, 300); };
-    $("#kSer").onclick = () => { const ad = a.value.trim(); if (!ad) { toast("Önce kalem adını yazın"); a.focus(); return; } keep(); K.push({ k: spNewK(), sid: null, kod: "", ad: ad.slice(0, 140), birim: "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", mahal: "", termin: "", kdv: 20 }); paint(); };
+    $("#kSer").onclick = async () => { const ad = a.value.trim(); if (!ad) { toast("Önce kalem adını yazın"); a.focus(); return; } keep();
+      const it = await spSerbestKod(ad); if (it === null) return; if (it) { a.value = ""; $("#kAraR").innerHTML = ""; return addLine(it); }
+      K.push({ k: spNewK(), sid: null, kod: "", ad: ad.slice(0, 140), birim: "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", mahal: "", termin: "", kdv: 20 }); paint(); };
     $("#fOlc").onclick = async () => { const it = await spOlcudenSec(); if (it) addLine(it); };
     $("#fEk").onclick = () => $("#fEkF").click();
     $("#fEkF").onchange = e => { const L = [...e.target.files].filter(x => x.size <= 5 * 1024 * 1024); e.target.value = ""; if (!L.length) { toast("Dosya 5 MB'tan büyük olamaz"); return; } keep(); ekYeni.push(...L); paint(); };
@@ -7103,19 +7121,21 @@ async function spOpenForm(id, pre) {
   };
   async function save(onay) {
     keep(); const c = crFind(f.fCari), L = K.filter(k => Number(k.miktar) > 0);
-    if (!c) { toast("Müşteri seçin"); $("#fCari").focus(); return; }
-    if (!L.length) { toast("En az bir kalem girin"); return; }
+    const tam = onay || onayli;   // taslak: müşteri ve kalem sonra da girilebilir
+    if (tam && !c) { toast("Onay için müşteri seçin"); $("#fCari").focus(); return; }
+    if (tam && !L.length) { toast("En az bir kalem girin"); return; }
+    if (!c && !L.length) { toast("Taslak için en az müşteri ya da bir kalem girin"); return; }
     if (onay || onayli) {
       if (!f.fVt) { toast("Verdiğimiz termini girin"); $("#fVt").focus(); return; }
       if (L.some(k => !k.renk)) { toast("Rengi seçilmemiş kalem var"); return; }
       if (pr && L.some(k => k.fiyat == null)) { const ok = await spEmin("Fiyatsız kalem", "<p>Bazı kalemlerde birim fiyat yok. Fiyat sonra girilecekse devam edebilirsiniz.</p>", "Devam et"); if (!ok) return; }
     }
     const now = Date.now(), no = cur ? cur.no : spNextNo();
-    const draft = { id: cur ? cur.id : "", no, cariId: c.id, proje: { ad: f.fPa.trim() } };
+    const draft = { id: cur ? cur.id : "", no, cariId: c ? c.id : "", proje: { ad: f.fPa.trim() } };
     if (onay || onayli) { const ok = await spRenkOzet(draft, L); if (!ok) return; }
     const b = $("#sfS"); b.disabled = true;
     const kal = L.map(k => ({ k: k.k || spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, olcu: k.olcu || "", birim: k.birim || "Adet", miktar: Number(k.miktar), renk: k.renk || null, var: k.var || {}, ozel: k.ozel || "", mahal: k.mahal || "", termin: k.termin || "", ie: k.ie || [], stok: Number(k.stok) || 0, stokSevk: Number(k.stokSevk) || 0, sevk: Number(k.sevk) || 0 }));
-    const data = { no, cariId: c.id, cariAd: crAd(c), proje: { ad: f.fPa.trim(), tip: f.fPt, muteahhit: f.fPm.trim(), yetkili: f.fPy.trim(), tel: f.fPtel.trim(), adres: f.fPadr.trim(), sevk: f.fSv }, musteriSipNo: f.fMs.trim(), teklifNo: f.fTk.trim(), odeme: f.fOd.trim(),
+    const data = { no, cariId: c ? c.id : "", cariAd: c ? crAd(c) : "", proje: { ad: f.fPa.trim(), tip: f.fPt, muteahhit: f.fPm.trim(), yetkili: f.fPy.trim(), tel: f.fPtel.trim(), adres: f.fPadr.trim(), sevk: f.fSv }, musteriSipNo: f.fMs.trim(), teklifNo: f.fTk.trim(), odeme: f.fOd.trim(),
       tarih: f.fTar || TODAY, istenenTermin: f.fIs || "", verilenTermin: f.fVt || "", oncelik: f.fOnc, renk: varsR, not: f.fNot.trim(), kalemler: kal, updatedAt: now, updatedBy: ME.name };
     try {
       let ref;
@@ -7156,6 +7176,86 @@ function spFark(o, n) {
   return F;
 }
 // Ölçüden ürün: seri + genişlik × yükseklik; kart yoksa (yetki varsa) açılır
+/* Serbest kalem → stok kodu: grup seçilir (ya da yeni grup tanımlanır), kod o grubun son numarasından devam eder.
+   Dönüş: stok kartı (eklenecek) · false: kodsuz serbest kalem · null: vazgeçildi */
+async function spSerbestKod(ad0) {
+  if (!SK.cfg.kodlar || !Object.keys(SK.cfg.kodlar).length) { try { const s = await getDoc(doc(fs, "config", "stok")); if (s.exists()) SK.cfg = { ...SK.cfg, ...s.data(), kodlar: s.data().kodlar || {} }; } catch (e) {} }
+  const KD = SK.cfg.kodlar || {}, G = [];
+  Object.entries(KD).forEach(([t, A]) => Object.entries(A || {}).forEach(([a, x]) => Object.entries((x || {}).alt || {}).forEach(([al, an]) => G.push({ v: `${t}-${a}${al}`, tip: t, ana: a, alt: al, anaAd: x.ad || "", altAd: an || "" }))));
+  G.sort((x, y) => x.v.localeCompare(y.v));
+  // öneri: benzer adlı stok kartlarının kod öneki, sonra grup adlarıyla kelime eşleşmesi
+  const W0 = String(ad0).split(/[\s\-·,/]+/).filter(w => w.length > 2 && !/^\d+([xX×]\d+)?(mm|MM)?$/.test(w)), W = W0.map(trFold).filter(Boolean), puan = {};
+  try { (await saStokAra(W0.slice(0, 3).join(" ") || ad0)).slice(0, 12).forEach((it, i) => { const P = skKodParts(it.kod); if (P.pre) puan[P.pre] = (puan[P.pre] || 0) + 12 - i; }); } catch (e) {}
+  G.forEach(g => { const t = trFold(g.anaAd + " " + g.altAd); W.forEach(w => { if (t.includes(w)) puan[g.v] = (puan[g.v] || 0) + 3; }); });
+  const pmx = Math.max(0, ...Object.values(puan)), oneri = G.filter(g => puan[g.v] && puan[g.v] >= pmx / 3).sort((x, y) => puan[y.v] - puan[x.v]).slice(0, 5);
+  const gOpt = g => `<option value="${g.v}">${g.v} · ${esc(g.anaAd)} · ${esc(g.altAd)}</option>`;
+  return spModal(`<label>Serbest kalem için stok kodu</label>
+    <p class="note" style="margin:0 0 10px">Kodlu ürün bir sonraki siparişte aramada bulunur, planlamada ve stokta takip edilir. Kod, seçtiğiniz grubun son numarasından devam eder.</p>
+    <div class="fgrid">
+      <div class="field full"><label for="skzAd">Ürün adı</label><input id="skzAd" maxlength="140" value="${esc(ad0.toLocaleUpperCase("tr"))}"></div>
+      <div class="field full"><label for="skzG">Ürün grubu</label><select id="skzG">${oneri.length ? `<optgroup label="Önerilen">${oneri.map(gOpt).join("")}</optgroup>` : '<option value="">Grup seçin</option>'}
+        <optgroup label="Tüm gruplar">${G.map(gOpt).join("")}</optgroup><option value="__yeni">+ Listede yok, yeni grup tanımla</option></select></div>
+      <div id="skzY" class="fgrid" style="grid-column:1/-1;display:none">
+        <div class="field"><label for="skzT">Stok tipi</label><select id="skzT">${Object.entries(STK_TIP).map(([k, l]) => opt(k, `${k} · ${l}`, "M")).join("")}</select></div>
+        <div class="field"><label for="skzA">Ana grup kodu (2 hane)</label><input id="skzA" inputmode="numeric" maxlength="2" placeholder="örn. 06" class="num"></div>
+        <div class="field full"><label for="skzAa">Ana grup adı</label><input id="skzAa" maxlength="60" placeholder="örn. DİFÜZÖR"></div>
+        <div class="field"><label for="skzL">Alt grup kodu (2 hane)</label><input id="skzL" inputmode="numeric" maxlength="2" class="num"></div>
+        <div class="field"><label for="skzLa">Alt grup adı</label><input id="skzLa" maxlength="60" placeholder="örn. LİNEER SLOT"></div></div>
+      <div class="field"><label for="skzB">Birim</label><select id="skzB">${ST_BIRIM.map(b => opt(b, b, "Adet")).join("")}</select></div>
+      <div class="field"><label>Açılacak kod</label><div id="skzK" class="skzk num">—</div></div>
+    </div>
+    <div class="r" style="justify-content:space-between;flex-wrap:wrap"><button type="button" class="btn ghost" id="skzX">Vazgeç</button><span style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost" id="skzN">Kodsuz ekle</button><button type="button" class="btn" id="skzO">Stok kodu aç ve ekle</button></span></div>`, (h, done) => {
+    h.onclick = null;   // dışarı tıklamak kapatmasın
+    const $h = q => h.querySelector(q), gS = $h("#skzG"), Y = $h("#skzY"); let tm = null, son = "";
+    const grup = () => {
+      if (gS.value !== "__yeni") { const g = G.find(x => x.v === gS.value); return g ? { ...g, yeni: false } : null; }
+      const tip = $h("#skzT").value, ana = $h("#skzA").value.replace(/\D/g, ""), alt = $h("#skzL").value.replace(/\D/g, "");
+      if (!/^\d{2}$/.test(ana) || !/^\d{2}$/.test(alt) || ana === "00" || alt === "00") return null;
+      const A = (KD[tip] || {})[ana], la = A && (A.alt || {})[alt];
+      return { v: `${tip}-${ana}${alt}`, tip, ana, alt, anaAd: A ? A.ad : $h("#skzAa").value.trim().toLocaleUpperCase("tr"), altAd: la || $h("#skzLa").value.trim().toLocaleUpperCase("tr"), yeni: !la };
+    };
+    const goster = () => {
+      clearTimeout(tm); const g = grup(), k = $h("#skzK");
+      if (!g) { k.textContent = gS.value === "__yeni" ? "Grup kodlarını girin" : "—"; son = ""; return; }
+      k.textContent = "Hesaplanıyor…";
+      tm = setTimeout(async () => { const kod = await skSuggestCode({ tip: g.tip, ana: g.ana, alt: g.alt }); son = kod; const n = Number(kod.slice(-5));
+        k.innerHTML = `<b>${esc(kod)}</b><small>${n > 1 ? `bu grubun son kodu ${esc(kod.slice(0, -5) + String(n - 1).padStart(5, "0"))}` : "bu grubun ilk kodu"}${g.yeni ? " · yeni grup" : ""}</small>`; }, 200);
+    };
+    const anaDegis = () => {
+      const tip = $h("#skzT").value, ana = $h("#skzA").value.replace(/\D/g, ""), A = ana.length === 2 ? (KD[tip] || {})[ana] : null, aa = $h("#skzAa"), lI = $h("#skzL");
+      if (A) { aa.value = A.ad || ""; aa.disabled = true; if (!lI.value) { const mx = Math.max(0, ...Object.keys(A.alt || {}).map(Number)); lI.value = String(mx + 1).padStart(2, "0"); } } else aa.disabled = false;
+      const L = lI.value.replace(/\D/g, ""), la = $h("#skzLa"), lv = A && L.length === 2 && (A.alt || {})[L];
+      if (lv) { la.value = lv; la.disabled = true; } else la.disabled = false;
+      goster();
+    };
+    gS.onchange = () => { const y = gS.value === "__yeni"; Y.style.display = y ? "" : "none"; if (y) $h("#skzA").focus(); goster(); };
+    ["#skzA", "#skzL"].forEach(q => $h(q).addEventListener("input", anaDegis)); $h("#skzT").onchange = anaDegis;
+    $h("#skzX").onclick = () => done(null); $h("#skzN").onclick = () => done(false);
+    $h("#skzO").onclick = async () => {
+      const g = grup(), ad = $h("#skzAd").value.trim().toLocaleUpperCase("tr"), birim = $h("#skzB").value, b = $h("#skzO");
+      if (!ad) { toast("Ürün adını yazın"); return; }
+      if (!g) { toast(gS.value === "__yeni" ? "Ana ve alt grup kodlarını 2 hane olarak girin" : "Ürün grubunu seçin"); return; }
+      if (g.yeni && (!g.anaAd || !g.altAd)) { toast("Yeni grup için ana ve alt grup adlarını yazın"); return; }
+      b.disabled = true;
+      try {
+        let kod = son || await skSuggestCode({ tip: g.tip, ana: g.ana, alt: g.alt });
+        if (await skKodExists(kod)) kod = await skSuggestCode({ tip: g.tip, ana: g.ana, alt: g.alt });
+        const now = Date.now(), ref = doc(collection(fs, "stok"));
+        const data = { kod, ad: ad.slice(0, 140), barkod: "", tanim: "", anaGrup: g.anaAd, altGrup: g.altAd, depo: "", adres: "", birim, minStok: 0, maxStok: null, not: "Sipariş / teklif girişinde serbest kalemden açıldı",
+          ted: { firma: "", cariId: "", yetkili: "", tel: "", eposta: "", kod: "", teslimGun: null, moq: null, alternatif: "" }, aktif: true, tip: g.tip, anaKod: g.ana, altKod: g.alt, ...skOlcuOf(ad),
+          miktar: 0, seviye: skSeviye(0, 0, null), sonHareket: null, kaynak: "serbest", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+        data.kelimeler = skWords(data);
+        await setDoc(ref, data);
+        if (g.yeni) {
+          KD[g.tip] = KD[g.tip] || {}; KD[g.tip][g.ana] = KD[g.tip][g.ana] || { ad: g.anaAd, alt: {} }; KD[g.tip][g.ana].alt = { ...(KD[g.tip][g.ana].alt || {}), [g.alt]: g.altAd };
+          setDoc(doc(fs, "config", "stok"), { kodlar: { [g.tip]: { [g.ana]: { ad: KD[g.tip][g.ana].ad, alt: { [g.alt]: g.altAd } } } } }, { merge: true }).catch(() => {});
+        }
+        toast(`${kod} · ${data.ad} stok kartı açıldı`); done({ id: ref.id, ...data });
+      } catch (x) { b.disabled = false; toast(writeErr(x)); }
+    };
+    goster(); setTimeout(() => gS.focus(), 30);
+  });
+}
 function spOlcudenSec() {
   const keys = Object.keys(SK_SERI).sort();
   return spModal(`<label>Ölçüden ürün ekle</label><div class="fgrid"><div class="field full"><label for="olP">Ürün</label><select id="olP">${keys.map(k => opt(k, `${k} · ${SK_SERI[k][1]}`, "")).join("")}</select></div>
@@ -7758,7 +7858,7 @@ async function tkOpenForm(id, o = {}) {
               <button type="button" class="btn ghost sm" data-qu="${i}" aria-label="Yukarı" title="Yukarı taşı"${i ? "" : " disabled"}>↑</button><button type="button" class="btn ghost sm" data-qrm="${i}" aria-label="Kalemi kaldır">×</button></div>
             <div class="spk2">
               <button type="button" class="btn ghost sm sprb" data-qr="${i}">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "Renk seç"}</button>
-              ${spVarList(k.kod).map(x => `<select class="kin spv" data-qv="${i}" data-va="${esc(x.ad)}"><option value="">${esc(x.ad)}: —</option>${x.sec.map(s0 => opt(s0, x.ad + ": " + s0, (k.var || {})[x.ad] || "")).join("")}</select>`).join("")}
+              ${spVarList(k.kod, k.ad).map(x => spVarHtml(i, x, k)).join("")}
               ${dil === "EN" ? `<input class="kin" id="qEn${i}" maxlength="140" value="${esc(k.adEn || "")}" placeholder="İngilizce ürün adı" style="flex:1 1 200px">` : ""}
               ${!k.sid ? `<button type="button" class="btn ghost sm" data-qf="${i}">${k.foto ? "Görseli değiştir" : "+ Görsel"}</button>` : ""}</div>
             <textarea class="kin tknot" data-qo="${i}" maxlength="500" rows="${k.ozel ? 2 : 1}" placeholder="Kalem notu: teklifte ürünün altında geniş olarak yazar (montaj şekli, özel istek, teslim bilgisi…)">${esc(k.ozel || "")}</textarea>
@@ -7771,7 +7871,7 @@ async function tkOpenForm(id, o = {}) {
       </div>
       <div class="df"><span class="note">${rev ? `Gönderilmiş teklif: kaydedince ${tkRevAd((cur.rev || 1) + 1)} oluşur, önceki sürüm saklanır.` : "Taslak kaydedilir; gönderdiğinizde durumu \"Gönderildi\" olur."}</span><div class="r"><button class="btn ghost" id="tfC" type="button">Vazgeç</button><button class="btn" id="tfS" type="button">${rev ? "Revizyonu kaydet" : "Kaydet"}</button></div></div>
     </aside>`;
-    $("#scrim").onclick = closeDrawer; $("#tfX").onclick = closeDrawer; $("#tfC").onclick = closeDrawer;
+    formKapat(() => K.length, "#tfX", "#tfC");
     K.forEach(async (k, i) => { const u = await tkFoto(k); const el = document.querySelector(`[data-th="${i}"]`); if (el && u) el.innerHTML = `<img src="${u}" alt="">`; });
     $("#tCari").onchange = () => { keep(); const c2 = crFind(f.tCari); if (c2) { const y = (c2.yetkililer || []).find(x => x.ad) || {}; f.tYet = y.ad || ""; f.tTel = y.tel || c2.tel || ""; f.tMail = y.eposta || c2.eposta || ""; f.tAdr = [c2.adres, c2.ilce, c2.il].filter(Boolean).join(" "); if (c2.iskonto != null) { f.tIsk = String(c2.iskonto); K.forEach(k => k.isk = Number(c2.iskonto) || 0); } if (c2.vade) f.tOd = c2.vade + " gün vadeli"; } paint(); };
     const nc = $("#tNewC"); if (nc) nc.onclick = () => { toast("Müşteri kartını kaydedip teklife dönün"); crOpen(null, "mus"); };
@@ -7781,7 +7881,7 @@ async function tkOpenForm(id, o = {}) {
     $("#tIskA").onclick = () => { keep(); const x = Math.min(100, Math.max(0, Number(f.tIsk) || 0)); K.forEach(k => k.isk = x); paint(); };
     $("#tRen").onclick = async () => { keep(); const r = await spRenkSec(varsR); if (!r) return; varsR = r; K.forEach(k => { if (!k.renk) k.renk = r; }); paint(); };
     document.querySelectorAll("[data-qr]").forEach(b => b.onclick = async () => { keep(); const i = Number(b.dataset.qr), r = await spRenkSec(K[i].renk, varsR); if (!r) return; K[i].renk = r; paint(); });
-    document.querySelectorAll("[data-qv]").forEach(s => s.onchange = () => { const k = K[Number(s.dataset.qv)]; k.var = { ...(k.var || {}), [s.dataset.va]: s.value }; });
+    spVarBind(K);
     document.querySelectorAll("[data-qo]").forEach(s => s.oninput = () => { K[Number(s.dataset.qo)].ozel = s.value.trim(); if (s.tagName === "TEXTAREA") { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; } });
     document.querySelectorAll("[data-qrm]").forEach(b => b.onclick = () => { keep(); K.splice(Number(b.dataset.qrm), 1); paint(); });
     document.querySelectorAll("[data-qu]").forEach(b => b.onclick = () => { keep(); const i = Number(b.dataset.qu); [K[i - 1], K[i]] = [K[i], K[i - 1]]; paint(); });
@@ -7798,7 +7898,9 @@ async function tkOpenForm(id, o = {}) {
       tm = setTimeout(async () => { const my = ++seq, L = await saStokAra(q); if (my !== seq) return;
         r.innerHTML = L.length ? L.map((it, k) => `<button type="button" class="karr" data-kp="${k}"><span class="num skk">${esc(it.kod)}</span> ${esc(it.ad)}</button>`).join("") : '<div class="note">Bulunamadı. Ölçülü ürünse "Ölçüden ekle", değilse "Serbest kalem".</div>';
         r.querySelectorAll("[data-kp]").forEach(b => b.onclick = () => addLine(L[Number(b.dataset.kp)])); }, 300); };
-    $("#kSer").onclick = () => { const ad = a.value.trim(); if (!ad) { toast("Önce kalem adını yazın"); a.focus(); return; } keep(); K.push({ k: spNewK(), sid: null, kod: "", ad: ad.slice(0, 140), adEn: "", w: "", h: "", n: "", birim: "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", liste: null, isk: Number(f.tIsk) || 0, kdv: 20 }); paint(); };
+    $("#kSer").onclick = async () => { const ad = a.value.trim(); if (!ad) { toast("Önce kalem adını yazın"); a.focus(); return; } keep();
+      const it = await spSerbestKod(ad); if (it === null) return; if (it) { a.value = ""; $("#kAraR").innerHTML = ""; return addLine(it); }
+      K.push({ k: spNewK(), sid: null, kod: "", ad: ad.slice(0, 140), adEn: "", w: "", h: "", n: "", birim: "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", liste: null, isk: Number(f.tIsk) || 0, kdv: 20 }); paint(); };
     $("#fOlc").onclick = async () => { const it = await spOlcudenSec(); if (it) addLine(it); };
     $("#tfS").onclick = save;
   };
@@ -8087,7 +8189,7 @@ function renderSV() {
     v.innerHTML = B.length ? `<div class="ledger svled" role="table"><div class="lhead" role="row"><div>Sipariş</div><div>Müşteri / proje</div><div>Bekleyen</div><div>Hazır</div><div>Termin</div><div></div></div>
       ${B.sort((a, b) => String(a.verilenTermin || "9").localeCompare(String(b.verilenTermin || "9"))).map(s => { const K = (s.kalemler || []).filter(k => spSevkKalan(k) > 0), hz = K.reduce((a, k) => a + Math.max(0, Math.floor(spUretilen(k)) - (Number(k.sevk) || 0)), 0), gec = s.verilenTermin && s.verilenTermin < TODAY;
         return `<div class="row" role="row" style="cursor:default;--stripe:${gec ? "var(--k-izinsiz)" : hz ? "var(--k-fabrikada)" : "transparent"}"><div><span class="num">${esc(s.no)}</span>${s.oncelik === "acil" ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}</div>
-          <div class="ska"><b>${esc(s.cariAd || "")}</b><div class="desc">${esc((s.proje && s.proje.ad) || "")}${s.proje && s.proje.sevk ? " · " + esc(s.proje.sevk) : ""}</div></div>
+          <div class="ska"><b>${s.cariAd ? esc(s.cariAd) : '<span class="late">Müşteri seçilmedi</span>'}</b><div class="desc">${esc((s.proje && s.proje.ad) || "")}${s.proje && s.proje.sevk ? " · " + esc(s.proje.sevk) : ""}</div></div>
           <div class="num">${K.length} kalem · ${nf(K.reduce((a, k) => a + spSevkKalan(k), 0))}</div><div class="num"><b>${nf(hz)}</b></div><div class="date${gec ? " late" : ""}">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</div>
           <div>${svCan() ? `<button type="button" class="btn sm" data-svs="${esc(s.id)}">Sevk et</button>` : ""}</div></div>`; }).join("")}</div>`
       : '<div class="empty"><h3>Sevk bekleyen sipariş yok</h3><p>Onaylanan siparişlerin sevk edilmemiş kalemleri burada listelenir.</p></div>';
@@ -8166,7 +8268,7 @@ function plHavuzSipView(v) {
   const A = SP.list.filter(s => spAcik(s) && s.durum !== "taslak" && (s.kalemler || []).some(k => spKalanPlan(k) > 0))
     .sort((a, b) => ((b.oncelik === "acil") - (a.oncelik === "acil")) || String(a.verilenTermin || "9").localeCompare(String(b.verilenTermin || "9")));
   return A.length ? `<div class="hvsip">${A.map(s => { const K = (s.kalemler || []).filter(k => spKalanPlan(k) > 0), gun = s.verilenTermin ? dnum(s.verilenTermin) - dnum(TODAY) : null, rk = gun == null ? "" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes";
-    return `<section class="plcard hvs ${rk}"><div class="hvsh"><div><b class="num">${esc(s.no)}</b>${s.oncelik === "acil" ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""} <span class="note">${fmtS(s.tarih)}</span><div><b>${esc(s.cariAd || "")}</b> <span class="note">${esc((s.proje && s.proje.ad) || "")}</span></div></div>
+    return `<section class="plcard hvs ${rk}"><div class="hvsh"><div><b class="num">${esc(s.no)}</b>${s.oncelik === "acil" ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""} <span class="note">${fmtS(s.tarih)}</span><div><b>${s.cariAd ? esc(s.cariAd) : '<span class="late">Müşteri seçilmedi</span>'}</b> <span class="note">${esc((s.proje && s.proje.ad) || "")}</span></div></div>
       <div style="text-align:right"><div class="num">Termin ${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</div><div class="note">${gun == null ? "" : gun < 0 ? -gun + " gün gecikti" : gun + " gün kaldı"}</div></div></div>
       ${K.map(k => `<div class="hvk"><span class="num skk">${esc(k.kod || "Serbest")}</span> ${esc(k.ad)} <span class="note">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : ""}${spVarAd(k) ? " · " + esc(spVarAd(k)) : ""}</span><b class="num">${nf(spKalanPlan(k))} ${esc(k.birim || "")}</b></div>`).join("")}
       <div class="hvsf"><button type="button" class="linkbtn" data-hsp="${esc(s.id)}">Siparişi aç</button>${can("pl.ie") ? `<button type="button" class="btn sm" data-hsie="${esc(s.id)}">Siparişi iş emrine dönüştür</button>` : ""}</div></section>`; }).join("")}</div>`
