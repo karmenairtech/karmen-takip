@@ -1423,3 +1423,20 @@ body.mesdev .toolbar{display:none}
 .drawer.shk{animation:shk .25s ease}
 .skzk{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px;min-height:42px;justify-content:center}
 .skzk b{font-size:16px;color:var(--brand)}.skzk small{font-family:Inter,sans-serif;color:var(--ink-3);font-size:12px}
+.spacik{margin-top:8px;display:block}
+.spacd{margin-top:4px;font-size:13px;line-height:1.45;white-space:pre-line;color:var(--ink-2);border-left:3px solid #f0a020;padding:2px 0 2px 8px}
+.spacik{margin-top:8px;display:block}
+.spacd{margin-top:4px;font-size:13px;line-height:1.45;white-space:pre-line;color:var(--ink-2);border-left:3px solid #f0a020;padding:2px 0 2px 8px}
+/* Ana ekran: sık kullanılanlar / gizleme */
+.hbar{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:-4px}
+.hsec{grid-column:1/-1;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:8px}
+.hsec h2{margin:0;font-family:var(--display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.tw{position:relative;display:flex;flex-direction:column}
+.tw .tile{flex:1;cursor:default;pointer-events:none}
+.tw.gz .tile{opacity:.45;filter:grayscale(1)}
+.tw.fv .tile{box-shadow:0 0 0 2px #f0a020}
+.twc{position:absolute;left:10px;right:10px;bottom:10px;display:flex;gap:6px;z-index:3}
+.twb{flex:1;min-height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.twb.on{background:#f0a020;border-color:#f0a020;color:#1b1300}
+.twb:hover{border-color:var(--brand)}
+@media (max-width:640px){.twl{display:none}.twc{left:8px;right:8px;bottom:8px}.twb[data-hf]{flex:0 0 46px;font-size:18px}}

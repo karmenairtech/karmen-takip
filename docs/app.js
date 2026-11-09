@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "43";
+const APP_V = "45";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -1045,7 +1045,7 @@ function renderHome() {
   const late = T.filter(t => info(t).key === "late").length;
   const active = T.filter(isActive), fbT = new Set(state.feedback.filter(f => f.date === TODAY).map(f => f.taskId));
   const unread = typeof totalUnread === "function" ? totalUnread() : 0;
-  $("#tiles").innerHTML = MODULES.filter(m => lvl(m.id) !== "none").map(m => {
+  const tileOf = m => {
     if (m.id === "disis") return disisTile(m);
     if (m.id === "personel") return personelTile(m);
     if (m.id === "stok") return stokTile(m);
@@ -1067,7 +1067,34 @@ function renderHome() {
     return `<a class="tile" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">HAZIRLANIYOR</span></div>
       <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div></div></a>`;
-  }).join("") + (isAdmin() ? yetkiTile() : "");
+  };
+  // Kişiye özel ana ekran: sık kullanılanlar üstte, gizlenen modüller yalnızca düzenleme modunda görünür
+  const M = [...MODULES.filter(m => lvl(m.id) !== "none").map(m => ({ id: m.id, ad: m.name, html: () => tileOf(m) })), ...(isAdmin() ? [{ id: "yetki", ad: "Yetkilendirme", html: yetkiTile }] : [])];
+  const ids = new Set(M.map(m => m.id)), gz = new Set(HOME.gizli.filter(i => ids.has(i))), fav = HOME.fav.filter(i => ids.has(i) && !gz.has(i)), d = HOME.duzen;
+  const by = id => M.find(m => m.id === id);
+  const kart = m => !d ? m.html() : `<div class="tw${gz.has(m.id) ? " gz" : ""}${fav.includes(m.id) ? " fv" : ""}" data-mid="${m.id}">${m.html()}<div class="twc">
+      <button type="button" class="twb${fav.includes(m.id) ? " on" : ""}" data-hf="${m.id}" aria-pressed="${fav.includes(m.id)}" title="Sık kullanılanlara ekle">${fav.includes(m.id) ? "★" : "☆"}<span class="twl"> Sık kullanılan</span></button>
+      <button type="button" class="twb" data-hg="${m.id}">${gz.has(m.id) ? "Göster" : "Gizle"}</button></div></div>`;
+  const diger = M.filter(m => !fav.includes(m.id) && !gz.has(m.id)), gizli = M.filter(m => gz.has(m.id));
+  const bas = (t, n) => `<div class="hsec"><h2>${t}</h2>${n || ""}</div>`;
+  $("#tiles").innerHTML = `<div class="hbar"><span class="note">${d ? "Yıldızla sık kullandıklarınızı üste alın, kullanmadıklarınızı gizleyin. Ayar yalnızca sizin hesabınıza uygulanır." : gizli.length ? `${gizli.length} modül gizli` : ""}</span>
+      <button type="button" class="btn ${d ? "" : "ghost "}sm" id="hDz">${d ? "Bitti" : "Ana ekranı düzenle"}</button></div>`
+    + (fav.length ? bas("Sık kullanılanlar") + fav.map(i => kart(by(i))).join("") + (diger.length ? bas("Diğer modüller") : "") : "")
+    + diger.map(kart).join("")
+    + (d && gizli.length ? bas("Gizlenen modüller", '<span class="note">Ana ekranda görünmez, menüden ya da bağlantıyla yine açılabilir</span>') + gizli.map(kart).join("") : "");
+  $("#hDz").onclick = () => { HOME.duzen = !HOME.duzen; renderHome(); };
+  if (d) {
+    $("#tiles").querySelectorAll(".tw .tile").forEach(a => { a.setAttribute("tabindex", "-1"); a.onclick = e => e.preventDefault(); });
+    $("#tiles").querySelectorAll("[data-hf]").forEach(b => b.onclick = () => { const i = b.dataset.hf; HOME.fav = HOME.fav.includes(i) ? HOME.fav.filter(x => x !== i) : [...HOME.fav, i]; HOME.gizli = HOME.gizli.filter(x => x !== i); homeKaydet(); });
+    $("#tiles").querySelectorAll("[data-hg]").forEach(b => b.onclick = () => { const i = b.dataset.hg; if (HOME.gizli.includes(i)) HOME.gizli = HOME.gizli.filter(x => x !== i); else { HOME.gizli = [...HOME.gizli, i]; HOME.fav = HOME.fav.filter(x => x !== i); } homeKaydet(); });
+  }
+}
+const HOME = { fav: [], gizli: [], duzen: false };
+try { const h = JSON.parse(localStorage.getItem("karmen-anaekran") || "null"); if (h) { HOME.fav = h.fav || []; HOME.gizli = h.gizli || []; } } catch (e) {}
+function homeKaydet() {
+  renderHome(); const v = { fav: HOME.fav, gizli: HOME.gizli };
+  try { localStorage.setItem("karmen-anaekran", JSON.stringify(v)); } catch (e) {}
+  if (ME) setDoc(doc(fs, "reads", ME.uid), { anaEkran: v }, { merge: true }).catch(() => {});
 }
 function renderPh(m) {
   $("#phEyebrow").textContent = "MODÜL · HAZIRLANIYOR";
@@ -2093,6 +2120,7 @@ function startNotif() {
     const d = s.exists() ? s.data() : {};
     NT.seen = Number(d.notifSeen) || 0;
     NT.prefs = { ...NT.prefs, ...(d.notifPrefs || {}) };
+    if (d.anaEkran && JSON.stringify(d.anaEkran) !== JSON.stringify({ fav: HOME.fav, gizli: HOME.gizli })) { HOME.fav = d.anaEkran.fav || []; HOME.gizli = d.anaEkran.gizli || []; try { localStorage.setItem("karmen-anaekran", JSON.stringify(d.anaEkran)); } catch (e) {} if (ROUTE === "home") renderHome(); }
     NT.loaded = true; notifSoon();
   }, () => { NT.loaded = true; notifSoon(); }));
 }
@@ -6857,7 +6885,7 @@ const spVarHtml = (i, x, k) => x.serbest
   : `<select class="kin spv" data-qv="${i}" data-va="${esc(x.ad)}" aria-label="${esc(x.ad)}"><option value="">${esc(x.ad)}: —</option>${x.sec.map(o => opt(o, x.ad + ": " + o, (k.var || {})[x.ad] || "")).join("")}</select>`;
 const spVarBind = K => document.querySelectorAll("[data-qv]").forEach(s => { const f = () => { const k = K[Number(s.dataset.qv)]; if (!k) return; const v = s.dataset.vb !== undefined ? (s.value !== "" && Number(s.value) > 0 ? `${String(Number(s.value)).replace(".", ",")} ${s.dataset.vb}`.trim() : "") : s.value; k.var = { ...(k.var || {}), [s.dataset.va]: v }; }; s.onchange = f; if (s.tagName === "INPUT") s.oninput = f; });
 const spVarAd = k => [...Object.entries(k.var || {}).filter(([, v]) => v).map(([a, v]) => `${a}: ${v}`), k.ozel ? "Özel: " + k.ozel : ""].filter(Boolean).join(" · ");
-const spUrunKey = k => [k.sid || k.ad, spRenkKey(k.renk), JSON.stringify(k.var || {}), k.ozel || ""].join("#");
+const spUrunKey = k => [k.sid || k.ad, spRenkKey(k.renk), JSON.stringify(k.var || {}), k.ozel || "", k.aciklama || ""].join("#");
 const spIeOf = id => (typeof PL !== "undefined" ? PL.ie.find(e => e.id === id) : null) || null;
 const spPlanli = k => Math.min(Number(k.miktar) || 0, (k.ie || []).reduce((s, x) => s + (Number(x.miktar) || 0), 0) + (Number(k.stok) || 0));
 const spKalanPlan = k => Math.max(0, (Number(k.miktar) || 0) - spPlanli(k));
@@ -7081,6 +7109,7 @@ async function spOpenForm(id, pre) {
                 <input class="kin" data-qo="${i}" maxlength="120" value="${esc(k.ozel || "")}" placeholder="Özel istek / varyasyon" style="flex:1 1 160px">
                 <input class="kin" id="qMh${i}" maxlength="60" value="${esc(k.mahal || "")}" placeholder="Mahal / etiket" style="flex:0 1 150px">
                 <input class="kin" id="qT${i}" type="date" value="${esc(k.termin || "")}" title="Kalem termini (boşsa sipariş termini)" style="flex:0 0 140px"></div>
+              <textarea class="kin tknot spacik" data-qac="${i}" maxlength="1000" rows="1" placeholder="Ürün açıklaması: ölçü detayı, montaj şekli, teknik not… (sipariş formunda ve iş emrinde ürünün altında yazar)" aria-label="Ürün açıklaması">${esc(k.aciklama || "")}</textarea>
               ${pr ? `<div class="spk3"><label>Birim fiyat <input class="kin num" id="qF${i}" type="number" min="0" step="any" value="${esc(k.fiyat ?? "")}"></label><label>İsk. % <input class="kin num" id="qI${i}" type="number" min="0" max="100" value="${esc(k.isk || "")}"></label><label>KDV <select class="kin" id="qK${i}">${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></label><b class="num" id="qTt${i}">${money(saLine(k).net, pb)}</b></div>` : ""}</div>`; }).join("") : '<p class="note">Kalem yok. Stokta arayın, ölçüden ekleyin ya da serbest kalem girin.</p>'}</div>
           <div class="kara"><input id="kAra" type="search" placeholder="Stok kodu ya da ürün adı (M-0101, lineer slot 2li…)" autocomplete="off"><button type="button" class="btn ghost sm" id="kSer">Serbest kalem</button><button type="button" class="btn ghost sm" id="fOlc">Ölçüden ekle</button></div><div id="kAraR" class="karar"></div>
           ${pr ? `<div id="poSum">${saSumHtml(K, pb, v("fKur", F0.kur))}</div>` : ""}</section>
@@ -7100,6 +7129,7 @@ async function spOpenForm(id, pre) {
     spVarBind(K);
     document.querySelectorAll("[data-qo]").forEach(s => s.oninput = () => { K[Number(s.dataset.qo)].ozel = s.value.trim(); if (s.tagName === "TEXTAREA") { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; } });
     document.querySelectorAll("[data-qrm]").forEach(b => b.onclick = () => { keep(); K.splice(Number(b.dataset.qrm), 1); paint(); });
+    document.querySelectorAll("[data-qac]").forEach(s => { const fit = () => { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; }; if (s.value) fit(); s.oninput = () => { K[Number(s.dataset.qac)].aciklama = s.value.trim(); fit(); }; });
     if (pr) K.forEach((k, i) => ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const t = $("#qTt" + i); if (t) t.textContent = money(saLine(K[i]).net, ($("#fPb") || {}).value || "TRY"); const s = $("#poSum"); if (s) s.innerHTML = saSumHtml(K, ($("#fPb") || {}).value || "TRY", ($("#fKur") || {}).value); }); }));
     const addLine = async it => { keep(); if (it && K.some(k => k.sid === it.id && !k.ozel)) { const ok = await spEmin("Aynı ürün", `<p><b>${esc(it.kod)} ${esc(it.ad)}</b> listede zaten var. Farklı renk ya da varyasyon için ayrı satır mı açıyorsunuz?</p>`, "Evet, ayrı satır"); if (!ok) return; }
       const k = it ? { k: spNewK(), sid: it.id, kod: it.kod, ad: it.ad, olcu: it.olcu || "", birim: it.birim || "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", mahal: "", termin: "", kdv: 20 } : null;
@@ -7134,7 +7164,7 @@ async function spOpenForm(id, pre) {
     const draft = { id: cur ? cur.id : "", no, cariId: c ? c.id : "", proje: { ad: f.fPa.trim() } };
     if (onay || onayli) { const ok = await spRenkOzet(draft, L); if (!ok) return; }
     const b = $("#sfS"); b.disabled = true;
-    const kal = L.map(k => ({ k: k.k || spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, olcu: k.olcu || "", birim: k.birim || "Adet", miktar: Number(k.miktar), renk: k.renk || null, var: k.var || {}, ozel: k.ozel || "", mahal: k.mahal || "", termin: k.termin || "", ie: k.ie || [], stok: Number(k.stok) || 0, stokSevk: Number(k.stokSevk) || 0, sevk: Number(k.sevk) || 0 }));
+    const kal = L.map(k => ({ k: k.k || spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, olcu: k.olcu || "", birim: k.birim || "Adet", miktar: Number(k.miktar), renk: k.renk || null, var: k.var || {}, ozel: k.ozel || "", aciklama: k.aciklama || "", mahal: k.mahal || "", termin: k.termin || "", ie: k.ie || [], stok: Number(k.stok) || 0, stokSevk: Number(k.stokSevk) || 0, sevk: Number(k.sevk) || 0 }));
     const data = { no, cariId: c ? c.id : "", cariAd: c ? crAd(c) : "", proje: { ad: f.fPa.trim(), tip: f.fPt, muteahhit: f.fPm.trim(), yetkili: f.fPy.trim(), tel: f.fPtel.trim(), adres: f.fPadr.trim(), sevk: f.fSv }, musteriSipNo: f.fMs.trim(), teklifNo: f.fTk.trim(), odeme: f.fOd.trim(),
       tarih: f.fTar || TODAY, istenenTermin: f.fIs || "", verilenTermin: f.fVt || "", oncelik: f.fOnc, renk: varsR, not: f.fNot.trim(), kalemler: kal, updatedAt: now, updatedBy: ME.name };
     try {
@@ -7169,6 +7199,7 @@ function spFark(o, n) {
   NK.forEach(k => { const x = OK.find(y => y.k === k.k); if (!x) { F.push(`Eklendi: ${k.kod || k.ad} × ${k.miktar}`); return; }
     if (x.miktar !== k.miktar) F.push(`${k.kod || k.ad}: miktar ${x.miktar} → ${k.miktar}`);
     if (spRenkKey(x.renk) !== spRenkKey(k.renk)) F.push(`${k.kod || k.ad}: renk ${spRenkAd(x.renk)} → ${spRenkAd(k.renk)}`);
+    if ((x.aciklama || "") !== (k.aciklama || "")) F.push(`${k.kod || k.ad}: açıklama değişti`);
     if (JSON.stringify(x.var || {}) !== JSON.stringify(k.var || {}) || (x.ozel || "") !== (k.ozel || "")) F.push(`${k.kod || k.ad}: varyasyon ${spVarAd(x) || "—"} → ${spVarAd(k) || "—"}`);
     if ((x.mahal || "") !== (k.mahal || "")) F.push(`${k.kod || k.ad}: mahal ${x.mahal || "—"} → ${k.mahal || "—"}`); });
   OK.forEach(x => { if (!NK.some(k => k.k === x.k)) F.push(`Çıkarıldı: ${x.kod || x.ad} × ${x.miktar}`); });
@@ -7304,7 +7335,7 @@ function spOpen(id) {
         ${(s.kalemler || []).some(k => k.degisti) ? '<div class="izbal" style="--tc:var(--k-gec)"><b>İş emri açıldıktan sonra değişen kalemler var.</b> Planlama ilgili iş emirlerini kontrol etmeli (işaretli satırlar).</div>' : ""}
         <section><h3 class="sec-t">Kalemler <small>${(s.kalemler || []).length}</small></h3><div class="ledger spkled${pr ? "" : " nopr"}" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Miktar</div><div>Üretim</div><div>Sevk</div>${pr ? "<div>Tutar</div>" : ""}</div>
           ${(s.kalemler || []).map(k => { const f = (F.k || {})[k.k] || {}, ies = (k.ie || []).map(x => ({ x, e: spIeOf(x.id) })), u = spUretilen(k);
-            return `<div class="row" role="row" style="cursor:default;--stripe:${k.degisti ? "var(--k-gec)" : spSevkKalan(k) <= 0 ? "var(--k-fabrikada)" : "transparent"}"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad)}</b><div class="desc">${esc([spVarAd(k), k.mahal && "Mahal: " + k.mahal, k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "))}</div>
+            return `<div class="row" role="row" style="cursor:default;--stripe:${k.degisti ? "var(--k-gec)" : spSevkKalan(k) <= 0 ? "var(--k-fabrikada)" : "transparent"}"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad)}</b><div class="desc">${esc([spVarAd(k), k.mahal && "Mahal: " + k.mahal, k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "))}</div>${k.aciklama ? `<div class="spacd">${esc(k.aciklama)}</div>` : ""}
               <div class="note">${ies.map(({ x, e }) => `<button type="button" class="linkbtn" data-sie="${esc(x.id)}">${esc(x.no)}</button> ${nf(x.miktar)}${e ? " · " + PL_EDUR[e.durum][0] : ""}`).join(" · ")}${k.stok ? `${ies.length ? " · " : ""}Stoktan ${nf(k.stok)}` : ""}${!ies.length && !k.stok && s.durum !== "taslak" ? '<span class="late">Planlama havuzunda</span>' : ""}${spKalanPlan(k) > 0 && (ies.length || k.stok) ? ` · <span class="late">${nf(spKalanPlan(k))} planlanmadı</span>` : ""}${k.degisti ? ` · <span class="late">Rev. ${k.degisti.rev}'de değişti</span>` : ""}</div></div>
               <div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num">${nf(k.miktar)} ${esc(k.birim || "")}</div><div class="num">${nf(Math.floor(u))}</div><div class="num">${nf(k.sevk || 0)}</div>${pr ? `<div class="num">${f.fiyat != null ? money(saLine({ miktar: k.miktar, ...f }).net, F.pb) : "—"}</div>` : ""}</div>`; }).join("")}</div>
           ${pr && t ? saSumHtml((s.kalemler || []).map(k => ({ miktar: k.miktar, ...((F.k || {})[k.k] || {}) })), t.pb, F.kur) : ""}</section>
@@ -7439,7 +7470,7 @@ async function spPdf(s, mod, o = {}) {
   const head = () => { x.fillStyle = C.ink; x.fillRect(M, Y, CW, 36); font(600, 14); x.fillStyle = "#fff"; let cx = M; cols.forEach(([t, w, a]) => { x.textAlign = a === "r" ? "right" : a === "c" ? "center" : "left"; x.fillText(t, a === "r" ? cx + w - 10 : a === "c" ? cx + w / 2 : cx + 10, Y + 11); cx += w; }); x.textAlign = "left"; Y += 36; };
   head();
   rows.forEach((k, i) => {
-    const pw = cols[2][1] - 20; font(600, 16); const L1 = wrap(k.ad || "", pw); font(400, 14); const L2 = wrap([spVarAd(k), k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "), pw).filter(Boolean);
+    const pw = cols[2][1] - 20; font(600, 16); const L1 = wrap(k.ad || "", pw); font(400, 14); const L2 = [...wrap([spVarAd(k), k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "), pw), ...String(k.aciklama || "").split("\n").flatMap(t => wrap(t, pw))].filter(Boolean);
     font(500, 14); const LR = wrap(k.renk ? spRenkAd(k.renk) : "—", cols[4][1] - 52);
     const h = Math.max(46, 14 + L1.length * 22 + L2.length * 19 + 6, 14 + LR.length * 19 + 8); if (ensure(h + 4)) head();
     if (i % 2) { x.fillStyle = "#f7f9fc"; x.fillRect(M, Y, CW, h); } x.strokeStyle = C.line; x.beginPath(); x.moveTo(M, Y + h); x.lineTo(M + CW, Y + h); x.stroke();
@@ -7533,7 +7564,7 @@ async function plHavuzIe(g) {
       const bt = writeBatch(fs), nos = [];
       bySp.forEach((D, spId) => { const s0 = D[0].s, q0 = D.reduce((t, x) => t + x.m, 0), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no);
         bt.set(ref, { no, tur: "sip", siparisNo: s0.no, siparisIds: [spId], spKalem: D.map(x => ({ spId, k: x.k.k, miktar: x.m })), musteri: s0.cariAd || "", proje: (s0.proje && s0.proje.ad) || "", urunId: g.k.sid || "", urunAd: `${g.k.kod ? g.k.kod + " · " : ""}${g.k.ad}`, renk: g.k.renk || null, renkAd: g.k.renk ? spRenkAd(g.k.renk) : "", varyasyon: spVarAd(g.k),
-          akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: q0, birim: g.k.birim || "Adet", plBas: $("#hiBas").value, termin: $("#hiTer").value, oncelik: $("#hiOnc").value, sorumlu: $("#hiSor").value.trim(), not: [g.k.renk ? "Renk: " + spRenkAd(g.k.renk) : "", spVarAd(g.k)].filter(Boolean).join(" · "), durum: "plan",
+          akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: q0, birim: g.k.birim || "Adet", plBas: $("#hiBas").value, termin: $("#hiTer").value, oncelik: $("#hiOnc").value, sorumlu: $("#hiSor").value.trim(), not: [g.k.renk ? "Renk: " + spRenkAd(g.k.renk) : "", spVarAd(g.k), g.k.aciklama || ""].filter(Boolean).join(" · "), durum: "plan",
           ops: plOpsFor(a, g.k, q0), log: [{ at: now, by: ME.name, t: `İş emri ${s0.no} siparişinden (ürün havuzu) açıldı` }], createdAt: now, createdBy: ME.name, createdByUid: ME.uid, updatedAt: now, updatedBy: ME.name });
         const sp = SP.list.find(z => z.id === spId); const NK = (sp.kalemler || []).map(k => { const d0 = D.filter(x => x.k.k === k.k); return d0.length ? { ...k, ie: [...(k.ie || []), { id: ref.id, no, miktar: d0.reduce((t, x) => t + x.m, 0) }] } : k; });
         bt.update(doc(fs, "siparis", spId), { kalemler: NK, updatedAt: now, updatedBy: ME.name, log: spLog(sp, `${no} iş emri açıldı`) }); });
@@ -7981,7 +8012,7 @@ function tkToSiparis(t) {
   const renk = [...R.values()].sort((a, b) => b.n - a.n)[0];
   spOpenForm(null, { teklifId: t.id, renk: renk ? renk.r : null, fiyat: true,
     f: { fCari: t.cariId, fPa: t.santiye || "", fPy: t.yetkili || "", fPtel: t.tel || "", fPadr: t.adres || "", fTk: `${t.no} ${tkRevAd(t.rev)}`, fOd: t.odeme || "", fPb: t.pb || "USD", fKur: t.kur || "", fNot: t.not || "" },
-    kalemler: (t.kalemler || []).map(k => ({ k: spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, olcu: [k.w, k.h, k.n].filter(Boolean).join("X"), birim: k.birim || "Adet", miktar: Number(k.miktar) || 0, renk: k.renk || null, var: k.var || {}, ozel: k.ozel || "", mahal: "", termin: "", fiyat: k.liste ?? null, isk: Number(k.isk) || 0, kdv: Number(k.kdv ?? 20) })),
+    kalemler: (t.kalemler || []).map(k => ({ k: spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, olcu: [k.w, k.h, k.n].filter(Boolean).join("X"), birim: k.birim || "Adet", miktar: Number(k.miktar) || 0, renk: k.renk || null, var: k.var || {}, ozel: "", aciklama: k.ozel || "", mahal: "", termin: "", fiyat: k.liste ?? null, isk: Number(k.isk) || 0, kdv: Number(k.kdv ?? 20) })),
     onSaved: async (spId, no) => { try { await updateDoc(doc(fs, "teklif", t.id), { durum: "siparis", siparisId: spId, siparisNo: no, updatedAt: Date.now(), updatedBy: ME.name, log: (t.log || []).concat([{ at: Date.now(), by: ME.name, t: `${no} siparişine dönüştürüldü` }]).slice(-60) }); } catch (x) { toast(writeErr(x)); } } });
 }
 
@@ -8298,7 +8329,7 @@ async function plSipToIe(spId) {
       const bt = writeBatch(fs), NK = (s.kalemler || []).map(k => ({ ...k })), nos = [];
       S.forEach(x => { const a = PL.akis.find(z => z.id === x.ak), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no); const k = x.k;
         bt.set(ref, { no, tur: "sip", siparisNo: s.no, siparisIds: [s.id], spKalem: [{ spId: s.id, k: k.k, miktar: x.q }], musteri: s.cariAd || "", proje: (s.proje && s.proje.ad) || "", urunId: k.sid || "", urunAd: `${k.kod ? k.kod + " · " : ""}${k.ad}`, renk: k.renk || null, renkAd: k.renk ? spRenkAd(k.renk) : "", varyasyon: spVarAd(k),
-          akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: x.q, birim: k.birim || "Adet", plBas: bas, termin: k.termin || s.verilenTermin || "", oncelik: s.oncelik === "acil" ? "acil" : "normal", sorumlu: sor, not: [k.renk ? "Renk: " + spRenkAd(k.renk) : "", spVarAd(k), k.mahal ? "Mahal: " + k.mahal : ""].filter(Boolean).join(" · "), durum: "plan",
+          akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: x.q, birim: k.birim || "Adet", plBas: bas, termin: k.termin || s.verilenTermin || "", oncelik: s.oncelik === "acil" ? "acil" : "normal", sorumlu: sor, not: [k.renk ? "Renk: " + spRenkAd(k.renk) : "", spVarAd(k), k.mahal ? "Mahal: " + k.mahal : "", k.aciklama || ""].filter(Boolean).join(" · "), durum: "plan",
           ops: plOpsFor(a, k, x.q), log: [{ at: now, by: ME.name, t: `İş emri ${s.no} siparişinden açıldı` }], createdAt: now, createdBy: ME.name, createdByUid: ME.uid, updatedAt: now, updatedBy: ME.name });
         const z = NK.find(q => q.k === k.k); z.ie = [...(z.ie || []), { id: ref.id, no, miktar: x.q }]; });
       bt.update(doc(fs, "siparis", s.id), { kalemler: NK, updatedAt: now, updatedBy: ME.name, log: spLog(s, `${nos.length} alt iş emri açıldı (${nos[0]}${nos.length > 1 ? "…" + nos[nos.length - 1] : ""})`) });
