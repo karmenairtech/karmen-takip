@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "51";
+const APP_V = "52";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -8409,7 +8409,7 @@ function mesKart(j) {
     <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
     <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
     ${mesProje(e) ? `<div class="mespj" title="Proje">${esc(mesProje(e))}</div>` : ""}
-    ${e.siparisNo ? `<button type="button" class="mesd" data-ma="sd">Sipariş detay</button>` : ""}
+    ${e.siparisNo ? `<div class="mesdr"><button type="button" class="mesd" data-ma="sd">Sipariş detay</button>${(() => { const n = ((mesSip(e) || {}).ekler || []).length; return n ? `<button type="button" class="mesd mesgv" data-ma="ek">Görsel${n > 1 ? " (" + n + ")" : ""}</button>` : ""; })()}</div>` : ""}
     <div class="mesio"><span class="num">${esc(e.no)}</span><span>${islem}</span></div>
     <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlps">${(j.onDurum || []).map(x => `<span class="mlp ${x.ok ? "ok" : ""}">${esc(x.ad)} ${x.ok ? "✓" : "bekleniyor"}</span>`).join("")}</span>` : ""}</div>
     ${e.not ? `<div class="mesnot">${esc(e.not)}</div>` : ""}
@@ -8442,6 +8442,48 @@ function mesSipDetay(e) {
     <div class="df"><span></span><div class="r"><button class="btn" id="msdK" type="button">Kapat</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#msdX").onclick = closeDrawer; $("#msdK").onclick = closeDrawer;
+}
+// MES · siparişe eklenen görsel ve PDF'ler: görseller ekranda, PDF sayfaları resim olarak (tablet tarayıcısı PDF açamasa da görünür)
+let PDFJS = null;
+async function pdfjsYukle() {
+  if (PDFJS) return PDFJS;
+  await new Promise((ok, no) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; sc.onload = ok; sc.onerror = () => no(new Error("PDF görüntüleyici yüklenemedi")); document.head.appendChild(sc); });
+  PDFJS = window.pdfjsLib; PDFJS.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; return PDFJS;
+}
+async function mesEkGor(e) {
+  const sp = mesSip(e), E = (sp && sp.ekler) || []; if (!E.length) { toast("Bu siparişe ek yok"); return; }
+  const urls = [];
+  const kapat = () => { urls.forEach(u => URL.revokeObjectURL(u)); closeDrawer(); };
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="megT" style="width:min(1000px,100%)">
+    <div class="dh"><h2 id="megT">Görseller ve ekler <small class="note">${esc(sp.no)} · ${esc(e.musteri || sp.cariAd || "")}</small></h2><button class="x" id="megX" aria-label="Kapat">×</button></div>
+    <div class="db">${E.map((x, i) => `<section class="megs"><h3 class="sec-t">${esc(x.ad)} <small>${/pdf/i.test(x.tip || x.ad) ? "PDF" : "Görsel"}</small></h3><div class="megb" id="megB${i}"><p class="note">Yükleniyor…</p></div></section>`).join("")}</div>
+    <div class="df"><span class="note">Görsele dokununca büyür</span><div class="r"><button class="btn" id="megK" type="button">Kapat</button></div></div>
+  </aside>`;
+  $("#scrim").onclick = kapat; $("#megX").onclick = kapat; $("#megK").onclick = kapat;
+  for (let i = 0; i < E.length; i++) {
+    const x = E[i], box = $("#megB" + i); if (!box) return;
+    try {
+      const blob = await spEkOku(sp.id, x);
+      if (/pdf/i.test(x.tip || "") || /\.pdf$/i.test(x.ad || "")) {
+        const lib = await pdfjsYukle(), pdf = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise; box.innerHTML = "";
+        for (let n = 1; n <= Math.min(pdf.numPages, 20); n++) {
+          const pg = await pdf.getPage(n), vp0 = pg.getViewport({ scale: 1 }), sc = Math.min(2.2, 1800 / vp0.width), vp = pg.getViewport({ scale: sc });
+          const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height; c.className = "megp"; c.setAttribute("aria-label", `${x.ad} · sayfa ${n}`);
+          await pg.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise; box.appendChild(c);
+          c.onclick = () => utLightbox(c.toDataURL("image/jpeg", .9), `${x.ad} · sayfa ${n}`);
+        }
+        if (pdf.numPages > 20) box.insertAdjacentHTML("beforeend", `<p class="note">İlk 20 sayfa gösteriliyor (toplam ${pdf.numPages}).</p>`);
+      } else {
+        const u = URL.createObjectURL(blob); urls.push(u);
+        box.innerHTML = `<img class="megp" src="${u}" alt="${esc(x.ad)}">`; box.querySelector("img").onclick = () => utLightbox(u, x.ad);
+      }
+    } catch (er) {   // PDF görüntüleyici yüklenemezse tarayıcının kendi PDF görüntüleyicisi
+      try { const blob = await spEkOku(sp.id, x), u = URL.createObjectURL(blob); urls.push(u);
+        box.innerHTML = `<iframe class="megf" src="${u}" title="${esc(x.ad)}"></iframe><a class="btn ghost sm" href="${u}" target="_blank" rel="noopener">Yeni sekmede aç</a>`; }
+      catch (e2) { box.innerHTML = `<p class="note">Açılamadı: ${esc(er.message || String(er))}</p>`; }
+    }
+  }
 }
 const plDur = dk => { dk = Math.round(dk); return dk >= 60 ? `${Math.floor(dk / 60)} sa ${dk % 60} dk` : dk + " dk"; };
 function plMesView(v) {
@@ -8481,6 +8523,7 @@ function plMesView(v) {
   v.querySelectorAll("[data-mk]").forEach(c => c.querySelectorAll("[data-ma]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); const key = c.dataset.mk, a = b.dataset.ma, j = byKey.get(key);
     if (a === "sec") { MES.sec.has(key) ? MES.sec.delete(key) : MES.sec.add(key); plMesView(v); return; }
     if (a === "sd") { const jj = byKey.get(key); if (jj) mesSipDetay(jj.e); return; }
+    if (a === "ek") { const jj = byKey.get(key); if (jj) mesEkGor(jj.e); return; }
     if (!j) return; b.disabled = true;
     if (a === "bit") { const r = await mesBitir([j], act); if (!r) { b.disabled = false; return; } } else await act(j, a); }));
   v.querySelectorAll("[data-gs]").forEach(b => b.onclick = () => { const L = G.get(b.dataset.gs).filter(j => j.st !== "bekle").map(j => j.key), all = L.every(x => MES.sec.has(x)); L.forEach(x => all ? MES.sec.delete(x) : MES.sec.add(x)); plMesView(v); });
