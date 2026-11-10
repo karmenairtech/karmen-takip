@@ -832,7 +832,7 @@ select.vd-musait{color:var(--ok);font-weight:600}select.vd-arizali{color:var(--b
 .nowr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);cursor:pointer;font-size:13.5px}
 .nowr:first-of-type{border-top:0}.nowr:hover{background:var(--surface-2)}
 .nowr .note{font-size:12px}
-.ieled .lhead,.ieled .row{grid-template-columns:120px minmax(0,2fr) 90px minmax(0,1.4fr) 84px 130px 120px;gap:12px;padding:11px 16px 11px 20px}
+.ieled .lhead,.ieled .row{grid-template-columns:160px minmax(0,2fr) 90px minmax(0,1.4fr) 84px 130px 120px;gap:12px;padding:11px 16px 11px 20px}
 .ieled .when,.opled .when{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
 .ieled .prog .bar{height:7px}
 .iehead{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border-bottom:1px solid var(--line);flex:none}
@@ -1440,3 +1440,6 @@ body.mesdev .toolbar{display:none}
 .twb.on{background:#f0a020;border-color:#f0a020;color:#1b1300}
 .twb:hover{border-color:var(--brand)}
 @media (max-width:640px){.twl{display:none}.twc{left:8px;right:8px;bottom:8px}.twb[data-hf]{flex:0 0 46px;font-size:18px}}
+.ieln{display:inline-block;min-width:26px;margin-right:6px;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink-3)}
+.iech .ieln{min-width:32px}
+.spk3 .sptop{width:110px;font-weight:700}

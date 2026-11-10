@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "45";
+const APP_V = "48";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4168,10 +4168,10 @@ function plIeView(v) {
     if (!PL.ac) PL.ac = new Set(F.sip ? [F.sip] : []);
     const G = new Map(); rows.forEach(r => { const key = r.e.siparisNo || "__stok"; if (!G.has(key)) G.set(key, []); G.get(key).push(r); });
     $("#ieInfo").innerHTML = `${G.size} ana sipariş · ${rows.length} iş emri <button type="button" class="linkbtn" id="ieAll">${PL.ac.size ? "tümünü kapat" : "tümünü aç"}</button>`;
-    const child = ({ e, s }) => {
+    const child = ({ e, s }, sn) => {
       const st = PL_EDUR[e.durum] || PL_EDUR.plan, risk = s.late || s.over;
       return `<div class="row" role="row" tabindex="0" data-ie="${esc(e.id)}" style="--stripe:${risk ? "var(--k-izinsiz)" : e.oncelik !== "normal" ? PL_ONC[e.oncelik][1] : "transparent"}">
-        <div><b class="num">${esc(e.no)}</b>${e.deneme ? '<div><span class="ttag" style="--tc:var(--warn)">DENEME</span></div>' : ""}${e.oncelik && e.oncelik !== "normal" ? `<div><span class="ttag" style="--tc:${PL_ONC[e.oncelik][1]}">${PL_ONC[e.oncelik][0].toLocaleUpperCase("tr")}</span></div>` : ""}</div>
+        <div>${sn ? `<span class="ieln">${sn}</span>` : ""}<b class="num">${esc(e.no)}</b>${e.deneme ? '<div><span class="ttag" style="--tc:var(--warn)">DENEME</span></div>' : ""}${e.oncelik && e.oncelik !== "normal" ? `<div><span class="ttag" style="--tc:${PL_ONC[e.oncelik][1]}">${PL_ONC[e.oncelik][0].toLocaleUpperCase("tr")}</span></div>` : ""}</div>
         <div class="ska"><b>${esc(e.urunAd)}</b><div class="desc">${e.siparisNo ? `${esc(e.siparisNo)}${e.musteri ? " · " + esc(e.musteri) : ""}` : "Stoka üretim"}</div></div>
         <div class="num">${nf(e.miktar)} <small class="note">${esc(e.birim || "Adet")}</small></div>
         <div><div class="prog"><div class="bar"><span style="width:${s.pct}%;--fill:${e.durum === "bitti" ? "var(--k-fabrikada)" : risk ? "var(--k-izinsiz)" : "var(--brand)"}"></span></div><span class="pct num">%${s.pct}</span></div>
@@ -4180,17 +4180,17 @@ function plIeView(v) {
         <div><span class="date">${e.termin ? fmtS(e.termin) : "—"}</span>${e.durum === "bitti" ? `<div class="when">Bitti ${fmtS(dayOf(s.eta))}</div>` : plIeOpen(e) ? `<div class="when ${risk ? "late" : ""}">Tahmini ${fmtS(s.etaDay)}</div>` : ""}</div>
         <div><span class="kst" style="--tc:${st[1]}">${st[0]}</span></div></div>`;
     };
-    const parent = (key, L) => { const sp = SP.list.find(x => x.no === key), S = L.map(r => r.s), plan = S.reduce((a, x) => a + x.plan, 0), done = S.reduce((a, x) => a + x.done, 0), pct = plan ? Math.round(done / plan * 100) : Math.round(S.reduce((a, x) => a + x.pct, 0) / (S.length || 1));
+    const parent = (key, L, gn) => { const sp = SP.list.find(x => x.no === key), S = L.map(r => r.s), plan = S.reduce((a, x) => a + x.plan, 0), done = S.reduce((a, x) => a + x.done, 0), pct = plan ? Math.round(done / plan * 100) : Math.round(S.reduce((a, x) => a + x.pct, 0) / (S.length || 1));
       const risk = L.some(r => r.s.late || r.s.over), bit = L.filter(r => r.e.durum === "bitti").length, ter = L.map(r => r.e.termin).filter(Boolean).sort()[0] || (sp && sp.verilenTermin) || "", acik = PL.ac.has(key), stok = key === "__stok";
       const mus = stok ? "Stoka üretim" : (sp && sp.cariAd) || L[0].e.musteri || "", pro = (sp && sp.proje && sp.proje.ad) || L[0].e.proje || "", eta = L.filter(r => plIeOpen(r.e)).map(r => r.s.etaDay).sort().slice(-1)[0];
       return `<div class="row iegp${acik ? " acik" : ""}" role="row" tabindex="0" data-ieg="${esc(key)}" style="--stripe:${risk ? "var(--k-izinsiz)" : bit === L.length ? "var(--k-fabrikada)" : "var(--brand)"}">
-        <div><span class="iecar">${acik ? "▾" : "▸"}</span> <b class="num">${stok ? "Stok" : esc(key)}</b><div class="note">${L.length} alt iş emri</div></div>
+        <div><span class="ieln">${gn}</span><span class="iecar">${acik ? "▾" : "▸"}</span> <b class="num">${stok ? "Stok" : esc(key)}</b><div class="note">${L.length} alt iş emri</div></div>
         <div class="ska"><b>${esc(mus)}</b><div class="desc">${esc(pro)}</div></div><div class="num">${L.length}</div>
         <div><div class="prog"><div class="bar"><span style="width:${pct}%;--fill:${bit === L.length ? "var(--k-fabrikada)" : risk ? "var(--k-izinsiz)" : "var(--brand)"}"></span></div><span class="pct num">%${pct}</span></div><div class="when">${bit}/${L.length} tamamlandı</div></div>
         <div></div><div><span class="date">${ter ? fmtS(ter) : "—"}</span>${eta && bit < L.length ? `<div class="when ${risk ? "late" : ""}">Tahmini ${fmtS(eta)}</div>` : ""}</div>
         <div>${risk ? '<span class="kst" style="--tc:var(--k-izinsiz)">Termin riski</span>' : bit === L.length ? '<span class="kst" style="--tc:var(--k-fabrikada)">Tamamlandı</span>' : `<span class="kst" style="--tc:var(--brand)">${L.filter(r => r.e.durum === "uretim").length ? "Üretimde" : "Planlandı"}</span>`}</div></div>
-        ${acik ? L.map(r => child(r).replace('class="row"', 'class="row iech"')).join("") : ""}`; };
-    $("#ieList").innerHTML = `<div class="ledger ieled" role="table"><div class="lhead" role="row"><div>Sipariş / iş emri</div><div>Müşteri / ürün</div><div>Miktar</div><div>İlerleme</div><div>Verimlilik</div><div>Termin / tahmini bitiş</div><div>Durum</div></div>${rows.length ? [...G.entries()].map(([k, L]) => parent(k, L)).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtrelere uyan iş emri yok.</div>'}</div>`;
+        ${acik ? L.map((r, j) => child(r, `${gn}.${j + 1}`).replace('class="row"', 'class="row iech"')).join("") : ""}`; };
+    $("#ieList").innerHTML = `<div class="ledger ieled" role="table"><div class="lhead" role="row"><div>Sipariş / iş emri</div><div>Müşteri / ürün</div><div>Miktar</div><div>İlerleme</div><div>Verimlilik</div><div>Termin / tahmini bitiş</div><div>Durum</div></div>${rows.length ? [...G.entries()].map(([k, L], gi) => parent(k, L, gi + 1)).join("") : '<div class="row" style="display:block;cursor:default;color:var(--ink-2)">Bu filtrelere uyan iş emri yok.</div>'}</div>`;
     $("#ieList").querySelectorAll("[data-ieg]").forEach(el => { const go = () => { const k = el.dataset.ieg; PL.ac.has(k) ? PL.ac.delete(k) : PL.ac.add(k); draw(); }; el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
     $("#ieAll").onclick = () => { if (PL.ac.size) PL.ac.clear(); else G.forEach((_, k) => PL.ac.add(k)); draw(); };
     $("#ieList").querySelectorAll("[data-ie]").forEach(el => { const go = () => plOpenIe(el.dataset.ie); el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
@@ -4916,6 +4916,8 @@ function plAkisForKod(kod) {
 /* ================= CARİ (müşteriler ve tedarikçiler) ================= */
 const CR = { list: [], ready: false, view: "ted", F: { q: "", kat: "", sinif: "", dur: "aktif" } };
 const crAd = c => c ? (c.kisaAd || c.unvan || "") : "";
+// seçim listelerinde kısa ad + unvan birlikte: kısa adla da tam unvanla da yazarak bulunur
+const crSecAd = c => !c ? "" : c.kisaAd && c.unvan && c.kisaAd !== c.unvan ? `${c.kisaAd} · ${c.unvan}` : (c.unvan || c.kisaAd || "");
 const crFind = id => CR.list.find(c => c.id === id) || null;
 const crFold = s => trFold(s).replace(/(ANONIMSIRKETI|LIMITEDSIRKETI|SANAYIVETICARET|SANVETIC|LTDSTI|SANTIC|AS$|LTD$|STI$)/g, "");
 const crByName = n => { const k = crFold(n); return k ? CR.list.find(c => crFold(c.unvan) === k || (c.kisaAd && crFold(c.kisaAd) === k)) || null : null; };
@@ -5409,7 +5411,7 @@ function saBar(v, opts, info) {
   const F = SA.F;
   v.innerHTML = `<div class="pkbar"><div class="filters">
       <select class="f${F.dur !== "acik" ? " on" : ""}" id="saDur" aria-label="Durum">${opts.map(([a, l]) => opt(a, l, F.dur)).join("")}</select>
-      ${info.cari ? `<select class="f${F.cari ? " on" : ""}" id="saCari" aria-label="Tedarikçi"><option value="">Tüm tedarikçiler</option>${crTeds().map(c => opt(c.id, crAd(c), F.cari)).join("")}</select>` : ""}
+      ${info.cari ? `<select class="f${F.cari ? " on" : ""}" id="saCari" aria-label="Tedarikçi"><option value="">Tüm tedarikçiler</option>${crTeds().map(c => opt(c.id, crSecAd(c), F.cari)).join("")}</select>` : ""}
       <input class="f" id="saQ" type="search" placeholder="${esc(info.ph)}" aria-label="Ara" value="${esc(F.q)}"></div>
     <div class="filters"><span class="sortinfo" id="saInfo"></span>${info.extra || ""}</div></div><div id="saList"></div>`;
   $("#saDur").onchange = e => { F.dur = e.target.value; renderSA(); };
@@ -5648,7 +5650,7 @@ async function saOpenTalepForm(id, opts = {}) {
         <div class="field"><label for="tTer">İstenen teslim tarihi</label><input id="tTer" type="date" min="${TODAY}" value="${esc(v("ter", cur ? cur.termin || "" : opts.termin && opts.termin >= TODAY ? opts.termin : ""))}"></div>
         <div class="field"><label for="tRef">İş emri / proje / sipariş</label><input id="tRef" maxlength="60" value="${esc(v("ref", cur ? cur.ref || "" : opts.ref || ""))}" placeholder="Örn. İE-2026-0012, SP-2026-130"></div>
         <div class="field full"><label for="tAc">Gerekçe / açıklama</label><textarea id="tAc" maxlength="1000" placeholder="Neden gerekli, nerede kullanılacak, özel istekler…">${esc(v("ac", cur ? cur.aciklama || "" : opts.aciklama || ""))}</textarea></div>
-        <div class="field full"><label for="tTed">Önerilen tedarikçi (isteğe bağlı)</label><select id="tTed"><option value="">—</option>${crTeds().map(c => opt(c.id, crAd(c) + (c.kategori ? " · " + c.kategori : ""), v("ted", cur ? cur.oneriCariId || "" : ""))).join("")}</select></div></div>
+        <div class="field full"><label for="tTed">Önerilen tedarikçi (isteğe bağlı)</label><select id="tTed"><option value="">—</option>${crTeds().map(c => opt(c.id, crSecAd(c) + (c.kategori ? " · " + c.kategori : ""), v("ted", cur ? cur.oneriCariId || "" : ""))).join("")}</select></div></div>
         <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>${saKalemHtml(K, "talep", true)}
           ${lvl("stok") !== "none" ? '<button type="button" class="btn ghost sm" id="tKrit" style="margin-top:8px">Kritik seviyedeki stokları ekle</button>' : ""}</section>
         <p class="note" style="margin:0" id="tEst"></p>
@@ -5894,7 +5896,7 @@ async function saOpenPOForm(id, opts = {}) {
       <div class="db">
         ${tl || tk ? `<div class="izbal">${tl ? `Talep <b class="num">${esc(tl.no)}</b> (${esc(tl.createdBy || "")}, ${esc(saOnayDurum(tl))})` : ""}${tk ? `${tl ? " · " : ""}Fiyat talebi <b class="num">${esc(tk.no)}</b>${tk.proformaNo ? " · proforma " + esc(tk.proformaNo) : ""}` : ""}</div>` : ""}
         <div class="fgrid">
-          <div class="field full"><label for="pCari">Tedarikçi *</label><select id="pCari"><option value="">Seçin</option>${crTeds().map(c => { const s = saScore(c.id); return opt(c.id, crAd(c) + (c.kategori ? " · " + c.kategori : "") + (s.sinif ? " · " + s.sinif + " sınıfı" : ""), v("cari")); }).join("")}</select></div>
+          <div class="field full"><label for="pCari">Tedarikçi *</label><select id="pCari"><option value="">Seçin</option>${crTeds().map(c => { const s = saScore(c.id); return opt(c.id, crSecAd(c) + (c.kategori ? " · " + c.kategori : "") + (s.sinif ? " · " + s.sinif + " sınıfı" : ""), v("cari")); }).join("")}</select></div>
           <div class="field"><label for="pTar">Sipariş tarihi</label><input id="pTar" type="date" value="${esc(v("tar"))}"></div>
           <div class="field"><label for="pTer">Termin (teslim tarihi)</label><input id="pTer" type="date" value="${esc(v("ter"))}"></div>
           <div class="field"><label for="pPb">Para birimi</label><select id="pPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>
@@ -6103,7 +6105,9 @@ async function saSend(kind, id, kanal) {
       const blob = await saPdf(kind, d), file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
       const mobile = matchMedia("(pointer:coarse)").matches, canShare = mobile && file && navigator.canShare && navigator.canShare({ files: [file] });
       if (kanal === "pdf") { await saveFile(blob, name); return; }
-      if (canShare) { try { await navigator.share({ files: [file], title: m.konu, text: m.metin }); } catch (e) { if (e && e.name === "AbortError") return; throw e; } }
+      const wr = kanal === "wa" ? await waPdfPaylas(file, m.metin, m.konu) : "yok"; if (wr === "iptal") return;
+      if (wr === "ok") {}
+      else if (canShare && kanal !== "wa") { try { await navigator.share({ files: [file], title: m.konu, text: m.metin }); } catch (e) { if (e && e.name === "AbortError") return; throw e; } }
       else {
         await saveFile(blob, name);
         const y = (c.yetkililer || []).find(x => x.eposta || x.tel) || {};
@@ -6285,7 +6289,7 @@ async function saFaturaEsle(Q, qi) {
         ${dup ? `<div class="izbal" style="--tc:var(--k-izinsiz)"><b>Bu fatura daha önce işlendi</b> (${esc(dup.no)} · ${fmtS(dup.tarih)}). Tekrar işlenirse fiyat arşivine ve stoğa ikinci kez yazılabilir.</div>` : ""}
         <div class="fgrid">
           <div class="izbal"><b>${esc(inv.satici.ad)}</b><div class="note">VKN ${esc(inv.satici.vkn || "—")}${inv.satici.vd ? " · " + esc(inv.satici.vd) : ""} · ${esc([inv.satici.ilce, inv.satici.il].filter(Boolean).join(" / "))}</div>
-            <div class="field" style="margin-top:8px"><label for="feCari">Tedarikçi kartı</label><select id="feCari"><option value="__yeni"${!curCari ? " selected" : ""}>＋ Faturadaki bilgilerle yeni tedarikçi aç</option>${crTeds().map(c => opt(c.id, crAd(c) + (c.vergiNo ? " · " + c.vergiNo : ""), opt0.cari)).join("")}</select></div></div>
+            <div class="field" style="margin-top:8px"><label for="feCari">Tedarikçi kartı</label><select id="feCari"><option value="__yeni"${!curCari ? " selected" : ""}>＋ Faturadaki bilgilerle yeni tedarikçi aç</option>${crTeds().map(c => opt(c.id, crSecAd(c) + (c.vergiNo ? " · " + c.vergiNo : ""), opt0.cari)).join("")}</select></div></div>
           <div class="izbal"><b>${fmtS(inv.tarih)} · ${money(inv.genel, inv.pb)}</b><div class="note">KDV hariç ${money(inv.ara, inv.pb)} · KDV ${money(inv.kdv, inv.pb)}${inv.irsaliye.length ? " · irsaliye " + esc(inv.irsaliye.join(", ")) : ""}${inv.siparisRef.length ? " · sipariş ref. " + esc(inv.siparisRef.join(", ")) : ""}</div>
             <div class="field" style="margin-top:8px"><label for="fePo">Bağlı sipariş</label><select id="fePo"><option value="">— Siparişsiz —</option>${[...new Set([...P, ...candP])].map(p => opt(p.id, `${p.no} · ${fmtS(p.tarih)} · ${(SA_SDUR[p.durum] || [""])[0]}`, poIds[0] || "")).join("")}</select></div></div></div>
         <section><h3 class="sec-t">Satırlar <small>${nOk} eşleşti · ${nYeni} yeni kart · ${L.filter(l => l.durum === "atla").length} işlenmeyecek</small></h3>
@@ -6905,7 +6909,10 @@ function spEta(s) { let mx = 0, plansiz = false; (s.kalemler || []).forEach(k =>
 function spRisk(s) { if (!spAcik(s) || !s.verilenTermin) return false; if (s.verilenTermin < TODAY) return true; const e = spEta(s); return !!(e.eta && e.eta > s.verilenTermin); }
 function spPct(s) { const K = s.kalemler || [], T = K.reduce((a, k) => a + (Number(k.miktar) || 0), 0) || 1; return { plan: Math.round(K.reduce((a, k) => a + spPlanli(k), 0) / T * 100), uretim: Math.round(K.reduce((a, k) => a + spUretilen(k), 0) / T * 100), sevk: Math.round(K.reduce((a, k) => a + Math.min(Number(k.miktar) || 0, Number(k.sevk) || 0), 0) / T * 100) }; }
 function spTotals(spId) { const F = SP.fiyat[spId]; if (!F) return null; const s = SP.list.find(x => x.id === spId); const K = (s ? s.kalemler : []).map(k => ({ miktar: k.miktar, ...(F.k || {})[k.k] })); return { ...saTotals(K), pb: F.pb || "TRY" }; }
-const spNextNo = () => saNextNo("SP", SP.list);
+// Sipariş no: KRM-YYYY-NNNN (eski SP- numaraları da sayılır, sıra kaldığı yerden devam eder)
+const SP_NO_RE = y => new RegExp("^(?:SP|KRM)-" + y + "-(\\d+)$");
+const spNoSon = L => { const y = TODAY.slice(0, 4), re = SP_NO_RE(y); return Math.max(0, ...L.map(n => { const m = String(n || "").trim().match(re); return m ? Number(m[1]) : 0; })); };
+const spNextNo = () => `KRM-${TODAY.slice(0, 4)}-${String(spNoSon(SP.list.map(x => x.no)) + 1).padStart(4, "0")}`;
 const spLog = (s, t) => (s.log || []).concat([{ at: Date.now(), by: ME.name, t }]).slice(-80);
 const spNewK = () => "k" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 function spRezerve(sid) { let m = 0; const L = []; SP.list.filter(s => spAcik(s)).forEach(s => (s.kalemler || []).forEach(k => { const r = (Number(k.stok) || 0) - Math.min(Number(k.stok) || 0, Number(k.stokSevk) || 0); if (k.sid === sid && r > 0) { m += r; L.push({ id: s.id, no: s.no }); } })); return { miktar: m, L }; }
@@ -7080,7 +7087,7 @@ async function spOpenForm(id, pre) {
       <div class="dh"><h2 id="sfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> siparişi düzenle${onayli ? ` <small class="note">(onaylı: kaydedince revizyon ${(cur.rev || 0) + 1})</small>` : ""}` : "Yeni sipariş"}</h2><button class="x" id="sfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri ve proje</h3><div class="fgrid">
-          <div class="field full"><label for="fCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="fCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crAd(x) + (x.il ? " · " + x.il : ""), v("fCari", cur ? cur.cariId : ""))).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="fNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.tel, (c.yetkililer || [])[0] && c.yetkililer[0].ad, c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
+          <div class="field full"><label for="fCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="fCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), v("fCari", cur ? cur.cariId : ""))).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="fNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.tel, (c.yetkililer || [])[0] && c.yetkililer[0].ad, c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
           <div class="field"><label for="fPa">Proje adı</label><input id="fPa" list="fPaL" maxlength="120" value="${esc(v("fPa", P.ad || ""))}" placeholder="Örn. Örnek Hastane B Blok"><datalist id="fPaL">${projeler.map(a => `<option value="${esc(a)}">`).join("")}</datalist></div>
           <div class="field"><label for="fPt">Proje tipi</label><select id="fPt">${["", ...SP_PROJE_TIP].map(a => opt(a, a || "—", v("fPt", P.tip || ""))).join("")}</select></div>
           <div class="field"><label for="fPm">Mekanik müteahhit / firma</label><input id="fPm" maxlength="100" value="${esc(v("fPm", P.muteahhit || ""))}"></div>
@@ -7110,7 +7117,7 @@ async function spOpenForm(id, pre) {
                 <input class="kin" id="qMh${i}" maxlength="60" value="${esc(k.mahal || "")}" placeholder="Mahal / etiket" style="flex:0 1 150px">
                 <input class="kin" id="qT${i}" type="date" value="${esc(k.termin || "")}" title="Kalem termini (boşsa sipariş termini)" style="flex:0 0 140px"></div>
               <textarea class="kin tknot spacik" data-qac="${i}" maxlength="1000" rows="1" placeholder="Ürün açıklaması: ölçü detayı, montaj şekli, teknik not… (sipariş formunda ve iş emrinde ürünün altında yazar)" aria-label="Ürün açıklaması">${esc(k.aciklama || "")}</textarea>
-              ${pr ? `<div class="spk3"><label>Birim fiyat <input class="kin num" id="qF${i}" type="number" min="0" step="any" value="${esc(k.fiyat ?? "")}"></label><label>İsk. % <input class="kin num" id="qI${i}" type="number" min="0" max="100" value="${esc(k.isk || "")}"></label><label>KDV <select class="kin" id="qK${i}">${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></label><b class="num" id="qTt${i}">${money(saLine(k).net, pb)}</b></div>` : ""}</div>`; }).join("") : '<p class="note">Kalem yok. Stokta arayın, ölçüden ekleyin ya da serbest kalem girin.</p>'}</div>
+              ${pr ? `<div class="spk3"><label>Birim fiyat <input class="kin num" id="qF${i}" type="number" min="0" step="any" value="${esc(k.fiyat ?? "")}"></label><label>İsk. % <input class="kin num" id="qI${i}" type="number" min="0" max="100" value="${esc(k.isk || "")}"></label><label>KDV <select class="kin" id="qK${i}">${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></label><label title="Toplam fiyat verildiyse buraya yazın; birim fiyat kendiliğinden hesaplanır">Toplam <input class="kin num sptop" id="qTo${i}" type="number" min="0" step="any" value="${k.fiyat != null && k.fiyat !== "" ? Math.round(saLine(k).net * 100) / 100 : ""}" placeholder="0,00"></label></div>` : ""}</div>`; }).join("") : '<p class="note">Kalem yok. Stokta arayın, ölçüden ekleyin ya da serbest kalem girin.</p>'}</div>
           <div class="kara"><input id="kAra" type="search" placeholder="Stok kodu ya da ürün adı (M-0101, lineer slot 2li…)" autocomplete="off"><button type="button" class="btn ghost sm" id="kSer">Serbest kalem</button><button type="button" class="btn ghost sm" id="fOlc">Ölçüden ekle</button></div><div id="kAraR" class="karar"></div>
           ${pr ? `<div id="poSum">${saSumHtml(K, pb, v("fKur", F0.kur))}</div>` : ""}</section>
         <section><h3 class="sec-t">Notlar ve ekler</h3><div class="fgrid"><div class="field full"><label for="fNot">Sipariş notu</label><textarea id="fNot" maxlength="2000" placeholder="Ambalaj, sevkiyat, montaj ve teknik notlar…">${esc(v("fNot", cur ? cur.not || "" : ""))}</textarea></div></div>
@@ -7130,7 +7137,14 @@ async function spOpenForm(id, pre) {
     document.querySelectorAll("[data-qo]").forEach(s => s.oninput = () => { K[Number(s.dataset.qo)].ozel = s.value.trim(); if (s.tagName === "TEXTAREA") { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; } });
     document.querySelectorAll("[data-qrm]").forEach(b => b.onclick = () => { keep(); K.splice(Number(b.dataset.qrm), 1); paint(); });
     document.querySelectorAll("[data-qac]").forEach(s => { const fit = () => { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; }; if (s.value) fit(); s.oninput = () => { K[Number(s.dataset.qac)].aciklama = s.value.trim(); fit(); }; });
-    if (pr) K.forEach((k, i) => ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const t = $("#qTt" + i); if (t) t.textContent = money(saLine(K[i]).net, ($("#fPb") || {}).value || "TRY"); const s = $("#poSum"); if (s) s.innerHTML = saSumHtml(K, ($("#fPb") || {}).value || "TRY", ($("#fKur") || {}).value); }); }));
+    const sumYaz = () => { const s = $("#poSum"); if (s) s.innerHTML = saSumHtml(K, ($("#fPb") || {}).value || "TRY", ($("#fKur") || {}).value); };
+    if (pr) K.forEach((k, i) => {
+      ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const t = $("#qTo" + i); if (t && document.activeElement !== t) t.value = K[i].fiyat != null && K[i].fiyat !== "" ? Math.round(saLine(K[i]).net * 100) / 100 : ""; sumYaz(); }); });
+      // toplam fiyat girilirse birim fiyat geri hesaplanır: toplam / (miktar × (1 − iskonto))
+      const to = $("#qTo" + i); if (to) to.addEventListener("input", () => { const T = Number(to.value), m = Number(($("#qM" + i) || {}).value) || 0, isk = Number(($("#qI" + i) || {}).value) || 0, f = $("#qF" + i);
+        if (!f) return; if (to.value === "" || !(T >= 0)) f.value = ""; else if (m > 0 && isk < 100) f.value = String(Math.round(T / (m * (1 - isk / 100)) * 1e6) / 1e6); else { toast("Önce miktarı girin"); return; }
+        keep(); sumYaz(); });
+    });
     const addLine = async it => { keep(); if (it && K.some(k => k.sid === it.id && !k.ozel)) { const ok = await spEmin("Aynı ürün", `<p><b>${esc(it.kod)} ${esc(it.ad)}</b> listede zaten var. Farklı renk ya da varyasyon için ayrı satır mı açıyorsunuz?</p>`, "Evet, ayrı satır"); if (!ok) return; }
       const k = it ? { k: spNewK(), sid: it.id, kod: it.kod, ad: it.ad, olcu: it.olcu || "", birim: it.birim || "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", mahal: "", termin: "", kdv: 20 } : null;
       if (k && pr) { const s = await saFiyatGet(it.id).catch(() => null); k.kdv = s && s.kdv != null ? s.kdv : 20; }
@@ -7864,7 +7878,7 @@ async function tkOpenForm(id, o = {}) {
       <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri</h3><div class="fgrid">
-          <div class="field full"><label for="tCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="tCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crAd(x) + (x.il ? " · " + x.il : ""), cid)).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="tNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.iskonto ? "müşteri iskontosu %" + c.iskonto : "müşteri iskontosu tanımlı değil", c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
+          <div class="field full"><label for="tCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="tCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), cid)).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="tNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.iskonto ? "müşteri iskontosu %" + c.iskonto : "müşteri iskontosu tanımlı değil", c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
           <div class="field"><label for="tYet">Firma yetkilisi</label><input id="tYet" list="tYetL" maxlength="80" value="${esc(v("tYet", base ? base.yetkili || "" : (yets[0] || {}).ad || ""))}"><datalist id="tYetL">${yets.map(y => `<option value="${esc(y.ad)}">`).join("")}</datalist></div>
           <div class="field"><label for="tTel">Telefon</label><input id="tTel" type="tel" maxlength="20" value="${esc(v("tTel", base ? base.tel || "" : (yets[0] || {}).tel || (c ? c.tel || "" : "")))}"></div>
           <div class="field"><label for="tMail">E-posta</label><input id="tMail" type="email" maxlength="120" value="${esc(v("tMail", base ? base.eposta || "" : (yets[0] || {}).eposta || (c ? c.eposta || "" : "")))}"></div>
@@ -8032,9 +8046,22 @@ function aliciSec(kanal, c, ekstra = []) {
     h.querySelector("#alO").onclick = () => { const s = h.querySelector('input[name="al"]:checked'); if (!s) return; if (s.value === "x") { const v = X.value.trim(); if (!v) { X.focus(); return; } done({ ad: "", val: v }); } else done(A[Number(s.value)]); };
   });
 }
+// WhatsApp'a PDF ekli gönderim: cihazın paylaşım menüsü (Windows/Android/iOS) WhatsApp'ı listeler; PDF ve mesaj birlikte gider.
+// wa.me bağlantısı dosya taşıyamaz; paylaşım menüsü yoksa PDF indirilip WhatsApp sohbeti açılır.
+async function waPdfPaylas(file, metin, konu) {
+  if (!(file && navigator.canShare && navigator.canShare({ files: [file] }))) return "yok";
+  const dene = async () => { try { await navigator.share({ files: [file], title: konu || file.name, text: metin }); return "ok"; } catch (e) { return e && e.name === "AbortError" ? "iptal" : e && e.name === "NotAllowedError" ? "izin" : "yok"; } };
+  let r = await dene();
+  if (r === "izin") {   // PDF hazırlanırken tıklama süresi doldu: tek dokunuşla yeniden dene
+    r = await spModal(`<label>PDF hazır</label><p class="note" style="margin:0 0 12px">${esc(file.name)} · açılan menüden <b>WhatsApp</b>'ı ve kişiyi seçin. PDF ve mesaj birlikte gider.</p>
+      <div class="r"><button type="button" class="btn ghost" id="wpX">Vazgeç</button><button type="button" class="btn" id="wpO">WhatsApp'ta paylaş</button></div>`, (h, done) => { h.querySelector("#wpX").onclick = () => done("iptal"); h.querySelector("#wpO").onclick = async () => done(await dene()); });
+  }
+  return r;
+}
 async function docSend(o) {   // {blob, name, konu, metin, kanal: wa|mail, val}
   const file = typeof File === "function" ? new File([o.blob], o.name, { type: "application/pdf" }) : null;
-  const mobile = matchMedia("(pointer:coarse)").matches, canShare = mobile && file && navigator.canShare && navigator.canShare({ files: [file] });
+  if (o.kanal === "wa") { const r = await waPdfPaylas(file, o.metin, o.konu); if (r === "ok") return true; if (r === "iptal") return false; }
+  const mobile = matchMedia("(pointer:coarse)").matches, canShare = o.kanal !== "wa" && mobile && file && navigator.canShare && navigator.canShare({ files: [file] });
   if (canShare) { try { await navigator.share({ files: [file], title: o.konu, text: o.metin }); return true; } catch (e) { if (e && e.name === "AbortError") return false; throw e; } }
   await saveFile(o.blob, o.name);
   if (o.kanal === "wa") { const ph = crPhone(o.val); window.open(`https://wa.me/${ph}?text=${encodeURIComponent(o.metin)}`, "_blank", "noopener"); toast("PDF indirildi · WhatsApp açıldı: PDF'i sohbete sürükleyin"); }
@@ -8738,7 +8765,7 @@ function renderYtMes() {
 const YTM = { dev: null, tabs: null, mod: null };
 
 /* Planlama: sıradaki sipariş no (yeni iş emri formu) */
-function plSiradakiSip() { const y = TODAY.slice(0, 4), re = new RegExp("^SP-" + y + "-(\\d+)$"), N = [...SP.list.map(x => x.no), ...PL.ie.map(e => e.siparisNo)].map(n => { const m = String(n || "").trim().match(re); return m ? Number(m[1]) : 0; }); return `SP-${y}-${String(Math.max(0, ...N) + 1).padStart(4, "0")}`; }
+function plSiradakiSip() { return `KRM-${TODAY.slice(0, 4)}-${String(spNoSon([...SP.list.map(x => x.no), ...PL.ie.map(e => e.siparisNo)]) + 1).padStart(4, "0")}`; }
 document.addEventListener("click", e => { const b = e.target.closest && e.target.closest("#nSipNx"); if (!b) return; const i = $("#nSip"); if (i) { i.value = plSiradakiSip(); i.dispatchEvent(new Event("input", { bubbles: true })); i.focus(); } });
 /* Yönetici: deneme sürecindeki bütün iş emirlerini sil */
 function plTumunuSil() {
