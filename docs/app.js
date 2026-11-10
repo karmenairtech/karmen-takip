@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "52";
+const APP_V = "53";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -52,7 +52,7 @@ let ME = null;            // {uid,email,name,role}
 let unsubs = [];
 /* ================= Yetki modeli ================= */
 // Modül seviyesi: none (erişim yok) · view (gözlemci) · use (kullanıcı) · edit (düzenleyici). Sistem yöneticisi her şeyi yapar.
-const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat", "pano", "urun"];
+const PERM_MODS = ["proje", "stok", "satinalma", "cari", "disis", "personel", "cv", "planlama", "siparis", "sevkiyat", "pano", "urun", "muhasebe"];
 const PERM_LEVELS = [["none", "Erişim yok"], ["view", "Gözlemci"], ["use", "Kullanıcı"], ["edit", "Düzenleyici"]];
 const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
@@ -66,7 +66,8 @@ const PERM_ACTS = {
   siparis: [["sp.teklif", "Teklif hazırlama, gönderme ve siparişe dönüştürme"], ["sp.edit", "Sipariş girme, onaylama ve düzenleme"], ["sp.fiyat", "Satış ve liste fiyatlarını görme ve girme"], ["sp.cfg", "Varyasyon, renk ve teklif ayarları"], ["sp.delete", "Teklif ve sipariş silme"]],
   sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"]],
   pano: [["pano.menu", "Günün yemek menüsünü girme"]],
-  urun: [["ut.edit", "Ürün kartlarını, çizimleri ve açıklamaları düzenleme"], ["ut.takip", "Personelin eğitim durumunu görme"]]
+  urun: [["ut.edit", "Ürün kartlarını, çizimleri ve açıklamaları düzenleme"], ["ut.takip", "Personelin eğitim durumunu görme"]],
+  muhasebe: [["mh.fatura", "FATURA KESİLMİŞTİR işaretleme ve geri alma"], ["mh.fiyat", "Sevk edilen ürünlerin fiyat ve tutarlarını görme"]]
 };
 // Modülden bağımsız genel yetkiler
 const PERM_GLOBAL = [["p.msg", "Mesaj gönderme (üst çubuktaki Mesajlar)"]];
@@ -82,14 +83,15 @@ const PERM_DEF = {
   siparis: { none: [], view: [], use: ["sp.teklif", "sp.edit"], edit: PERM_ACTS.siparis.map(a => a[0]) },
   sevkiyat: { none: [], view: [], use: ["sv.sevk"], edit: PERM_ACTS.sevkiyat.map(a => a[0]) },
   pano: { none: [], view: [], use: [], edit: ["pano.menu"] },
-  urun: { none: [], view: [], use: [], edit: ["ut.edit", "ut.takip"] }
+  urun: { none: [], view: [], use: [], edit: ["ut.edit", "ut.takip"] },
+  muhasebe: { none: [], view: ["mh.fiyat"], use: ["mh.fatura", "mh.fiyat"], edit: ["mh.fatura", "mh.fiyat"] }
 };
 function effPerms(e) {
   if (!e) return null;
   if (e.role === "admin") return { role: "admin", mods: {}, acts: {} };
   if (e.mods && typeof e.mods === "object") return { role: "user", mods: { ...e.mods }, acts: { ...(e.acts || {}) } };
   const L = e.role === "viewer" ? "view" : "use", mods = {}, acts = {};   // eski kayıt (üye / izleyici)
-  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (["pano"].includes(m)) { mods[m] = "none"; return; } if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat", "urun"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
+  PERM_MODS.forEach(m => { if (m === "personel" || m === "cv") { mods[m] = "none"; return; } mods[m] = L; if (["pano", "muhasebe"].includes(m)) { mods[m] = "none"; return; } if (!["stok", "planlama", "satinalma", "cari", "siparis", "sevkiyat", "urun"].includes(m)) ((PERM_DEF[m] || {})[L] || []).forEach(a => acts[a] = true); });  // kişisel veriler eski kayıtlara açılmaz
   return { role: "user", mods, acts };
 }
 const isAdmin = () => !!ME && ME.role === "admin";
@@ -230,9 +232,9 @@ function startData() {
   if (lvl("disis") !== "none") startDisis(); else { DT.jobs = []; DT.ready = true; }
   if (lvl("planlama") !== "none") startPlan(); else { PL.ie = []; PL.ready = true; }
   if (lvl("stok") !== "none") startStok(); else { SK.page = []; SK.stocked = []; SK.cache.clear(); SK.ready = true; }
-  if (lvl("cari") !== "none" || lvl("satinalma") !== "none" || lvl("siparis") !== "none" || lvl("sevkiyat") !== "none") startCari(); else { CR.list = []; CR.ready = true; }
+  if (lvl("cari") !== "none" || lvl("satinalma") !== "none" || lvl("siparis") !== "none" || lvl("sevkiyat") !== "none" || lvl("muhasebe") !== "none") startCari(); else { CR.list = []; CR.ready = true; }
   if (lvl("satinalma") !== "none") startSA(); else { SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true; }
-  if (lvl("siparis") !== "none" || lvl("planlama") !== "none" || lvl("sevkiyat") !== "none") startSP(); else { SP.list = []; SP.ready = true; }
+  if (lvl("siparis") !== "none" || lvl("planlama") !== "none" || lvl("sevkiyat") !== "none" || lvl("muhasebe") !== "none") startSP(); else { SP.list = []; SP.ready = true; }
   if (can("sp.teklif")) startTK(); else { TK.list = []; TK.ready = true; }
   startMesCfg();
   if (lvl("urun") !== "none") startUT();
@@ -969,6 +971,7 @@ const ICONS = {
   planlama: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M7 13h6M10 17h7"/>',
   siparis: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 12h8M9 16h8"/>',
   pano: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-3 3 2 4-5"/>',
+  muhasebe: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h8M9 17h6"/>',
   urun: '<path d="M4 4h16v16H4z"/><path d="M4 15l4-4 4 4 3-3 5 5"/><circle cx="15.5" cy="8.5" r="1.6"/>',
   sevkiyat: '<path d="M1 5h13v11H1z"/><path d="M14 9h4.5l3.5 3.5V16h-8z"/><circle cx="5.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/><path d="M4 9h6M4 12h4"/>',
   cari: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.5 17c.6-1.9 2-3 3.5-3s2.9 1.1 3.5 3"/><path d="M14.5 9.5h4M14.5 13h4"/>',
@@ -987,6 +990,7 @@ const MODULES = [
   { id: "planlama", name: "PLANLAMA MODÜLÜ", desc: "İş istasyonları, ürün iş akış şemaları ve iş emirleri", active: true },
   { id: "siparis", name: "SİPARİŞ TAKİP MODÜLÜ", desc: "Teklifler, müşteri siparişleri, renk teyidi, termin ve planlama havuzu", active: true },
   { id: "sevkiyat", name: "SEVKİYAT MODÜLÜ", desc: "Sevke hazır ürünler, irsaliye, paketleme listesi ve müşteriye gönderim", active: true },
+  { id: "muhasebe", name: "MUHASEBE MODÜLÜ", desc: "Sevk edilen bitmiş ürünler, fatura takibi ve FATURA KESİLMİŞTİR işlemi", active: true },
   { id: "urun", name: "ÜRÜN TANITIM", desc: "Ürünlerimiz, fotoğrafları, teknik çizimleri ve ölçü harfleri · personel eğitimi ve kendini dene testi", active: true },
   { id: "pano", name: "FABRİKA PANOSU", desc: "Smart TV için canlı fabrika ekranı: üretim, verimlilik, makineler, personel ve günün menüsü", active: true }
 ];
@@ -1015,6 +1019,7 @@ function route() {
   $("#modSP").hidden = r !== "siparis";
   $("#modSV").hidden = r !== "sevkiyat";
   $("#modUT").hidden = r !== "urun";
+  $("#modMH").hidden = r !== "muhasebe";
   $("#modPano").hidden = r !== "pano"; if (r !== "pano") document.body.classList.remove("panofs");
   $("#modYetki").hidden = r !== "yetki";
   $("#modPh").hidden = !(mod && !mod.active);
@@ -1033,6 +1038,7 @@ function route() {
   if (r === "sevkiyat") renderSV();
   if (r === "pano") panoGir();
   if (r === "urun") renderUT();
+  if (r === "muhasebe") renderMH();
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); renderYtMes(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
@@ -1057,6 +1063,7 @@ function renderHome() {
     if (m.id === "sevkiyat") return svTile(m);
     if (m.id === "pano") return panoTile(m);
     if (m.id === "urun") return utTile(m);
+    if (m.id === "muhasebe") return mhTile(m);
     if (m.active) return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
       <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
       <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
@@ -1948,7 +1955,7 @@ function wireDisisToolbar() {
 wireDisisToolbar();
 
 /* ================= YETKİLENDİRME (yalnızca yönetici) ================= */
-const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", pano: "Fabrika Panosu", urun: "Ürün Tanıtım", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
+const MOD_SHORT = { proje: "Proje Takip", stok: "Stok", satinalma: "Satınalma", cari: "Cari", cv: "CV Arşivi", sevkiyat: "Sevkiyat", pano: "Fabrika Panosu", urun: "Ürün Tanıtım", muhasebe: "Muhasebe", disis: "Dış İş", personel: "Personel", planlama: "Planlama", siparis: "Sipariş" };
 const LV_SHORT = { none: "Yok", view: "Gözlemci", use: "Kullanıcı", edit: "Düzenleyici" };
 const YT = { rows: [], dirty: false, msg: "" };
 function yetkiTile() {
@@ -6870,11 +6877,11 @@ function startSP() {
   dataUnsubs.push(onSnapshot(collection(fs, "siparis"), s => { SP.list = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); SP.ready = true; spChanged(); },
     e => { SP.ready = true; spChanged(); toast("Siparişler okunamadı: " + (e.code || e.message)); }));
   SP.fiyat = {};
-  if (can("sp.fiyat")) dataUnsubs.push(onSnapshot(collection(fs, "siparis_fiyat"), s => { SP.fiyat = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); spChanged(); }, () => {}));
+  if (can("sp.fiyat") || can("mh.fiyat")) dataUnsubs.push(onSnapshot(collection(fs, "siparis_fiyat"), s => { SP.fiyat = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); spChanged(); }, () => {}));
   dataUnsubs.push(onSnapshot(doc(fs, "config", "siparis"), s => { const d = s.exists() ? s.data() : {}; SP.cfg = { sikRenkler: Array.isArray(d.sikRenkler) && d.sikRenkler.length ? d.sikRenkler : ["9016", "9010", "7016", "9005", "9006", "7035"], varyasyon: d.varyasyon ?? SP_VAR_DEF, tkNotTR: d.tkNotTR, tkNotEN: d.tkNotEN, tkFirma: d.tkFirma, tkGecerlilik: d.tkGecerlilik, tkTeslimSure: d.tkTeslimSure, tkKase: d.tkKase }; spChanged(); }, () => {}));
   if (lvl("satinalma") === "none") dataUnsubs.push(onSnapshot(doc(fs, "config", "satinalma"), s => { const d = s.exists() ? s.data() : {}; SA.cfg = { ...SA.cfg, firma: { ...SA.cfg.firma, ...(d.firma || {}) } }; }, () => {}));
 }
-function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
+function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "muhasebe") renderMH(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
 const SP_VAR_DEF = "M-01, M-02, M-03, M-14 | Montaj tipi: Vidalı, Klipsli, Gizli vidalı\nM-11, M-15 | Motor yönü: Sağ, Sol\nM-04, M-05, M-16, M-17 | Sineklik: Var, Yok\n* | Ambalaj: Standart koli, Ahşap kasa, Streç";
 // Varyasyon satırı: "önekler | Ad: seçenek, seçenek". Önek "~kelime" ürün adında arar; seçenek "#birim" serbest sayı girişidir (örn. Metraj: #m)
 const SP_VAR_SABIT = "~slot | Metraj: #m";   // tüm lineer ve gizli slot difüzörler
@@ -9220,4 +9227,141 @@ async function utTakipView(v, L) {
       <div><div class="meter" style="max-width:180px"><i style="width:${r.p}%"></i></div><span class="note">${r.n} / ${L.length} · %${r.p}</span></div>
       <div class="num">${r.q ? `<b>%${r.q.enIyi}</b> / %${r.q.son} <span class="note">· ${r.q.sayi} kez</span>` : '<span class="note">Çözmedi</span>'}</div><div class="note">${r.at ? skTs(r.at) : "—"}</div></div>`).join("")}</div>`;
   $("#utTr").onclick = () => { UT.takip = null; renderUT(); };
+}
+
+/* ================= MUHASEBE · Bitmiş ürünler (sevk edilenler) =================
+   Kaynak: siparis.sevkiyatlar[].satir[] (her sevk satırı bir "bitmiş ürün")
+   muhasebe_fatura/{spId__sevkAt__k}: { spId, sevkAt, k, faturaNo, tarih, not, by, at } → fatura kesildi */
+const MH = { unsub: null, F: {}, ready: false, view: "bitmis", Fl: { d: "bekleyen", c: "", q: "", t1: "", t2: "" }, sec: new Set() };
+const mhId = (spId, at, k) => `${spId}__${at}__${k}`;
+const mhFiyatGor = () => can("mh.fiyat") || can("sp.fiyat");
+function startMH() {
+  if (MH.unsub) return;
+  MH.unsub = onSnapshot(collection(fs, "muhasebe_fatura"), s => { MH.F = {}; s.docs.forEach(d => MH.F[d.id] = d.data()); MH.ready = true; if (ROUTE === "muhasebe") renderMH(); if (ROUTE === "home") renderHome(); }, () => { MH.ready = true; });
+  dataUnsubs.push(() => { if (MH.unsub) MH.unsub(); MH.unsub = null; MH.F = {}; MH.ready = false; });
+}
+// tüm sevk satırları: tutar sipariş fiyatından (kalem fiyatı × sevk miktarı); toplu fiyatlı siparişte kalem tutarı yoktur
+function mhSatirlar() {
+  const L = [];
+  SP.list.forEach(s => (s.sevkiyatlar || []).forEach((x, si) => (x.satir || []).forEach(y => {
+    if (!(Number(y.miktar) > 0)) return;
+    const k = (s.kalemler || []).find(z => z.k === y.k) || {}, F = SP.fiyat[s.id] || {}, P = (F.k || {})[y.k] || {}, pb = F.pb || "TRY";
+    const id = mhId(s.id, x.at || si, y.k), fat = MH.F[id] || null;
+    const birim = P.fiyat != null && P.fiyat !== "" ? Number(P.fiyat) : null, isk = Number(P.isk) || 0, kdv = Number(P.kdv ?? k.kdv ?? 20);
+    const net = birim != null ? Number(y.miktar) * birim * (1 - isk / 100) : null;
+    L.push({ id, s, x, si, y, k, fat, pb, kur: F.kur || null, toplu: F.toplu != null && F.toplu !== "", birim, isk, kdv, net, kdvT: net != null ? net * kdv / 100 : null });
+  })));
+  return L.sort((a, b) => String(b.x.tarih || "").localeCompare(String(a.x.tarih || "")) || (b.x.at || 0) - (a.x.at || 0));
+}
+const mhTL = r => r.net == null ? 0 : r.pb === "TRY" ? r.net : r.net * (Number(r.kur) || 0);
+function mhTile(m) {
+  const L = mhSatirlar(), B = L.filter(r => !r.fat), t = B.reduce((a, r) => a + mhTL(r), 0);
+  return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
+      <svg class="wave" viewBox="0 0 180 120" aria-hidden="true"><path d="M0 70 C40 40 80 100 180 50 L180 120 L0 120Z" fill="#fff"/></svg>
+      <div class="t-top"><span class="ico">${svgIco(m.id)}</span><span class="st">${lvl(m.id) === "view" ? "GÖZLEMCİ" : "AKTİF"}</span></div>
+      <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div>
+        <div class="stats"><span>${B.length} kalem fatura bekliyor</span>${mhFiyatGor() && t ? `<span>${moneyR(t)} KDV hariç</span>` : ""}${L.length - B.length ? `<span>${L.length - B.length} kalem faturalandı</span>` : ""}</div>
+      </div></a>`;
+}
+function mhFiltre(L) {
+  const F = MH.Fl, q = araFold(F.q);
+  return L.filter(r => (F.d === "tum" || (F.d === "kesildi" ? !!r.fat : !r.fat)) && (!F.c || r.s.cariId === F.c)
+    && (!F.t1 || String(r.x.tarih || "") >= F.t1) && (!F.t2 || String(r.x.tarih || "") <= F.t2)
+    && (!q || q.split(" ").every(w => araFold([r.s.no, r.s.cariAd, r.s.proje && r.s.proje.ad, r.k.kod, r.k.ad, r.x.irsaliye, r.fat && r.fat.faturaNo, r.s.musteriSipNo].join(" ")).includes(w))));
+}
+function renderMH() {
+  if (!ME || $("#modMH").hidden) return;
+  startMH();
+  const v = $("#mhView"), A = mhSatirlar(), B = A.filter(r => !r.fat), ay = TODAY.slice(0, 7), fg = mhFiyatGor();
+  const buAy = A.filter(r => r.fat && String(r.fat.tarih || "").slice(0, 7) === ay), eski = B.reduce((m, r) => !m || String(r.x.tarih) < m ? String(r.x.tarih) : m, "");
+  const gun = eski ? Math.round((dnum(TODAY) - dnum(eski))) : 0;
+  $("#mhKpis").innerHTML = [["Fatura bekleyen", B.length, `${new Set(B.map(r => r.s.id)).size} siparişte sevk edilmiş kalem`, B.length ? "bad" : "ok"],
+    ["Bekleyen tutar", fg ? moneyR(B.reduce((a, r) => a + mhTL(r), 0)) : "—", fg ? "KDV hariç, TL karşılığı" : "Fiyat görme yetkiniz yok", ""],
+    ["Bu ay faturalanan", buAy.length, fg ? moneyR(buAy.reduce((a, r) => a + mhTL(r), 0)) + " KDV hariç" : "kalem", ""],
+    ["En eski bekleyen", eski ? gun + " gün" : "—", eski ? "Sevk tarihi " + fmtS(eski) : "Bekleyen yok", gun > 7 ? "bad" : ""],
+    ["Toplam sevk edilen", A.length, "kalem (tüm zamanlar)", ""]]
+    .map(([k, val, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(val)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  if (!SP.ready) { v.innerHTML = '<div class="empty"><h3>Yükleniyor</h3></div>'; return; }
+  const F = MH.Fl, R = mhFiltre(A), musteriler = [...new Map(A.map(r => [r.s.cariId, r.s.cariAd])).entries()].filter(([id]) => id).sort((a, b) => String(a[1]).localeCompare(String(b[1]), "tr"));
+  MH.sec.forEach(id => { if (!R.some(r => r.id === id && !r.fat)) MH.sec.delete(id); });
+  const topNet = R.reduce((a, r) => a + mhTL(r), 0), fatYetki = can("mh.fatura");
+  v.innerHTML = `<div class="pkbar"><div class="filters">
+      <select class="f${F.d !== "bekleyen" ? " on" : ""}" id="mhD" aria-label="Fatura durumu">${[["bekleyen", "Fatura bekleyenler"], ["kesildi", "Fatura kesilenler"], ["tum", "Tümü"]].map(([a, l]) => opt(a, l, F.d)).join("")}</select>
+      <select class="f${F.c ? " on" : ""}" id="mhC" data-ara aria-label="Müşteri"><option value="">Tüm müşteriler</option>${musteriler.map(([id, ad]) => opt(id, ad || "—", F.c)).join("")}</select>
+      <label class="mhdt">Sevk <input class="f" type="date" id="mhT1" value="${esc(F.t1)}" aria-label="Sevk tarihi başlangıç"> – <input class="f" type="date" id="mhT2" value="${esc(F.t2)}" aria-label="Sevk tarihi bitiş"></label>
+      <input class="f" id="mhQ" type="search" placeholder="Sipariş, ürün, irsaliye, fatura no…" value="${esc(F.q)}" aria-label="Ara"></div>
+      <div class="filters"><span class="sortinfo">${R.length} kalem${fg && topNet ? " · " + moneyR(topNet) + " KDV hariç" : ""}</span>${F.d !== "bekleyen" || F.c || F.q || F.t1 || F.t2 ? '<button type="button" class="btn ghost sm" id="mhR">Temizle</button>' : ""}</div></div>
+    ${MH.sec.size && fatYetki ? `<div class="mhbulk"><b>${MH.sec.size} kalem seçildi</b><span class="note">${fg ? moneyR(R.filter(r => MH.sec.has(r.id)).reduce((a, r) => a + mhTL(r), 0)) + " KDV hariç" : ""}</span><button type="button" class="btn ghost sm" id="mhSx">Seçimi kaldır</button><button type="button" class="btn sm" id="mhSf">FATURA KESİLMİŞTİR</button></div>` : ""}
+    ${R.length ? `<div class="ledger mhled" role="table"><div class="lhead" role="row"><div>${fatYetki ? `<input type="checkbox" id="mhAll" aria-label="Fatura bekleyenlerin tümünü seç"${R.filter(r => !r.fat).length && R.filter(r => !r.fat).every(r => MH.sec.has(r.id)) ? " checked" : ""}>` : ""}</div><div>Sevk tarihi / irsaliye</div><div>Müşteri / sipariş</div><div>Ürün</div><div>Miktar</div><div>Tutar</div><div>Durum</div></div>
+      ${R.slice(0, 500).map(r => `<div class="row${r.fat ? " mhok" : ""}" role="row" tabindex="0" data-mh="${esc(r.id)}" style="--stripe:${r.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}">
+        <div>${fatYetki && !r.fat ? `<input type="checkbox" data-mhs="${esc(r.id)}" aria-label="Seç"${MH.sec.has(r.id) ? " checked" : ""}>` : ""}</div>
+        <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}</div></div>
+        <div class="ska"><b>${esc(r.s.cariAd || "—")}</b><div class="desc"><span class="num">${esc(r.s.no)}</span>${r.s.proje && r.s.proje.ad ? " · " + esc(r.s.proje.ad) : ""}</div></div>
+        <div class="ska">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
+        <div class="num">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small></div>
+        <div class="num">${!fg ? "—" : r.net != null ? money(r.net, r.pb) : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
+        <div>${r.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${r.fat.faturaNo ? esc(r.fat.faturaNo) + " · " : ""}${fmtS(r.fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`).join("")}</div>
+      ${R.length > 500 ? `<p class="note">İlk 500 kalem gösteriliyor; filtreyi daraltın.</p>` : ""}`
+    : `<div class="empty"><h3>${F.d === "kesildi" ? "Faturası kesilmiş kalem yok" : F.d === "bekleyen" ? "Fatura bekleyen kalem yok" : "Sevk edilmiş kalem yok"}</h3><p>Sevkiyat modülünde sevk edilen ürünler burada listelenir.</p></div>`}`;
+  const set = (k, val) => { MH.Fl[k] = val; renderMH(); };
+  $("#mhD").onchange = e => set("d", e.target.value); $("#mhC").onchange = e => set("c", e.target.value);
+  $("#mhT1").onchange = e => set("t1", e.target.value); $("#mhT2").onchange = e => set("t2", e.target.value);
+  $("#mhQ").oninput = e => { MH.Fl.q = e.target.value; renderMH(); const j = $("#mhQ"); j.focus(); j.setSelectionRange(j.value.length, j.value.length); };
+  const rs = $("#mhR"); if (rs) rs.onclick = () => { MH.Fl = { d: "bekleyen", c: "", q: "", t1: "", t2: "" }; renderMH(); };
+  v.querySelectorAll("[data-mhs]").forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? MH.sec.add(c.dataset.mhs) : MH.sec.delete(c.dataset.mhs); renderMH(); }; });
+  const al = $("#mhAll"); if (al) al.onchange = () => { R.filter(r => !r.fat).forEach(r => al.checked ? MH.sec.add(r.id) : MH.sec.delete(r.id)); renderMH(); };
+  const sx = $("#mhSx"); if (sx) sx.onclick = () => { MH.sec.clear(); renderMH(); };
+  const sf = $("#mhSf"); if (sf) sf.onclick = () => mhFaturaKes(R.filter(r => MH.sec.has(r.id)));
+  v.querySelectorAll("[data-mh]").forEach(el => { const go = () => mhDetay(el.dataset.mh); el.onclick = e => { if (e.target.closest("input")) return; go(); }; el.onkeydown = e => { if (e.key === "Enter") go(); }; });
+}
+async function mhFaturaKes(L, sonra) {
+  L = L.filter(r => !r.fat); if (!L.length || !can("mh.fatura")) return;
+  const musteri = [...new Set(L.map(r => r.s.cariAd))];
+  const r0 = await spModal(`<label>FATURA KESİLMİŞTİR</label>
+    <p class="note" style="margin:0 0 10px">${L.length} kalem · ${esc(musteri.join(", "))}${mhFiyatGor() ? " · " + moneyR(L.reduce((a, r) => a + mhTL(r), 0)) + " KDV hariç" : ""}</p>
+    <div class="fgrid"><div class="field"><label for="mfNo">Fatura no</label><input id="mfNo" maxlength="40" placeholder="Muhasebe programındaki no"></div>
+      <div class="field"><label for="mfT">Fatura tarihi</label><input id="mfT" type="date" value="${TODAY}"></div>
+      <div class="field full"><label for="mfN">Not</label><input id="mfN" maxlength="200" placeholder="İsteğe bağlı"></div></div>
+    <div class="r"><button type="button" class="btn ghost" id="mfX">Vazgeç</button><button type="button" class="btn" id="mfO">Fatura kesildi olarak işaretle</button></div>`, (h, done) => {
+    h.querySelector("#mfX").onclick = () => done(null);
+    h.querySelector("#mfO").onclick = () => { const t = h.querySelector("#mfT").value; if (!t) { toast("Fatura tarihini girin"); return; } done({ faturaNo: h.querySelector("#mfNo").value.trim(), tarih: t, not: h.querySelector("#mfN").value.trim() }); };
+    setTimeout(() => h.querySelector("#mfNo").focus(), 30);
+  });
+  if (!r0) return;
+  try {
+    const now = Date.now();
+    for (let i = 0; i < L.length; i += 400) { const b = writeBatch(fs); L.slice(i, i + 400).forEach(r => b.set(doc(fs, "muhasebe_fatura", r.id), { spId: r.s.id, spNo: r.s.no, sevkAt: r.x.at || r.si, k: r.y.k, ...r0, by: ME.name, at: now })); await b.commit(); }
+    L.forEach(r => MH.sec.delete(r.id)); toast(`${L.length} kalem için fatura kesildi olarak işaretlendi`); if (sonra) sonra();
+  } catch (x) { toast(writeErr(x)); }
+}
+function mhDetay(id) {
+  const paint = () => {
+    const r = mhSatirlar().find(z => z.id === id); if (!r) { closeDrawer(); return; }
+    const s = r.s, x = r.x, k = r.k, c = crFind(s.cariId) || {}, P = s.proje || {}, fg = mhFiyatGor(), topSevk = (s.sevkiyatlar || []).reduce((a, z) => a + (z.satir || []).filter(q => q.k === r.y.k).reduce((b, q) => b + (Number(q.miktar) || 0), 0), 0);
+    const sat = (l, val) => val ? `<div><span>${l}</span><b>${val}</b></div>` : "";
+    $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div><aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="mhT" style="width:min(820px,100%)">
+      <div class="dh"><h2 id="mhT">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}${esc(k.ad || "Ürün")}</h2><button class="x" id="mhX" aria-label="Kapat">×</button></div>
+      <div class="skhead"><div class="skbig" style="--tc:${r.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}"><b>${nf(r.y.miktar)}</b><span>${esc(k.birim || "adet")} sevk edildi</span></div>
+        <div class="skhm"><span>${r.fat ? `<b>Fatura kesildi</b> · ${r.fat.faturaNo ? "No " + esc(r.fat.faturaNo) + " · " : ""}${fmtS(r.fat.tarih)} · ${esc(r.fat.by)}` : "<b>Fatura bekliyor</b>"}</span><span>Sevk ${fmtS(x.tarih)}${x.irsaliye ? " · İrsaliye " + esc(x.irsaliye) : ""}</span><span>${esc(s.cariAd || "")} · ${esc(s.no)}</span></div></div>
+      <div class="db">
+        <section><h3 class="sec-t">Ürün</h3><div class="mhkv">
+          ${sat("Stok kodu", k.kod ? `<span class="num">${esc(k.kod)}</span>` : "Serbest kalem")}${sat("Ürün", esc(k.ad || ""))}${sat("Renk", k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "")}${sat("Varyasyon / özel", esc(spVarAd(k)))}${sat("Mahal", esc(k.mahal || ""))}
+          ${sat("Bu sevkte", `${nf(r.y.miktar)} ${esc(k.birim || "Adet")}`)}${sat("Sipariş miktarı / toplam sevk", `${nf(k.miktar)} / ${nf(topSevk)} ${esc(k.birim || "Adet")}`)}</div>
+          ${k.aciklama ? `<div class="spacd">${esc(k.aciklama)}</div>` : ""}</section>
+        ${fg ? `<section><h3 class="sec-t">Fiyat <small>${esc(r.pb)}${r.pb !== "TRY" && r.kur ? " · kur " + nf(r.kur) : ""}</small></h3><div class="mhkv">
+          ${r.net != null ? sat("Birim fiyat", money(r.birim, r.pb)) + sat("İskonto", r.isk ? "%" + nf(r.isk) : "") + sat("Tutar (KDV hariç)", money(r.net, r.pb)) + sat("KDV %" + nf(r.kdv), money(r.kdvT, r.pb)) + sat("KDV dahil", `<b>${money(r.net + r.kdvT, r.pb)}</b>`) + (r.pb !== "TRY" && r.kur ? sat("TL karşılığı (KDV hariç)", moneyR(mhTL(r))) : "")
+            : r.toplu ? sat("Toplu fiyat", `Sipariş toplamı ${money((SP.fiyat[s.id] || {}).toplu, r.pb)} KDV hariç (kalem fiyatı yok)`) : sat("Fiyat", "Siparişte fiyat girilmemiş")}</div></section>` : ""}
+        <section><h3 class="sec-t">Müşteri</h3><div class="mhkv">${sat("Unvan", esc(c.unvan || s.cariAd || ""))}${sat("Cari kodu", c.kod ? `<span class="num">${esc(c.kod)}</span>${c.muhasebeKod ? " · muhasebe " + esc(c.muhasebeKod) : ""}` : "")}${sat("Vergi dairesi / no", esc([c.vd, c.vergiNo].filter(Boolean).join(" · ")))}${sat("Adres", esc([c.adres, c.ilce, c.il].filter(Boolean).join(" ")))}${sat("Telefon / e-posta", esc([c.tel, c.eposta].filter(Boolean).join(" · ")))}</div></section>
+        <section><h3 class="sec-t">Sipariş</h3><div class="mhkv">${sat("Sipariş no", `<span class="num">${esc(s.no)}</span>`)}${sat("Sipariş tarihi", s.tarih ? fmtS(s.tarih) : "")}${sat("Müşteri sipariş no", esc(s.musteriSipNo || ""))}${sat("Teklif no", esc(s.teklifNo || ""))}${sat("Ödeme şartı", esc(s.odeme || ""))}${sat("Proje", esc(P.ad || ""))}${sat("Teslim adresi", esc(P.adres || ""))}</div></section>
+        <section><h3 class="sec-t">Sevkiyat</h3><div class="mhkv">${sat("Sevk tarihi", fmtS(x.tarih))}${sat("İrsaliye no", esc(x.irsaliye || ""))}${sat("Araç", esc(x.arac || ""))}${sat("Teslim alan", esc(x.teslimAlan || ""))}${sat("Kaydeden", esc([x.by, x.at ? skTs(x.at) : ""].filter(Boolean).join(" · ")))}${sat("Müşteriye iletildi", (x.gonderim || []).length ? esc(x.gonderim.map(g => `${SA_KANAL[g.kanal] || g.kanal} ${skTs(g.at)}`).join(", ")) : "Henüz gönderilmedi")}</div>
+          <button type="button" class="btn ghost sm" id="mhPdf" style="margin-top:8px">Sevk belgesi PDF</button></section>
+        ${r.fat ? `<section><h3 class="sec-t">Fatura</h3><div class="mhkv">${sat("Fatura no", esc(r.fat.faturaNo || "—"))}${sat("Fatura tarihi", fmtS(r.fat.tarih))}${sat("Not", esc(r.fat.not || ""))}${sat("İşaretleyen", esc(r.fat.by + " · " + skTs(r.fat.at)))}</div></section>` : ""}
+      </div>
+      <div class="df"><span>${r.fat && can("mh.fatura") ? '<button class="btn ghost" id="mhGeri" type="button">Faturayı geri al</button>' : ""}</span><div class="r"><button class="btn ghost" id="mhC2" type="button">Kapat</button>${!r.fat && can("mh.fatura") ? '<button class="btn" id="mhKes" type="button">FATURA KESİLMİŞTİR</button>' : ""}</div></div></aside>`;
+    $("#scrim").onclick = closeDrawer; $("#mhX").onclick = closeDrawer; $("#mhC2").onclick = closeDrawer;
+    $("#mhPdf").onclick = async () => { try { await saveFile(await spPdf(s, "sevk", { sevk: x }), `${s.no}-sevk-${x.tarih}.pdf`); } catch (e) { toast("PDF hazırlanamadı: " + (e.message || e)); } };
+    const ks = $("#mhKes"); if (ks) ks.onclick = () => mhFaturaKes([r], () => setTimeout(paint, 300));
+    const gr = $("#mhGeri"); if (gr) { let a = false; gr.onclick = async () => { if (!a) { a = true; gr.textContent = "Geri alınsın mı? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "muhasebe_fatura", r.id)); toast("Fatura işareti geri alındı"); setTimeout(paint, 300); } catch (e) { toast(writeErr(e)); } }; }
+  };
+  paint();
 }
