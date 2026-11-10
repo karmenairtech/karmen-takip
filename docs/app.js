@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "50";
+const APP_V = "51";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -8466,7 +8466,7 @@ function plMesView(v) {
     <div class="mesgr2"><div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipi"], ["renk", "Renk"], ["sip", "Sipariş"], ...(mod === "basit" ? [["asama", "Aşama"]] : []), ["yok", "Yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
       ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} seçili</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Başlat</button><button type="button" class="mbtn dur" data-ms="dur">Duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Temizle</button></div>` : ""}</div>
     ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.key), all = keys.length && keys.every(x => MES.sec.has(x));
-      return `${k ? `<div class="mesg"><div><b>${esc(k)}</b> <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Seçimi kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
+      return `${k ? `<div class="mesg"><div><b>${esc(k)}</b>${MES.grup === "sip" && L[0] && L[0].e ? (() => { const e0 = L[0].e, ad = [e0.musteri, mesProje(e0)].filter(Boolean).join(" · "); return ad ? ` <b class="mesgad">· ${esc(ad)}</b>` : ""; })() : ""} <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Seçimi kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
       : `<div class="empty"><h3>Bekleyen iş yok</h3><p>Planlama iş emirlerini açtığında bu cihazın istasyonlarına düşen işler burada sırayla görünür.</p></div>`}`;
   const sel = $("#mesIst"); if (sel) sel.onchange = e => { MES.ist = e.target.value; MES.sec.clear(); try { localStorage.setItem("mesIst", MES.ist); } catch (x) {} plMesView(v); };
   v.querySelectorAll("[data-mm]").forEach(b => b.onclick = () => { MES.modSec = b.dataset.mm; MES.sec.clear(); plMesView(v); });
