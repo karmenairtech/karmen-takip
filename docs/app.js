@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail,
-  updateProfile, signOut
+  updateProfile, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "53";
+const APP_V = "55";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -129,13 +129,15 @@ function loginScreen(mode = "login", msg = "") {
       ${reg ? '<div class="field"><label for="lName">Ad Soyad</label><input id="lName" autocomplete="name" required></div>' : ""}
       <div class="field"><label for="lMail">E-posta</label><input id="lMail" type="email" autocomplete="email" required></div>
       <div class="field"><label for="lPass">Şifre</label><input id="lPass" type="password" autocomplete="${reg ? "new-password" : "current-password"}" minlength="6" required></div>
+      <label class="chk lhat"><input type="checkbox" id="lHat"${hatirla().on ? " checked" : ""}> Beni hatırla <small class="note">e-posta kayıtlı kalır, oturum kapanmaz</small></label>
       <button class="btn" type="submit" id="lSub">${reg ? "Hesap oluştur" : "Giriş yap"}</button>
     </form>
     <div class="gate-row">
       <button class="linkbtn" id="fgt" type="button">Şifremi unuttum</button>
     </div>
     <p class="note" style="font-size:12.5px">E-posta hesabınız yoksa proje yöneticisinden isteyin.</p>`);
-  $("#gBtn").onclick = googleLogin;
+  const hm = hatirla(); if (!reg && hm.on && hm.mail) { $("#lMail").value = hm.mail; setTimeout(() => { const ps = $("#lPass"); if (ps) ps.focus(); }, 50); }
+  $("#gBtn").onclick = async () => { await hatirlaUygula(($("#lHat") || {}).checked !== false, ""); googleLogin(); };
   if (!reg) $("#fgt").onclick = async () => {
     const m = $("#lMail").value.trim(); if (!m) { loginScreen("login", "Şifre sıfırlama için önce e-posta adresinizi yazın."); return; }
     try { await sendPasswordResetEmail(auth, m); toast("Şifre sıfırlama bağlantısı gönderildi"); } catch (e) { loginScreen("login", authErr(e)); }
@@ -144,6 +146,7 @@ function loginScreen(mode = "login", msg = "") {
     ev.preventDefault(); $("#lSub").disabled = true;
     const m = $("#lMail").value.trim(), p = $("#lPass").value;
     try {
+      await hatirlaUygula($("#lHat").checked, m);
       if (reg) {
         const cr = await createUserWithEmailAndPassword(auth, m, p);
         const nm = $("#lName").value.trim(); if (nm) await updateProfile(cr.user, { displayName: nm });
@@ -151,6 +154,12 @@ function loginScreen(mode = "login", msg = "") {
       } else await signInWithEmailAndPassword(auth, m, p);
     } catch (e) { loginScreen(mode, authErr(e)); }
   };
+}
+// Beni hatırla: işaretliyse e-posta bu cihazda saklanır ve oturum tarayıcı kapansa da açık kalır; değilse sekme kapanınca çıkış yapılır
+function hatirla() { try { const h = JSON.parse(localStorage.getItem("karmen-hatirla") || "null"); return h || { on: true, mail: "" }; } catch (e) { return { on: true, mail: "" }; } }
+async function hatirlaUygula(on, mail) {
+  try { localStorage.setItem("karmen-hatirla", JSON.stringify({ on: !!on, mail: on ? (mail || hatirla().mail || "") : "" })); } catch (e) {}
+  try { await setPersistence(auth, on ? browserLocalPersistence : browserSessionPersistence); } catch (e) {}
 }
 async function googleLogin() {
   const pr = new GoogleAuthProvider(); pr.setCustomParameters({ prompt: "select_account" });
@@ -192,6 +201,7 @@ function noAccessScreen(email) {
 /* ================= Oturum akışı ================= */
 function stopSubs() { unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = []; if (typeof UT !== "undefined") { UT.unsub.forEach(u => { try { u(); } catch (e) {} }); UT.unsub = []; UT.eg = null; UT.ov = {}; UT.takip = null; } }
 onAuthStateChanged(auth, user => {
+  if (user && user.email) { const h = hatirla(); if (h.on && h.mail !== user.email) try { localStorage.setItem("karmen-hatirla", JSON.stringify({ on: true, mail: user.email })); } catch (e) {} }
   stopSubs(); state.ready = false; ME = null;
   if (!user) { loginScreen(); return; }
   enter(user);
@@ -262,7 +272,20 @@ function paintUser() {
   $("#hello").textContent = hi + ", " + String(ME.name).split(/\s+/)[0];
   $("#addBtn").hidden = !can("p.task");
 }
-$("#outBtn").onclick = () => signOut(auth);
+$("#outBtn").onclick = async () => {
+  const md = typeof mesMyDev === "function" ? mesMyDev() : null;
+  if (md) {   // MES cihaz hesabı: yanlışlıkla çıkış olmasın
+    const ok = await spModal(`<label>Bu tablet bir MES cihazı (${esc(md.ad)})</label>
+      <p class="note" style="margin:0 0 10px">Çıkış yaparsanız tablette yeniden e-posta ve şifre ile giriş yapmak gerekir. Yalnızca cihazı başka hesaba geçirecekseniz çıkın.</p>
+      <div class="field"><label for="ocK">Onay için <b>ÇIKIŞ</b> yazın</label><input id="ocK" autocomplete="off" autocapitalize="characters"></div>
+      <div class="r"><button type="button" class="btn" id="ocX">Vazgeç, MES'te kal</button><button type="button" class="btn ghost" id="ocO">Çıkış yap</button></div>`, (h, done) => {
+      h.querySelector("#ocX").onclick = () => done(false);
+      h.querySelector("#ocO").onclick = () => { if (h.querySelector("#ocK").value.trim().toLocaleUpperCase("tr") !== "ÇIKIŞ") { toast("Onay için ÇIKIŞ yazın"); return; } done(true); };
+    });
+    if (!ok) return;
+  }
+  signOut(auth);
+};
 
 /* ================= Tarih / saat ================= */
 function istNow() { try { const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date()).map(x => [x.type, x.value])); return { h: +p.hour % 24, m: +p.minute }; } catch (e) { const d = new Date(); return { h: d.getHours(), m: d.getMinutes() }; } }
@@ -994,7 +1017,15 @@ const MODULES = [
   { id: "urun", name: "ÜRÜN TANITIM", desc: "Ürünlerimiz, fotoğrafları, teknik çizimleri ve ölçü harfleri · personel eğitimi ve kendini dene testi", active: true },
   { id: "pano", name: "FABRİKA PANOSU", desc: "Smart TV için canlı fabrika ekranı: üretim, verimlilik, makineler, personel ve günün menüsü", active: true }
 ];
-let ROUTE = "home";
+let ROUTE = "home", HOME_IZIN = 0;
+document.addEventListener("click", e => { const a = e.target.closest && e.target.closest('a[href="#home"]'); if (a) HOME_IZIN = Date.now(); }, true);
+// MES cihazında MES ekranındayken geri tuşu uygulamadan çıkmasın: araya bir "tampon" kayıt konur, geri basılınca yeniden konur
+function mesGeriKoru() {
+  const md = typeof mesMyDev === "function" ? mesMyDev() : null;
+  if (!md || ROUTE !== "planlama") return;
+  try { if (!(history.state && history.state.mesK)) history.pushState({ mesK: 1 }, "", location.hash || "#planlama"); } catch (e) {}
+}
+addEventListener("popstate", () => { setTimeout(() => { const md = typeof mesMyDev === "function" ? mesMyDev() : null; if (md && ROUTE === "planlama" && !(history.state && history.state.mesK)) { try { history.pushState({ mesK: 1 }, "", location.hash || "#planlama"); } catch (e) {} } }, 0); });
 function route() {
   let r = (location.hash || "").replace(/^#/, "") || "home";
   if (r === "yetki" && !isAdmin()) { r = "home"; try { history.replaceState(null, "", "#home"); } catch (e) {} }
@@ -1003,7 +1034,9 @@ function route() {
   document.body.classList.toggle("mesdev", mkil);
   // tam kilit: yalnızca MES · esnek: girişte bir kez MES açılır, diğer modüllere geçilebilir
   const mIlk = mdev && !MES.ilkAcilis; if (mdev) MES.ilkAcilis = true;
-  if (mkil || (mIlk && r === "home")) { r = "planlama"; PL.view = "mes"; MES.ist = "d:" + mdev.id; if (location.hash !== "#planlama") { try { history.replaceState(null, "", "#planlama"); } catch (e) {} } }
+  // MES cihazı: geri tuşu ana ekrana döndürmez; ana ekrana yalnızca "Ana ekran" düğmesiyle bilerek gidilir
+  const homeBilerek = HOME_IZIN && Date.now() - HOME_IZIN < 2000; HOME_IZIN = 0;
+  if (mkil || (mIlk && r === "home") || (mdev && r === "home" && !homeBilerek)) { r = "planlama"; PL.view = "mes"; MES.ist = "d:" + mdev.id; if (location.hash !== "#planlama") { try { history.replaceState(null, "", "#planlama"); } catch (e) {} } }
   let mod = MODULES.find(m => m.id === r);
   if (mod && lvl(mod.id) === "none") { toast(mod.name + " için yetkiniz yok"); r = "home"; mod = null; try { history.replaceState(null, "", "#home"); } catch (e) {} }
   const changed = r !== ROUTE; ROUTE = r;
@@ -1039,6 +1072,7 @@ function route() {
   if (r === "pano") panoGir();
   if (r === "urun") renderUT();
   if (r === "muhasebe") renderMH();
+  setTimeout(mesGeriKoru, 0);
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); renderYtMes(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
   if (changed) { closeDrawer(); scrollTo(0, 0); }
