@@ -7,13 +7,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, query, where, getDoc, getDocs, increment, orderBy, limit, getCountFromServer
+  collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, query, where, getDoc, getDocs, increment, orderBy, limit, getCountFromServer, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "61";
+const APP_V = "62";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -2020,6 +2020,7 @@ function ytSetLevel(r, m, L) {
 function ytMark() { YT.dirty = true; const b = $("#ytSave"); if (b) b.disabled = false; const s = $("#ytState"); if (s) s.textContent = "Kaydedilmemiş değişiklik var"; }
 function renderYetki() {
   if (!isAdmin() || $("#modYetki").hidden) return;
+  renderYedek();
   const R = YT.rows;
   const adminN = R.filter(r => r.role === "admin").length;
   $("#ytSum").innerHTML = `<span><b>${R.length}</b> kişi</span><span><b>${adminN}</b> yönetici</span><span><b>${R.length - adminN}</b> kullanıcı</span>`;
@@ -2299,7 +2300,7 @@ function openNotif() {
   onDrawerClose = () => markSeen();
 }
 on("#bellBtn", () => { if (ME) openNotif(); });
-setInterval(() => { if (ME && !$("#app").hidden) notifRefresh(); }, 60000);
+setInterval(() => { if (ME && !$("#app").hidden) { notifRefresh(); yedekOtoKontrol(); } }, 60000);
 if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", ev => { const d = ev.data || {}; if (d.type === "open" && d.mod) goEvent({ mod: d.mod, ref: d.ref }); });
 
 /* ================= Mesaj paneli (her ekrandan) ================= */
@@ -4101,6 +4102,21 @@ function plStats(e) {
   const kalite = good + fire > 0 && fire > 0 ? Math.round(good / (good + fire) * 1000) / 10 : null;
   return { q, plan, done, pct, noTime, verim, fire, kalite, act, crit, rem, eta, etaDay, late, over, cur, nBitti: O.filter(o => o.durum === "bitti").length };
 }
+// Belge numaraları sunucudaki sayaçtan alınır: iki kişi aynı anda kayıt açsa da aynı numara verilmez.
+// Sayaç okunamazsa (çevrimdışı, kural yayınlanmamış) eski yönteme döner: ekrandaki en büyük numara + 1.
+async function sayacAl(anahtar, yerelMax, adet = 1) {
+  try {
+    const ref = doc(fs, "sayac", anahtar);
+    return await Promise.race([
+      runTransaction(fs, async tx => { const sn = await tx.get(ref), b = Math.max(sn.exists() ? Number(sn.data().n) || 0 : 0, yerelMax); tx.set(ref, { n: b + adet, at: Date.now() }); return b + 1; }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("sayaç zaman aşımı")), 6000))]);
+  } catch (e) { console.warn("sayaç alınamadı, yerel numara kullanılıyor:", anahtar, e && e.message); return yerelMax + 1; }
+}
+const noMax = (L, pre) => { const re = new RegExp("^" + pre + "-" + TODAY.slice(0, 4) + "-(\\d+)$"); return Math.max(0, ...L.map(x => { const m = String(x || "").match(re); return m ? Number(m[1]) : 0; })); };
+const ieNoAl = async (adet = 1) => sayacAl("IE-" + TODAY.slice(0, 4), noMax(PL.ie.map(e => e.no), "İE"), adet);   // ilk numarayı (sayı) döndürür
+const ieNoYaz = n => `İE-${TODAY.slice(0, 4)}-${String(n).padStart(4, "0")}`;
+const saNoAl = async (pre, L, adet = 1) => sayacAl(pre + "-" + TODAY.slice(0, 4), noMax(L.map(x => x.no), pre), adet);
+const saNoYaz = (pre, n) => `${pre}-${TODAY.slice(0, 4)}-${String(n).padStart(4, "0")}`;
 const plNextNo = () => { const y = TODAY.slice(0, 4), mx = Math.max(0, ...PL.ie.map(e => { const m = String(e.no || "").match(new RegExp("^İE-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; })); return `İE-${y}-${String(mx + 1).padStart(4, "0")}`; };
 
 function startPlan() {
@@ -4422,7 +4438,7 @@ function plOpenNewIe(pre = {}) {
   $("#niS").onclick = async () => {
     const a = PL.akis.find(x => x.id === $("#nAk").value), q = Number($("#nMik").value), ur = $("#nUr").value.trim();
     if (!a) { toast("İş akış şemasını seçin"); return; } if (!ur) { toast("Ürünü girin"); return; } if (!(q > 0)) { toast("Miktarı girin"); return; }
-    const it = prods.find(i => i.kod + " · " + i.ad === ur), now = Date.now(), no = plNextNo();
+    const it = prods.find(i => i.kod + " · " + i.ad === ur), now = Date.now(), no = ieNoYaz(await ieNoAl());
     const data = { no, tur, siparisNo: tur === "sip" ? $("#nSip").value.trim() : "", musteri: tur === "sip" ? $("#nMus").value.trim() : "", urunId: it ? it.id : "", urunAd: ur, akisId: a.id, akisAd: `${a.kod} · ${a.ad}`,
       miktar: q, birim: $("#nBir").value, plBas: $("#nBas").value, termin: $("#nTer").value, oncelik: $("#nOnc").value, sorumlu: $("#nSor").value.trim(), not: $("#nNot").value.trim(), durum: "plan",
       ops: (a.adimlar || []).map((s, i) => ({ no: plNo(s, i), onceki: Array.isArray(s.onceki) ? s.onceki : (i ? [plNo(a.adimlar[i - 1], i - 1)] : []), ad: s.ad || s.tanim || "", tanim: s.tanim || "", ist: s.ist, alt: s.alt || "", sure: Number(s.sure) || 0, hazirlik: Number(s.hazirlik) || 0, kk: s.kk || "", sop: s.sop || "", durum: "bekliyor", tamam: 0, fire: 0, calisma: [] })),
@@ -5724,7 +5740,7 @@ async function saOpenTalepForm(id, opts = {}) {
         data.log = saLog(cur, reOnay ? "Talep düzenlendi, yeniden onaya gönderildi" : "Talep düzenlendi");
         await updateDoc(doc(fs, "sa_talep", cur.id), data); toast("Talep güncellendi"); saOpenTalep(cur.id);
       } else {
-        const ref = doc(collection(fs, "sa_talep")), no = saNextNo("ST", SA.talep);
+        const ref = doc(collection(fs, "sa_talep")), no = saNoYaz("ST", await saNoAl("ST", SA.talep));
         await setDoc(ref, { ...data, no, tarih: TODAY, durum: self ? "onaylandi" : "onay", onay: self ? { seviye: sev, by: ME.name, at: now, oto: true } : { seviye: sev }, teklifIds: [], siparisIds: [], createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: self ? "Talep açıldı ve onaylandı (onaycı)" : `Talep açıldı · ${sev === "buyuk" ? "büyük" : "küçük"} onaya gönderildi` }] });
         toast(self ? `${no} açıldı ve onaylandı` : `${no} onaya gönderildi · ${saOnayAd(sev)}`); SA.view = "talep"; closeDrawer(); renderSA();
       }
@@ -5851,12 +5867,12 @@ function saOpenRFQNew(talepId) {
     saKalemBind(K, "rfq", () => { keep(); paint(); });
     $("#rqS").onclick = async () => {
       keep(); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size && !SB.length) { toast("En az bir tedarikçi seçin ya da serbest tedarikçi ekleyin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
-      $("#rqS").disabled = true; const now = Date.now(), b = writeBatch(fs), ids = []; let L0 = SA.teklif.slice();
-      for (const cid of sel) { const c = crFind(cid), ref = doc(collection(fs, "sa_teklif")), no = saNextNo("FT", L0); L0.push({ no }); ids.push(ref.id);
+      $("#rqS").disabled = true; const now = Date.now(), b = writeBatch(fs), ids = []; let ftN = (await saNoAl("FT", SA.teklif, sel.size + SB.length)) - 1;
+      for (const cid of sel) { const c = crFind(cid), ref = doc(collection(fs, "sa_teklif")), no = saNoYaz("FT", ++ftN); ids.push(ref.id);
         b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: cid, cariAd: crAd(c), pb: c.pb || "TRY", sonTarih: f.son || "", not: f.not.trim(),
           kalemler: L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), tedKod: k.tedKod || "", fiyat: null, isk: 0, kdv: 20, teslimGun: null })),
           durum: "hazir", proformaNo: "", gonderim: [], createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, log: [{ at: now, by: ME.name, t: "Fiyat talebi oluşturuldu" }] }); }
-      for (const x of SB) { const ref = doc(collection(fs, "sa_teklif")), no = saNextNo("FT", L0); L0.push({ no }); ids.push(ref.id);
+      for (const x of SB) { const ref = doc(collection(fs, "sa_teklif")), no = saNoYaz("FT", ++ftN); ids.push(ref.id);
         b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: "", cariAd: x.ad, serbest: x, pb: "TRY", sonTarih: f.son || "", not: f.not.trim(),
           kalemler: L.map(k => ({ sid: k.sid || null, kod: k.kod || "", ad: k.ad, tanim: k.tanim || "", birim: k.birim || "Adet", miktar: Number(k.miktar), tedKod: "", fiyat: null, isk: 0, kdv: 20, teslimGun: null })),
           durum: "hazir", proformaNo: "", gonderim: [], createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name, log: [{ at: now, by: ME.name, t: "Fiyat talebi oluşturuldu (serbest tedarikçi)" }] }); }
@@ -5978,7 +5994,7 @@ async function saOpenPOForm(id, opts = {}) {
         await updateDoc(doc(fs, "sa_siparis", cur.id), data); if (data.durum === "hazir" && cur.durum === "onay") await saPoPrices({ ...cur, ...data });
         toast("Sipariş güncellendi"); saOpenPO(cur.id); return;
       }
-      const ref = doc(collection(fs, "sa_siparis")), no = saNextNo("SA", SA.siparis), B = writeBatch(fs);
+      const ref = doc(collection(fs, "sa_siparis")), no = saNoYaz("SA", await saNoAl("SA", SA.siparis)), B = writeBatch(fs);
       Object.assign(data, { no, talepId: tl ? tl.id : "", talepNo: tl ? tl.no : "", teklifId: tk ? tk.id : "", teklifNo: tk ? tk.no : "", durum: n.gerekli ? "onay" : "hazir", onay: n.gerekli ? { seviye: n.seviye } : n.onay, kabuller: [], iadeler: [], gonderim: [], faturalar: [], createdAt: now, createdBy: ME.name, uid: ME.uid,
         log: [{ at: now, by: ME.name, t: n.gerekli ? `Sipariş oluşturuldu · ${n.seviye === "buyuk" ? "büyük" : "küçük"} onaya gönderildi` : "Sipariş oluşturuldu" + (n.onay && n.onay.kaynak === "talep" ? " (talep onayı geçerli)" : n.onay ? " ve onaylandı" : "") }] });
       B.set(ref, data);
@@ -7220,7 +7236,7 @@ async function spOpenForm(id, pre) {
       if (L.some(k => !k.renk)) { toast("Rengi seçilmemiş kalem var"); return; }
       if (pr && L.some(k => k.fiyat == null)) { const ok = await spEmin("Fiyatsız kalem", "<p>Bazı kalemlerde birim fiyat yok. Fiyat sonra girilecekse devam edebilirsiniz.</p>", "Devam et"); if (!ok) return; }
     }
-    const now = Date.now(), no = cur ? cur.no : spNextNo();
+    const now = Date.now(); let no = cur ? cur.no : spNextNo();
     const draft = { id: cur ? cur.id : "", no, cariId: c ? c.id : "", proje: { ad: f.fPa.trim() } };
     if (onay || onayli) { const ok = await spRenkOzet(draft, L); if (!ok) return; }
     const b = $("#sfS"); b.disabled = true;
@@ -7243,6 +7259,7 @@ async function spOpenForm(id, pre) {
         data.log = spLog(cur, msg); await updateDoc(ref, data); toast(msg);
       } else {
         ref = doc(collection(fs, "siparis"));
+        no = `KRM-${TODAY.slice(0, 4)}-${String(await sayacAl("KRM-" + TODAY.slice(0, 4), spNoSon(SP.list.map(x => x.no)))).padStart(4, "0")}`; data.no = no;   // numara kayıt anında sunucu sayacından kesinleşir
         await setDoc(ref, { ...data, ...(pre && pre.teklifId ? { teklifId: pre.teklifId } : {}), durum: onay ? "onaylandi" : "taslak", ...(onay ? { onay: { by: ME.name, at: now }, renkOnay: { by: ME.name, at: now } } : {}), rev: 0, sevkiyatlar: [], faturalar: [], ekler: [], terminLog: [], createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: onay ? "Sipariş girildi ve onaylandı · kalemler planlama havuzunda" : "Taslak sipariş girildi" }] });
         toast(onay ? `${no} onaylandı · ${kal.length} kalem planlama havuzunda` : `${no} taslak olarak kaydedildi`);
       }
@@ -7619,7 +7636,7 @@ async function plHavuzIe(g) {
     let kalan = q; const dag = S.map(x => { const m = Math.min(x.kal, kalan); kalan -= m; return { ...x, m }; }).filter(x => x.m > 0);
     const b = $("#hiS"); b.disabled = true; const now = Date.now();
     try {
-      const y = TODAY.slice(0, 4); let n = Math.max(0, ...PL.ie.map(e => { const m = String(e.no || "").match(new RegExp("^İE-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; }));
+      const y = TODAY.slice(0, 4); let n = (await ieNoAl(new Set(dag.map(x => x.s.id)).size)) - 1;
       const bySp = new Map(); dag.forEach(x => { if (!bySp.has(x.s.id)) bySp.set(x.s.id, []); bySp.get(x.s.id).push(x); });
       const bt = writeBatch(fs), nos = [];
       bySp.forEach((D, spId) => { const s0 = D[0].s, q0 = D.reduce((t, x) => t + x.m, 0), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no);
@@ -8014,7 +8031,7 @@ async function tkOpenForm(id, o = {}) {
         up.log = (cur.log || []).concat([{ at: now, by: ME.name, t: rev ? `${tkRevAd(up.rev)} hazırlandı` : "Teklif güncellendi" }]).slice(-60);
         await updateDoc(doc(fs, "teklif", cur.id), up); toast(rev ? `${cur.no} ${tkRevAd(up.rev)} kaydedildi` : "Teklif kaydedildi"); closeDrawer(); setTimeout(() => tkOpen(cur.id), 120);
       } else {
-        const ref = doc(collection(fs, "teklif")), no = tkNextNo();
+        const tkP = tkNextNo().slice(0, -3), ref = doc(collection(fs, "teklif")), no = tkP + String(await sayacAl("TK-" + tkP.slice(4, 10), Number(tkNextNo().slice(-3)) - 1)).padStart(3, "0");
         await setDoc(ref, { ...data, no, rev: 1, revs: [], durum: "taslak", gonderim: [], hazirlayan: ME.name, createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: src ? `${src.no} teklifinden kopyalandı` : "Teklif hazırlandı" }] });
         toast(no + " kaydedildi"); closeDrawer(); setTimeout(() => tkOpen(ref.id), 120);
       }
@@ -8513,7 +8530,7 @@ async function plSipToIe(spId) {
   $("#siS").onclick = async () => {
     const S = K.filter(x => x.on && x.q > 0 && x.ak); if (!S.length) return; const b = $("#siS"); b.disabled = true; const now = Date.now(), bas = $("#siBas").value, sor = $("#siSor").value.trim();
     try {
-      const y = TODAY.slice(0, 4); let n = Math.max(0, ...PL.ie.map(e => { const m = String(e.no || "").match(new RegExp("^İE-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; }));
+      const y = TODAY.slice(0, 4); let n = (await ieNoAl(S.length)) - 1;
       const bt = writeBatch(fs), NK = (s.kalemler || []).map(k => ({ ...k })), nos = [];
       S.forEach(x => { const a = PL.akis.find(z => z.id === x.ak), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no); const k = x.k;
         bt.set(ref, { no, tur: "sip", siparisNo: s.no, siparisIds: [s.id], spKalem: [{ spId: s.id, k: k.k, miktar: x.q }], musteri: s.cariAd || "", proje: (s.proje && s.proje.ad) || "", urunId: k.sid || "", urunAd: `${k.kod ? k.kod + " · " : ""}${k.ad}`, renk: k.renk || null, renkAd: k.renk ? spRenkAd(k.renk) : "", varyasyon: spVarAd(k),
@@ -9590,4 +9607,74 @@ function mhDetay(id) {
     const gr = $("#mhGeri"); if (gr) { let a = false; gr.onclick = async () => { if (!a) { a = true; gr.textContent = "Geri alınsın mı? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "muhasebe_fatura", r.id)); toast("Fatura işareti geri alındı"); setTimeout(paint, 300); } catch (e) { toast(writeErr(e)); } }; }
   };
   paint();
+}
+
+
+/* ================= YEDEKLEME (yalnızca yönetici) =================
+   Tüm Firestore verisini tek bir JSON dosyası olarak bilgisayara indirir.
+   Dosya kişisel veri içerir (personel, CV): GitHub'a ya da paylaşılan bir klasöre KONMAZ.
+   Kişiler arası mesajlar ve kişisel ekran tercihleri yedeğe girmez (yönetici başkasının yazışmasını okuyamaz). */
+const YD_KOL = ["tasks", "feedback", "disis", "stok", "stok_fiyat", "satis_fiyat", "stok_hareket", "cari", "cari_eslesme", "sa_talep", "sa_teklif", "sa_siparis", "sa_fatura",
+  "istasyon", "akis", "isemri", "personel", "personel_ozel", "izinler", "yoklama", "cv", "siparis", "siparis_fiyat", "teklif", "muhasebe_fatura", "urun_tanitim", "urun_egitim", "sayac"];
+const YD_DOSYA = ["disis_files", "stok_foto", "cv_dosya", "sp_dosya", "urun_foto"];   // fotoğraf ve ekler: dosyayı büyütür
+const YD_CFG = ["access", "disis", "stok", "satinalma", "planlama", "personel", "mes", "pano", "siparis", "yedek"];
+const YD = { cfg: null, yuklendi: false, calisiyor: false, durum: "" };
+const ydLS = () => { try { return JSON.parse(localStorage.getItem("karmen.yedek") || "{}"); } catch (e) { return {}; } };
+const ydCfg = () => ({ oto: false, saat: "17:30", dosya: true, ...ydLS(), ...(YD.cfg || {}) });
+async function ydYukle() {
+  if (YD.yuklendi || !isAdmin()) return; YD.yuklendi = true;
+  try { const sn = await getDoc(doc(fs, "config", "yedek")); if (sn.exists()) YD.cfg = sn.data(); } catch (e) { console.warn("yedek ayarı okunamadı", e && e.message); }
+  if (ROUTE === "yetki") renderYedek();
+}
+async function ydKaydet(d) {
+  YD.cfg = { ...ydCfg(), ...d };
+  try { localStorage.setItem("karmen.yedek", JSON.stringify(YD.cfg)); } catch (e) { }
+  try { await setDoc(doc(fs, "config", "yedek"), YD.cfg, { merge: true }); } catch (e) { console.warn("yedek ayarı yazılamadı", e && e.message); }
+}
+const ydBoyut = b => b > 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+async function yedekAl(oto) {
+  if (!isAdmin() || YD.calisiyor) return false;
+  YD.calisiyor = true; const C = ydCfg(), veri = {}, sayim = {}, hata = []; let toplam = 0;
+  const adim = t => { YD.durum = t; if (ROUTE === "yetki") renderYedek(); };
+  try {
+    const L = [...YD_KOL, ...(C.dosya ? YD_DOSYA : [])];
+    for (let i = 0; i < L.length; i++) { const k = L[i]; adim(`${i + 1}/${L.length} · ${k}`);
+      try { const sn = await getDocs(collection(fs, k)), o = {}; sn.docs.forEach(d => { o[d.id] = d.data(); }); veri[k] = o; sayim[k] = sn.docs.length; toplam += sn.docs.length; }
+      catch (e) { hata.push(k); console.warn("yedek: okunamadı", k, e && e.message); } }
+    veri.config = {}; for (const id of YD_CFG) { try { const sn = await getDoc(doc(fs, "config", id)); if (sn.exists()) { veri.config[id] = sn.data(); toplam++; } } catch (e) { hata.push("config/" + id); } }
+    sayim.config = Object.keys(veri.config).length;
+    if (!toplam) throw new Error("Hiç kayıt okunamadı (bağlantı ya da yetki)");
+    const d = new Date(), p2 = n => String(n).padStart(2, "0"), ad = `karmen-yedek-${TODAY}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
+    const blob = new Blob([JSON.stringify({ meta: { uygulama: "KARMEN MRP-ERP", surum: APP_V, at: Date.now(), tarih: d.toISOString(), by: ME.name, dosyalarDahil: !!C.dosya, sayim, okunamayan: hata }, veri })], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = ad; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    await ydKaydet({ sonAt: Date.now(), sonGun: TODAY, sonBy: ME.name, sonSayi: toplam, sonBoyut: blob.size, sonAd: ad, sonHata: hata });
+    toast(`${oto ? "Otomatik yedek" : "Yedek"} indirildi · ${toplam} kayıt · ${ydBoyut(blob.size)}${hata.length ? ` · ${hata.length} bölüm okunamadı` : ""}`);
+    return true;
+  } catch (e) { console.error(e); toast("Yedek alınamadı: " + (e && e.message || e)); return false; }
+  finally { YD.calisiyor = false; YD.durum = ""; if (ROUTE === "yetki") renderYedek(); }
+}
+// Otomatik yedek: yöneticinin oturumu açıkken, belirlenen saat geçtiyse günde bir kez indirir
+function yedekOtoKontrol() {
+  if (!isAdmin()) return; ydYukle();
+  const C = ydCfg(); if (!C.oto || YD.calisiyor || C.sonGun === TODAY || !YD.yuklendi) return;
+  const d = new Date(), simdi = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  if (simdi >= (C.saat || "17:30")) yedekAl(true);
+}
+function renderYedek() {
+  const h = $("#ytYedek"); if (!h || !isAdmin()) return; ydYukle();
+  const C = ydCfg(), gun = C.sonAt ? Math.floor((Date.now() - C.sonAt) / 864e5) : null;
+  const dur = C.sonAt ? (gun >= 7 ? "bad" : gun >= 2 ? "warn" : "ok") : "bad";
+  h.innerHTML = `<div class="ph-box ydbox"><h3>Veri yedeği</h3>
+    <p class="note" style="margin:0 0 12px">Tüm kayıtları (sipariş, iş emri, stok, cari, satınalma, personel, muhasebe…) tek dosya olarak bu bilgisayara indirir. Kişiler arası mesajlar yedeğe girmez. Dosya <b>kişisel veri içerir</b>: GitHub'a yüklemeyin, yalnızca şirketin güvenli klasöründe saklayın.</p>
+    <div class="ydson yd-${dur}"><b>${C.sonAt ? `Son yedek: ${fmtS(C.sonGun)} ${new Date(C.sonAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Henüz yedek alınmadı"}</b>
+      <span>${C.sonAt ? `${esc(C.sonBy || "")} · ${nf(C.sonSayi || 0)} kayıt · ${ydBoyut(C.sonBoyut || 0)}${gun >= 1 ? ` · ${gun} gün önce` : " · bugün"}${(C.sonHata || []).length ? ` · okunamayan: ${esc(C.sonHata.join(", "))}` : ""}` : "İlk yedeği şimdi alın."}</span></div>
+    <div class="ydrow"><button class="btn primary" id="ydAl" type="button"${YD.calisiyor ? " disabled" : ""}>${YD.calisiyor ? "Yedekleniyor… " + esc(YD.durum) : "Şimdi yedek al"}</button>
+      <label class="ydchk"><input type="checkbox" id="ydDosya"${C.dosya ? " checked" : ""}> Fotoğraf ve ek dosyaları da dahil et</label></div>
+    <div class="ydrow ydoto"><label class="ydchk"><input type="checkbox" id="ydOto"${C.oto ? " checked" : ""}> Her gün otomatik yedek al</label>
+      <label class="ydchk">Saat <input type="time" id="ydSaat" value="${esc(C.saat || "17:30")}"${C.oto ? "" : " disabled"}></label></div>
+    <p class="note" style="margin:10px 0 0">Otomatik yedek, yönetici hesabı bu saatte (ya da sonrasında) uygulamada açıkken günde bir kez iner. Tarayıcının indirme klasörünü Google Drive klasörü yaparsanız dosya kendiliğinden Drive'a yüklenir.</p></div>`;
+  $("#ydAl").onclick = () => yedekAl(false);
+  $("#ydDosya").onchange = e => ydKaydet({ dosya: e.target.checked });
+  $("#ydOto").onchange = async e => { await ydKaydet({ oto: e.target.checked }); renderYedek(); };
+  $("#ydSaat").onchange = e => { if (e.target.value) ydKaydet({ saat: e.target.value }); };
 }

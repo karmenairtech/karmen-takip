@@ -1543,3 +1543,13 @@ body.mesdev .toolbar{display:none}
 .mhgm small{font-weight:400;opacity:.7;margin-right:4px}
 .mhg .mhled{border-top:1px solid var(--line);border-radius:0;margin:0}
 .mhgf{display:flex;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line)}
+
+/* v62 — yedekleme */
+#ytYedek{margin:18px 0}
+.ydson{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:10px;border-left:5px solid var(--line);background:color-mix(in srgb,var(--line) 30%,var(--surface));margin:0 0 12px}
+.ydson span{font-size:13px;opacity:.8}
+.ydson.yd-ok{border-left-color:var(--k-fabrikada)}.ydson.yd-warn{border-left-color:var(--k-gec)}.ydson.yd-bad{border-left-color:#d92d20}
+.ydrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:8px 0}
+.ydchk{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.ydchk input[type=checkbox]{width:20px;height:20px}
+.ydchk input[type=time]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;font:inherit}
