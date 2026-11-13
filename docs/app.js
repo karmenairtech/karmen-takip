@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "62";
+const APP_V = "63";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -9632,6 +9632,51 @@ async function ydKaydet(d) {
   try { await setDoc(doc(fs, "config", "yedek"), YD.cfg, { merge: true }); } catch (e) { console.warn("yedek ayarı yazılamadı", e && e.message); }
 }
 const ydBoyut = b => b > 1048576 ? (b / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+/* --- Google Drive'a yükleme (isteğe bağlı) ---
+   Yalnızca uygulamanın kendi oluşturduğu dosyalara erişir (drive.file); Drive'daki başka dosyaları göremez. */
+const YD_GCID = "676917131620-fa6b6n4jbsa88sehf06obb87s53qq3ad.apps.googleusercontent.com", YD_KLASOR = "KARMEN Yedek";
+let YD_TOK = null, YD_GIS = null;
+function ydGis() {
+  if (YD_GIS) return YD_GIS;
+  return YD_GIS = new Promise((ok, no) => { if (window.google && google.accounts && google.accounts.oauth2) return ok();
+    const sc = document.createElement("script"); sc.src = "https://accounts.google.com/gsi/client"; sc.onload = () => ok(); sc.onerror = () => { YD_GIS = null; no(new Error("Google oturum bileşeni yüklenemedi")); }; document.head.appendChild(sc); });
+}
+async function ydToken(sor) {
+  if (YD_TOK && YD_TOK.exp > Date.now() + 60000) return YD_TOK.t;
+  await ydGis();
+  return new Promise((ok, no) => {
+    const zs = setTimeout(() => no(new Error("Google izni zaman aşımına uğradı")), 120000);
+    const tc = google.accounts.oauth2.initTokenClient({ client_id: YD_GCID, scope: "https://www.googleapis.com/auth/drive.file",
+      callback: r => { clearTimeout(zs); if (r && r.access_token) { YD_TOK = { t: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 }; ok(YD_TOK.t); } else no(new Error((r && (r.error_description || r.error)) || "Google izni alınamadı")); },
+      error_callback: e => { clearTimeout(zs); no(new Error(e && e.type === "popup_failed_to_open" ? "Google izin penceresi açılamadı (tarayıcı açılır pencereyi engelledi)" : e && e.type === "popup_closed" ? "Google izin penceresi kapatıldı" : (e && e.message) || "Google izni alınamadı")); } });
+    tc.requestAccessToken({ prompt: sor ? "consent" : "" });
+  });
+}
+async function ydApi(url, opt = {}, tok) {
+  const r = await fetch(url, { ...opt, headers: { Authorization: "Bearer " + tok, ...(opt.headers || {}) } });
+  if (!r.ok) { let m = ""; try { m = (await r.json()).error.message; } catch (e) { } if (r.status === 401) YD_TOK = null; throw new Error(`Drive ${r.status}${m ? ": " + m : ""}`); }
+  return r;
+}
+async function ydKlasor(tok) {
+  const C = ydCfg();
+  if (C.driveKlasor) { try { const j = await (await ydApi(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(C.driveKlasor)}?fields=id,trashed`, {}, tok)).json(); if (j.id && !j.trashed) return j.id; } catch (e) { if (!/ 404/.test(e.message)) throw e; } }
+  const q = encodeURIComponent(`name='${YD_KLASOR}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const L = await (await ydApi(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {}, tok)).json();
+  let id = L.files && L.files[0] && L.files[0].id;
+  if (!id) id = (await (await ydApi("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: YD_KLASOR, mimeType: "application/vnd.google-apps.folder" }) }, tok)).json()).id;
+  await ydKaydet({ driveKlasor: id }); return id;
+}
+async function ydDriveYukle(blob, ad, sor) {
+  const tok = await ydToken(sor), kl = await ydKlasor(tok);
+  const bas = await ydApi("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", { method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8", "X-Upload-Content-Type": "application/json", "X-Upload-Content-Length": String(blob.size) }, body: JSON.stringify({ name: ad, parents: [kl], mimeType: "application/json" }) }, tok);
+  const yer = bas.headers.get("Location"); if (!yer) throw new Error("Drive yükleme adresi alınamadı");
+  return (await (await ydApi(yer, { method: "PUT", headers: { "Content-Type": "application/json" }, body: blob }, tok)).json()).id;
+}
+async function ydDriveBaglan() {
+  try { const tok = await ydToken(true); await ydKlasor(tok); await ydKaydet({ drive: true }); toast(`Google Drive bağlandı · yedekler “${YD_KLASOR}” klasörüne yüklenecek`); }
+  catch (e) { console.error(e); toast("Drive bağlanamadı: " + (e && e.message || e)); }
+  renderYedek();
+}
 async function yedekAl(oto) {
   if (!isAdmin() || YD.calisiyor) return false;
   YD.calisiyor = true; const C = ydCfg(), veri = {}, sayim = {}, hata = []; let toplam = 0;
@@ -9646,9 +9691,11 @@ async function yedekAl(oto) {
     if (!toplam) throw new Error("Hiç kayıt okunamadı (bağlantı ya da yetki)");
     const d = new Date(), p2 = n => String(n).padStart(2, "0"), ad = `karmen-yedek-${TODAY}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
     const blob = new Blob([JSON.stringify({ meta: { uygulama: "KARMEN MRP-ERP", surum: APP_V, at: Date.now(), tarih: d.toISOString(), by: ME.name, dosyalarDahil: !!C.dosya, sayim, okunamayan: hata }, veri })], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = ad; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    await ydKaydet({ sonAt: Date.now(), sonGun: TODAY, sonBy: ME.name, sonSayi: toplam, sonBoyut: blob.size, sonAd: ad, sonHata: hata });
-    toast(`${oto ? "Otomatik yedek" : "Yedek"} indirildi · ${toplam} kayıt · ${ydBoyut(blob.size)}${hata.length ? ` · ${hata.length} bölüm okunamadı` : ""}`);
+    let yer = "indirme", dHata = "";
+    if (C.drive) { adim("Google Drive'a yükleniyor"); try { await ydDriveYukle(blob, ad, false); yer = "drive"; } catch (e) { console.error(e); dHata = (e && e.message) || String(e); } }
+    if (yer !== "drive") { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = ad; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }
+    await ydKaydet({ sonAt: Date.now(), sonGun: TODAY, sonBy: ME.name, sonSayi: toplam, sonBoyut: blob.size, sonAd: ad, sonHata: hata, sonYer: yer, sonDriveHata: dHata });
+    toast(`${oto ? "Otomatik yedek" : "Yedek"} ${yer === "drive" ? "Google Drive'a yüklendi" : "indirildi"} · ${toplam} kayıt · ${ydBoyut(blob.size)}${hata.length ? ` · ${hata.length} bölüm okunamadı` : ""}${dHata ? " · Drive'a yüklenemedi, bilgisayara indirildi" : ""}`);
     return true;
   } catch (e) { console.error(e); toast("Yedek alınamadı: " + (e && e.message || e)); return false; }
   finally { YD.calisiyor = false; YD.durum = ""; if (ROUTE === "yetki") renderYedek(); }
@@ -9667,13 +9714,16 @@ function renderYedek() {
   h.innerHTML = `<div class="ph-box ydbox"><h3>Veri yedeği</h3>
     <p class="note" style="margin:0 0 12px">Tüm kayıtları (sipariş, iş emri, stok, cari, satınalma, personel, muhasebe…) tek dosya olarak bu bilgisayara indirir. Kişiler arası mesajlar yedeğe girmez. Dosya <b>kişisel veri içerir</b>: GitHub'a yüklemeyin, yalnızca şirketin güvenli klasöründe saklayın.</p>
     <div class="ydson yd-${dur}"><b>${C.sonAt ? `Son yedek: ${fmtS(C.sonGun)} ${new Date(C.sonAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : "Henüz yedek alınmadı"}</b>
-      <span>${C.sonAt ? `${esc(C.sonBy || "")} · ${nf(C.sonSayi || 0)} kayıt · ${ydBoyut(C.sonBoyut || 0)}${gun >= 1 ? ` · ${gun} gün önce` : " · bugün"}${(C.sonHata || []).length ? ` · okunamayan: ${esc(C.sonHata.join(", "))}` : ""}` : "İlk yedeği şimdi alın."}</span></div>
+      <span>${C.sonAt ? `${esc(C.sonBy || "")} · ${nf(C.sonSayi || 0)} kayıt · ${ydBoyut(C.sonBoyut || 0)}${gun >= 1 ? ` · ${gun} gün önce` : " · bugün"}${C.sonYer === "drive" ? " · Google Drive'a yüklendi" : C.sonYer ? " · bilgisayara indirildi" : ""}${(C.sonHata || []).length ? ` · okunamayan: ${esc(C.sonHata.join(", "))}` : ""}` : "İlk yedeği şimdi alın."}</span>${C.sonAt && C.sonDriveHata ? `<span class="yderr">Drive'a yüklenemedi: ${esc(C.sonDriveHata)}</span>` : ""}</div>
+    <div class="ydrow yddrv">${C.drive ? `<span class="kst" style="--tc:var(--k-fabrikada)">Google Drive bağlı</span><span class="note">Yedekler Drive'daki “${YD_KLASOR}” klasörüne yüklenir; yüklenemezse bilgisayara iner.</span><button class="btn sm ghost" id="ydDrvX" type="button">Bağlantıyı kaldır</button>` : `<button class="btn ghost" id="ydDrv" type="button">Google Drive'a bağlan</button><span class="note">Bağlanınca yedekler bilgisayar yerine Drive'a yüklenir.</span>`}</div>
     <div class="ydrow"><button class="btn primary" id="ydAl" type="button"${YD.calisiyor ? " disabled" : ""}>${YD.calisiyor ? "Yedekleniyor… " + esc(YD.durum) : "Şimdi yedek al"}</button>
       <label class="ydchk"><input type="checkbox" id="ydDosya"${C.dosya ? " checked" : ""}> Fotoğraf ve ek dosyaları da dahil et</label></div>
     <div class="ydrow ydoto"><label class="ydchk"><input type="checkbox" id="ydOto"${C.oto ? " checked" : ""}> Her gün otomatik yedek al</label>
       <label class="ydchk">Saat <input type="time" id="ydSaat" value="${esc(C.saat || "17:30")}"${C.oto ? "" : " disabled"}></label></div>
-    <p class="note" style="margin:10px 0 0">Otomatik yedek, yönetici hesabı bu saatte (ya da sonrasında) uygulamada açıkken günde bir kez iner. Tarayıcının indirme klasörünü Google Drive klasörü yaparsanız dosya kendiliğinden Drive'a yüklenir.</p></div>`;
+    <p class="note" style="margin:10px 0 0">Otomatik yedek, yönetici hesabı bu saatte (ya da sonrasında) uygulamada açıkken günde bir kez iner. Drive bağlıysa dosya Drive'a yüklenir; bunun için tarayıcıda bu site için açılır pencerelere izin verilmiş olmalıdır.</p></div>`;
   $("#ydAl").onclick = () => yedekAl(false);
+  const dv = $("#ydDrv"); if (dv) dv.onclick = () => { dv.disabled = true; ydDriveBaglan(); };
+  const dx = $("#ydDrvX"); if (dx) dx.onclick = async () => { await ydKaydet({ drive: false }); YD_TOK = null; renderYedek(); };
   $("#ydDosya").onchange = e => ydKaydet({ dosya: e.target.checked });
   $("#ydOto").onchange = async e => { await ydKaydet({ oto: e.target.checked }); renderYedek(); };
   $("#ydSaat").onchange = e => { if (e.target.value) ydKaydet({ saat: e.target.value }); };

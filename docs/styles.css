@@ -1553,3 +1553,5 @@ body.mesdev .toolbar{display:none}
 .ydchk{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
 .ydchk input[type=checkbox]{width:20px;height:20px}
 .ydchk input[type=time]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;font:inherit}
+.yderr{color:#d92d20;opacity:1!important}
+.yddrv .btn.sm{margin-left:auto}
