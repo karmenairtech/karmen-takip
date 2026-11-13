@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "56";
+const APP_V = "57";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -8408,28 +8408,70 @@ async function svSend(s, idx, kanal) {
 }
 
 /* ===== Planlama: sipariş kartları (genel bakış) ===== */
-function plSipKartlar() {
+function plSipKartlar(hepsi) {
   const G = new Map();
-  SP.list.filter(s => s.durum !== "taslak" && s.durum !== "iptal").forEach(s => { const d = spDurum(s); const son = (s.sevkiyatlar || []).slice(-1)[0]; if (!spAcik(s) && !(son && dnum(son.tarih) >= dnum(TODAY) - 14)) return; G.set(s.no, { tip: "sp", s, no: s.no, tarih: s.tarih, musteri: s.cariAd, proje: (s.proje && s.proje.ad) || "", termin: s.verilenTermin, p: spPct(s), bitti: !spAcik(s), d }); });
-  PL.ie.filter(e => e.siparisNo && !G.has(e.siparisNo) && !String(e.siparisNo).includes(",") && (plIeOpen(e) || (e.bitis && Date.now() - e.bitis < 14 * 864e5))).forEach(e => { const g = G.get(e.siparisNo) || { tip: "ie", no: e.siparisNo, tarih: dayOf(e.createdAt), musteri: e.musteri, proje: "", termin: e.termin, L: [] }; g.L.push(e); if (e.termin && (!g.termin || e.termin < g.termin)) g.termin = e.termin; G.set(e.siparisNo, g); });
+  SP.list.filter(s => s.durum !== "taslak" && s.durum !== "iptal").forEach(s => { const d = spDurum(s); const son = (s.sevkiyatlar || []).slice(-1)[0]; if (!hepsi && !spAcik(s) && !(son && dnum(son.tarih) >= dnum(TODAY) - 14)) return; G.set(s.no, { tip: "sp", s, no: s.no, tarih: s.tarih, musteri: s.cariAd, cariId: s.cariId, proje: (s.proje && s.proje.ad) || "", termin: s.verilenTermin, acil: s.oncelik === "acil", sonSevk: son ? son.tarih : "", p: spPct(s), bitti: !spAcik(s), d }); });
+  PL.ie.filter(e => e.siparisNo && !G.has(e.siparisNo) && !String(e.siparisNo).includes(",") && (hepsi || plIeOpen(e) || (e.bitis && Date.now() - e.bitis < 14 * 864e5))).forEach(e => { const g = G.get(e.siparisNo) || { tip: "ie", no: e.siparisNo, tarih: dayOf(e.createdAt), musteri: e.musteri, proje: "", termin: e.termin, L: [] }; g.L.push(e); if (e.termin && (!g.termin || e.termin < g.termin)) g.termin = e.termin; G.set(e.siparisNo, g); });
   G.forEach(g => { if (g.tip !== "ie") return; const S = g.L.map(plStats), plan = S.reduce((a, x) => a + x.plan, 0), done = S.reduce((a, x) => a + x.done, 0); g.p = { plan: 100, uretim: plan ? Math.round(done / plan * 100) : 0, sevk: 0 }; g.bitti = g.L.every(e => e.durum === "bitti" || e.durum === "iptal"); });
   return [...G.values()].map(g => { const gun = g.termin ? dnum(g.termin) - dnum(TODAY) : null; g.gun = gun; g.renk = g.bitti ? "gri" : gun == null ? "gri" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes"; return g; })
     .sort((a, b) => (a.bitti - b.bitti) || ((a.gun ?? 9999) - (b.gun ?? 9999)));
 }
-function plKartHtml(R) {
-  const F = PL.KF || "tum", say = k => R.filter(g => g.renk === k || (k === "kir" && g.renk === "gec")).length;
-  const L = R.filter(g => F === "tum" || (F === "kir" ? ["kir", "gec"].includes(g.renk) : F === "bek" ? g.tip === "sp" && g.p.plan < 100 && !g.bitti : g.renk === F));
-  return `<section class="plkart"><div class="plkh"><h3 class="sec-t">Siparişler <small>${R.filter(g => !g.bitti).length} açık</small></h3>
-      <div class="seg pkf">${[["tum", "Tümü", R.length], ["kir", "1 haftadan az", say("kir")], ["tur", "1–2 hafta", say("tur")], ["yes", "2 haftadan fazla", say("yes")], ["bek", "Planlanmayı bekleyen", R.filter(g => g.tip === "sp" && g.p.plan < 100 && !g.bitti).length]].map(([k, l, n]) => `<button type="button" data-kf="${k}" aria-pressed="${F === k}">${l} <small>${n}</small></button>`).join("")}</div></div>
+// Genel bakış · siparişler: kapalıyken özet şeridi, açıkken filtreler + sipariş kartları
+const PL_SK = (() => { try { return JSON.parse(localStorage.getItem("plSipKart") || "null") || { ac: false }; } catch (e) { return { ac: false }; } })();
+PL_SK.F = { q: "", c: "", d: "acik", ur: "", sv: "", ac2: false, sir: "termin" };
+const plSkKaydet = () => { try { localStorage.setItem("plSipKart", JSON.stringify({ ac: PL_SK.ac })); } catch (e) {} };
+function plSipOzet() {
+  const G = plSipKartlar(true), acG = G.filter(g => !g.bitti), S = G, ac = acG, tam = G.length - acG.length;
+  const bugunSip = G.filter(g => g.bitti && (g.tip === "sp" ? g.sonSevk === TODAY : (g.L || []).some(e => e.bitis && dayOf(e.bitis) === TODAY))).length;
+  const IE = PL.ie.filter(e => e.siparisNo && e.durum !== "iptal"), acIe = IE.filter(plIeOpen).length, bitIe = IE.filter(e => e.durum === "bitti");
+  const bugunIe = bitIe.filter(e => e.bitis && dayOf(e.bitis) === TODAY).length, haftaIe = bitIe.filter(e => e.bitis && dnum(dayOf(e.bitis)) > dnum(TODAY) - 7).length;
+  const gec = acG.filter(g => g.gun != null && g.gun < 0).length;
+  return { S: S.length, ac: ac.length, tam, bugunSip, ie: IE.length, acIe, bitIe: bitIe.length, bugunIe, haftaIe, gec };
+}
+function plKartHtml(R0) {
+  const O = plSipOzet(), ac = PL_SK.ac, F = PL_SK.F;
+  const oz = [["Toplam sipariş", O.S, ""], ["Açık sipariş", O.ac, O.gec ? `${O.gec} termini geçti` : ""], ["Tamamlanan sipariş", O.tam, O.bugunSip ? `bugün ${O.bugunSip}` : ""],
+    ["Siparişe bağlı iş emri", O.ie, ""], ["Açık iş emri", O.acIe, ""], ["Tamamlanan iş emri", O.bitIe, `son 7 gün ${O.haftaIe}`], ["Bugün tamamlanan", O.bugunIe, "iş emri"], ["Bugün tamamlanan", O.bugunSip, "sipariş (sevki biten)"]];
+  const head = `<div class="plskh" role="button" tabindex="0" id="plSkT" aria-expanded="${ac}"><span class="mescar">${ac ? "▾" : "▸"}</span><h3 class="sec-t" style="margin:0">Siparişler&nbsp; <small>${O.ac} açık · ${ac ? "kapatmak için dokunun" : "detay için dokunun"}</small></h3></div>
+    <div class="plsko">${oz.map(([k, v2, a]) => `<div><span>${k}</span><b class="num">${v2}</b>${a ? `<small>${esc(a)}</small>` : ""}</div>`).join("")}</div>`;
+  if (!ac) return `<section class="plkart plsk">${head}</section>`;
+  const R = F.d === "acik" ? R0.filter(g => !g.bitti) : F.d === "tam" ? plSipKartlar(true).filter(g => g.bitti) : plSipKartlar(true);
+  const K = PL.KF || "tum", say = k => R.filter(g => g.renk === k || (k === "kir" && g.renk === "gec")).length, q = araFold(F.q);
+  const mus = [...new Map(R.filter(g => g.musteri).map(g => [g.cariId || g.musteri, g.musteri])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]), "tr"));
+  let L = R.filter(g => (K === "tum" || (K === "kir" ? ["kir", "gec"].includes(g.renk) : K === "bek" ? g.tip === "sp" && g.p.plan < 100 && !g.bitti : g.renk === K))
+    && (!F.c || (g.cariId || g.musteri) === F.c) && (!F.ac2 || g.acil)
+    && (!F.ur || (F.ur === "0" ? g.p.uretim === 0 : F.ur === "dv" ? g.p.uretim > 0 && g.p.uretim < 100 : g.p.uretim >= 100))
+    && (!F.sv || (F.sv === "0" ? g.p.sevk === 0 : F.sv === "dv" ? g.p.sevk > 0 && g.p.sevk < 100 : g.p.sevk >= 100))
+    && (!q || q.split(" ").every(w => araFold([g.no, g.musteri, g.proje, ...(g.s ? (g.s.kalemler || []).map(k => k.kod + " " + k.ad) : (g.L || []).map(e => e.no + " " + e.urunAd))].join(" ")).includes(w))));
+  const SR = { termin: (a, b) => (a.bitti - b.bitti) || ((a.gun ?? 9999) - (b.gun ?? 9999)), tarih: (a, b) => String(b.tarih || "").localeCompare(String(a.tarih || "")), musteri: (a, b) => String(a.musteri || "").localeCompare(String(b.musteri || ""), "tr"), ilerleme: (a, b) => a.p.uretim - b.p.uretim, no: (a, b) => String(b.no).localeCompare(String(a.no), "tr", { numeric: true }) };
+  L = L.slice().sort(SR[F.sir] || SR.termin);
+  const aktif = F.q || F.c || F.d !== "acik" || F.ur || F.sv || F.ac2 || F.sir !== "termin" || K !== "tum";
+  return `<section class="plkart plsk on">${head}
+    <div class="plskf"><div class="filters">
+      <input class="f" id="pkQ" type="search" placeholder="Sipariş no, müşteri, proje, ürün…" value="${esc(F.q)}" aria-label="Siparişlerde ara">
+      <select class="f${F.d !== "acik" ? " on" : ""}" id="pkD" aria-label="Sipariş durumu">${[["acik", "Açık siparişler"], ["tam", "Tamamlanan siparişler"], ["tum", "Tüm siparişler"]].map(([a, l]) => opt(a, l, F.d)).join("")}</select>
+      <select class="f${F.c ? " on" : ""}" id="pkC" data-ara aria-label="Müşteri"><option value="">Tüm müşteriler</option>${mus.map(([id, ad]) => opt(id, ad, F.c)).join("")}</select>
+      <select class="f${F.ur ? " on" : ""}" id="pkU" aria-label="Üretim durumu">${[["", "Üretim: tümü"], ["0", "Üretime başlanmadı"], ["dv", "Üretimi devam eden"], ["100", "Üretimi biten"]].map(([a, l]) => opt(a, l, F.ur)).join("")}</select>
+      <select class="f${F.sv ? " on" : ""}" id="pkS" aria-label="Sevk durumu">${[["", "Sevk: tümü"], ["0", "Sevk edilmedi"], ["dv", "Kısmen sevk edildi"], ["100", "Tamamı sevk edildi"]].map(([a, l]) => opt(a, l, F.sv)).join("")}</select>
+      <select class="f${F.sir !== "termin" ? " on" : ""}" id="pkO" aria-label="Sıralama">${[["termin", "Sırala: termine göre"], ["tarih", "Sırala: sipariş tarihi (yeni)"], ["no", "Sırala: sipariş no"], ["musteri", "Sırala: müşteri"], ["ilerleme", "Sırala: üretim ilerlemesi"]].map(([a, l]) => opt(a, l, F.sir)).join("")}</select>
+      <label class="chk"><input type="checkbox" id="pkA"${F.ac2 ? " checked" : ""}> Yalnız acil</label></div>
+      <div class="filters"><span class="sortinfo">${L.length} / ${R.length} sipariş</span>${aktif ? '<button type="button" class="btn ghost sm" id="pkR">Temizle</button>' : ""}</div></div>
+    <div class="seg pkf">${[["tum", "Tümü", R.length], ["kir", "1 haftadan az", say("kir")], ["tur", "1–2 hafta", say("tur")], ["yes", "2 haftadan fazla", say("yes")], ["bek", "Planlanmayı bekleyen", R.filter(g => g.tip === "sp" && g.p.plan < 100 && !g.bitti).length]].map(([k, l, n]) => `<button type="button" data-kf="${k}" aria-pressed="${K === k}">${l} <small>${n}</small></button>`).join("")}</div>
     ${L.length ? `<div class="pltiles">${L.map(g => `<div class="pltile ${g.renk}" role="button" tabindex="0" data-psip="${esc(g.no)}">
       <div class="ptt"><b class="num">${esc(g.no)}</b><span class="pgun">${g.bitti ? "Tamamlandı" : g.gun == null ? "Termin yok" : g.gun < 0 ? `${-g.gun} gün gecikti` : g.gun === 0 ? "Termin bugün" : g.gun + " gün kaldı"}</span></div>
-      <div class="pmus">${esc(g.musteri || "—")}</div><div class="ppro">${esc(g.proje || " ")}</div>
+      <div class="pmus">${esc(g.musteri || "—")}${g.acil ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}</div><div class="ppro">${esc(g.proje || " ")}</div>
       <div class="pdt"><span>Sipariş <b>${g.tarih ? fmtS(g.tarih) : "—"}</b></span><span>Termin <b>${g.termin ? fmtS(g.termin) : "—"}</b></span></div>
       <div class="pbar" title="Plan %${g.p.plan} · üretim %${g.p.uretim} · sevk %${g.p.sevk}"><span style="width:${g.p.plan}%;opacity:.35"></span><span style="width:${g.p.uretim}%"></span></div>
       <div class="ppct"><span>Plan %${g.p.plan}</span><span>Üretim %${g.p.uretim}</span><span>Sevk %${g.p.sevk}</span></div></div>`).join("")}</div>` : '<p class="note">Bu filtrede sipariş yok.</p>'}</section>`;
 }
 function plKartBind(v) {
+  const tg = $("#plSkT"); if (tg) { tg.onclick = () => { PL_SK.ac = !PL_SK.ac; plSkKaydet(); renderPlan(); }; tg.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tg.click(); } }; }
   v.querySelectorAll("[data-kf]").forEach(b => b.onclick = () => { PL.KF = b.dataset.kf; renderPlan(); });
+  const set = (k, val) => { PL_SK.F[k] = val; renderPlan(); };
+  const q = $("#pkQ"); if (q) q.oninput = e => { PL_SK.F.q = e.target.value; renderPlan(); const j = $("#pkQ"); j.focus(); j.setSelectionRange(j.value.length, j.value.length); };
+  [["#pkD", "d"], ["#pkC", "c"], ["#pkU", "ur"], ["#pkS", "sv"], ["#pkO", "sir"]].forEach(([id, k]) => { const el = $(id); if (el) el.onchange = e => set(k, e.target.value); });
+  const a = $("#pkA"); if (a) a.onchange = e => set("ac2", e.target.checked);
+  const r = $("#pkR"); if (r) r.onclick = () => { PL_SK.F = { q: "", c: "", d: "acik", ur: "", sv: "", ac2: false, sir: "termin" }; PL.KF = "tum"; renderPlan(); };
   v.querySelectorAll("[data-psip]").forEach(el => { const go = () => { PL.view = "ie"; PL.F = { ...PL.F, dur: "tum", q: "", sip: el.dataset.psip }; PL.ac = new Set([el.dataset.psip]); renderPlan(); }; el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
 }
 
