@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "55";
+const APP_V = "56";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4334,13 +4334,14 @@ function plOpenIe(id) {
       <div class="field"><label for="iTer">Termin</label><input id="iTer" type="date" value="${esc(e.termin || "")}"${dis}></div>
       <div class="field"><label for="iSor">Sorumlu</label><input id="iSor" list="iSorL" maxlength="80" value="${esc(e.sorumlu || "")}"${dis}><datalist id="iSorL">${sortTr([...Object.values(state.access || {}).map(m => m && m.name), ...PT.people.map(p => p.ad)]).map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
       <div class="field full"><label for="iNot">Not</label><textarea id="iNot" maxlength="1000"${dis}>${esc(e.not || "")}</textarea></div>
+      <div class="field full"><label for="iTal">Personele not (tablette Başla'ya basınca gösterilir)</label><textarea id="iTal" maxlength="1000"${dis}>${esc(e.talimat || "")}</textarea></div>
     </div><p class="note" style="margin:0">Oluşturan: ${esc(e.createdBy || "—")} · ${e.createdAt ? skTs(e.createdAt) : ""}. Operasyonlar iş emri açılırken iş akış şemasından kopyalanır; şema sonradan değişse de bu iş emri etkilenmez.</p>`; };
   const matHtml = e => `<div class="empty" style="margin:0"><h3>Ürün ağacı bağlanınca burada görünecek</h3><p>Ürün ağacı Stok modülünde mamul kartına tanımlandığında bu iş emri için gereken malzemeler (miktar × ağaç), stoktaki miktarlar ve eksikler burada listelenecek. İş emri başlarken malzeme ayrılacak, bittiğinde stoktan düşülüp mamul stoka girecek.</p></div>`;
   const logHtml = e => `<div class="loglist">${(e.log || []).slice().reverse().map(l => `<div class="logr"><span class="num note">${skTs(l.at)}</span><b>${esc(l.by || "")}</b><span>${esc(l.t)}</span></div>`).join("") || '<p class="note">Kayıt yok.</p>'}</div>`;
   function bindIe(e) {
     const save = async (patch, msg) => { try { await updateDoc(doc(fs, "isemri", e.id), { ...patch, updatedAt: Date.now(), updatedBy: ME.name, log: [...(e.log || []), { at: Date.now(), by: ME.name, t: msg }].slice(-80) }); toast(msg); } catch (x) { toast(writeErr(x)); } };
     $("#ieS").onclick = () => { const m = Number($("#iMik").value); if (!(m > 0)) { toast("Miktarı girin"); return; }
-      save({ siparisNo: $("#iSip").value.trim(), musteri: $("#iMus").value.trim(), miktar: m, oncelik: $("#iOnc").value, plBas: $("#iBas").value, termin: $("#iTer").value, sorumlu: $("#iSor").value.trim(), not: $("#iNot").value.trim() }, "İş emri bilgileri güncellendi"); };
+      save({ siparisNo: $("#iSip").value.trim(), musteri: $("#iMus").value.trim(), miktar: m, oncelik: $("#iOnc").value, plBas: $("#iBas").value, termin: $("#iTer").value, sorumlu: $("#iSor").value.trim(), not: $("#iNot").value.trim(), ...(($("#iTal").value.trim() !== (e.talimat || "")) ? { talimat: $("#iTal").value.trim(), talimatBy: ME.name, talimatAt: Date.now() } : {}) }, "İş emri bilgileri güncellendi"); };
     const h = $("#ieHold"); if (h) h.onclick = () => save({ durum: "bekle", oncekiDurum: e.durum }, "Beklemeye alındı");
     const r = $("#ieRes"); if (r) r.onclick = () => save({ durum: e.oncekiDurum && e.oncekiDurum !== "bekle" ? e.oncekiDurum : "plan" }, "Beklemeden çıkarıldı");
     const c = $("#ieCan"); if (c) { let armed = false; c.onclick = () => { if (!armed) { armed = true; c.textContent = "İptal için tekrar basın"; return; } save({ durum: "iptal" }, "İş emri iptal edildi"); }; }
@@ -8262,7 +8263,14 @@ function tkStokListe(it) {
 
 
 /* ================= SEVKİYAT MODÜLÜ ================= */
-const SV = { view: "bekleyen", F: { q: "" } };
+const SV = { view: "bekleyen", F: { q: "" }, B: { d: "", t: "", c: "", q: "" } };
+// sevk bekleyen siparişin durumu: tamamı hazır / kısmen hazır / üretimde / planlanmadı
+function svDurum(s) {
+  const K = (s.kalemler || []).filter(k => spSevkKalan(k) > 0); let kal = 0, hz = 0, plan = false;
+  K.forEach(k => { const q = spSevkKalan(k); kal += q; hz += Math.min(q, Math.max(0, Math.floor(spUretilen(k)) - (Number(k.sevk) || 0))); if (spPlanli(k) > (Number(k.sevk) || 0) || (k.ie || []).length) plan = true; });
+  return { K, kal, hz, d: kal > 0 && hz >= kal ? "hazir" : hz > 0 ? "kismi" : plan ? "uretimde" : "plansiz" };
+}
+const SV_DUR = { hazir: ["Üretimi tamamlanan (tamamı hazır)", "var(--k-fabrikada)", "Tamamı hazır"], kismi: ["Kısmen hazır", "#0ea5e9", "Kısmen hazır"], uretimde: ["Üretimde", "var(--brand)", "Üretimde"], plansiz: ["Planlanmadı / iş emri yok", "var(--ink-3)", "Planlanmadı"] };
 const svCan = () => can("sv.sevk");
 function svTile(m) {
   const B = SP.list.filter(s => s.durum !== "taslak" && spAcik(s) && (s.kalemler || []).some(k => spSevkKalan(k) > 0));
@@ -8289,13 +8297,30 @@ function renderSV() {
   const v = $("#svView");
   if (!SP.ready) { v.innerHTML = '<div class="empty"><h3>Yükleniyor</h3></div>'; return; }
   if (SV.view === "bekleyen") {
-    v.innerHTML = B.length ? `<div class="ledger svled" role="table"><div class="lhead" role="row"><div>Sipariş</div><div>Müşteri / proje</div><div>Bekleyen</div><div>Hazır</div><div>Termin</div><div></div></div>
-      ${B.sort((a, b) => String(a.verilenTermin || "9").localeCompare(String(b.verilenTermin || "9"))).map(s => { const K = (s.kalemler || []).filter(k => spSevkKalan(k) > 0), hz = K.reduce((a, k) => a + Math.max(0, Math.floor(spUretilen(k)) - (Number(k.sevk) || 0)), 0), gec = s.verilenTermin && s.verilenTermin < TODAY;
-        return `<div class="row" role="row" style="cursor:default;--stripe:${gec ? "var(--k-izinsiz)" : hz ? "var(--k-fabrikada)" : "transparent"}"><div><span class="num">${esc(s.no)}</span>${s.oncelik === "acil" ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}</div>
+    const F = SV.B, wk7 = dnum(TODAY) + 7, q = araFold(F.q), BD = B.map(s => ({ s, ...svDurum(s) }));
+    const say = d => BD.filter(x => x.d === d).length, gecS = BD.filter(x => x.s.verilenTermin && x.s.verilenTermin < TODAY).length;
+    const mus = [...new Map(B.map(s => [s.cariId || s.cariAd, s.cariAd])).entries()].filter(([id]) => id).sort((a, b) => String(a[1]).localeCompare(String(b[1]), "tr"));
+    const R = BD.filter(x => (!F.d || x.d === F.d) && (!F.c || (x.s.cariId || x.s.cariAd) === F.c)
+      && (!F.t || (F.t === "gec" ? x.s.verilenTermin && x.s.verilenTermin < TODAY : F.t === "hafta" ? x.s.verilenTermin && x.s.verilenTermin >= TODAY && dnum(x.s.verilenTermin) <= wk7 : F.t === "yok" ? !x.s.verilenTermin : F.t === "acil" ? x.s.oncelik === "acil" : true))
+      && (!q || q.split(" ").every(w => araFold([x.s.no, x.s.cariAd, x.s.proje && x.s.proje.ad, x.s.musteriSipNo, ...x.K.map(k => k.kod + " " + k.ad)].join(" ")).includes(w))));
+    v.innerHTML = `<div class="svchips">${[["", "Tümü", B.length, "var(--ink)"], ...Object.entries(SV_DUR).map(([k, [l, c]]) => [k, l, say(k), c])].map(([k, l, n, c]) => `<button type="button" class="svchip${F.d === k ? " on" : ""}" data-svd2="${k}" style="--c:${c}"><i></i>${esc(l)} <b>${n}</b></button>`).join("")}</div>
+      <div class="pkbar"><div class="filters">
+        <input class="f" id="svBQ" type="search" placeholder="Sipariş no, müşteri, proje, ürün ara…" value="${esc(F.q)}" aria-label="Sevk bekleyenlerde ara">
+        <select class="f${F.c ? " on" : ""}" id="svBC" data-ara aria-label="Müşteri"><option value="">Tüm müşteriler</option>${mus.map(([id, ad]) => opt(id, ad || "—", F.c)).join("")}</select>
+        <select class="f${F.t ? " on" : ""}" id="svBT" aria-label="Termin">${[["", "Tüm terminler"], ["gec", `Termini geçenler (${gecS})`], ["hafta", "7 gün içinde termin"], ["acil", "Acil siparişler"], ["yok", "Termini girilmemiş"]].map(([a, l]) => opt(a, l, F.t)).join("")}</select></div>
+        <div class="filters"><span class="sortinfo">${R.length} / ${B.length} sipariş</span>${F.d || F.c || F.t || F.q ? '<button type="button" class="btn ghost sm" id="svBR">Temizle</button>' : ""}</div></div>
+      ${R.length ? `<div class="ledger svled" role="table"><div class="lhead" role="row"><div>Sipariş</div><div>Müşteri / proje</div><div>Bekleyen</div><div>Hazır</div><div>Termin</div><div></div></div>
+      ${R.sort((a, b) => String(a.s.verilenTermin || "9").localeCompare(String(b.s.verilenTermin || "9"))).map(({ s, K, kal, hz, d }) => { const gec = s.verilenTermin && s.verilenTermin < TODAY;
+        return `<div class="row" role="row" style="cursor:default;--stripe:${gec ? "var(--k-izinsiz)" : hz ? "var(--k-fabrikada)" : "transparent"}"><div><span class="num">${esc(s.no)}</span>${s.oncelik === "acil" ? ' <span class="kst" style="--tc:var(--k-izinsiz)">Acil</span>' : ""}<div><span class="kst" style="--tc:${SV_DUR[d][1]}">${SV_DUR[d][2]}</span></div></div>
           <div class="ska"><b>${s.cariAd ? esc(s.cariAd) : '<span class="late">Müşteri seçilmedi</span>'}</b><div class="desc">${esc((s.proje && s.proje.ad) || "")}${s.proje && s.proje.sevk ? " · " + esc(s.proje.sevk) : ""}</div></div>
-          <div class="num">${K.length} kalem · ${nf(K.reduce((a, k) => a + spSevkKalan(k), 0))}</div><div class="num"><b>${nf(hz)}</b></div><div class="date${gec ? " late" : ""}">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</div>
+          <div class="num">${K.length} kalem · ${nf(kal)}</div><div class="num"><b>${nf(hz)}</b></div><div class="date${gec ? " late" : ""}">${s.verilenTermin ? fmtS(s.verilenTermin) : "—"}</div>
           <div>${svCan() ? `<button type="button" class="btn sm" data-svs="${esc(s.id)}">Sevk et</button>` : ""}</div></div>`; }).join("")}</div>`
-      : '<div class="empty"><h3>Sevk bekleyen sipariş yok</h3><p>Onaylanan siparişlerin sevk edilmemiş kalemleri burada listelenir.</p></div>';
+      : `<div class="empty"><h3>${B.length ? "Bu filtreye uyan sipariş yok" : "Sevk bekleyen sipariş yok"}</h3><p>${B.length ? "Filtreyi değiştirin ya da temizleyin." : "Onaylanan siparişlerin sevk edilmemiş kalemleri burada listelenir."}</p></div>`}`;
+    const setB = (k, val) => { SV.B[k] = val; renderSV(); };
+    v.querySelectorAll("[data-svd2]").forEach(b => b.onclick = () => setB("d", SV.B.d === b.dataset.svd2 ? "" : b.dataset.svd2));
+    $("#svBC").onchange = e => setB("c", e.target.value); $("#svBT").onchange = e => setB("t", e.target.value);
+    $("#svBQ").oninput = e => { SV.B.q = e.target.value; renderSV(); const j2 = $("#svBQ"); j2.focus(); j2.setSelectionRange(j2.value.length, j2.value.length); };
+    const br = $("#svBR"); if (br) br.onclick = () => { SV.B = { d: "", t: "", c: "", q: "" }; renderSV(); };
     v.querySelectorAll("[data-svs]").forEach(b => b.onclick = () => spOpenSevk(b.dataset.svs));
   } else {
     const q = araFold(SV.F.q), R = A.filter(r => !q || q.split(" ").every(w => araFold([r.s.no, r.s.cariAd, r.x.irsaliye, r.x.arac, r.x.teslimAlan, r.s.proje && r.s.proje.ad].join(" ")).includes(w)));
@@ -8317,15 +8342,57 @@ function svSevkDetay(spId, idx) {
       <div class="dh"><h2 id="sdT">Sevkiyat · ${fmtS(x.tarih)} · <span class="num skk">${esc(s.no)}</span> ${esc(s.cariAd || "")}</h2><button class="x" id="sdX" aria-label="Kapat">×</button></div>
       <div class="skhead"><div class="skbig" style="--tc:var(--k-fabrikada)"><b>${nf((x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0))}</b><span>adet sevk edildi</span></div>
         <div class="skhm"><span>${x.irsaliye ? "İrsaliye " + esc(x.irsaliye) : "İrsaliye no yok"}${x.arac ? " · " + esc(x.arac) : ""}</span><span>${x.teslimAlan ? "Teslim alan: " + esc(x.teslimAlan) : ""}</span><span>${esc((s.proje && s.proje.adres) || "")}</span></div>
-        <div class="skhb"><button type="button" class="qb" data-sd="pdf">PDF indir</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button></div></div>
+        <div class="skhb"><button type="button" class="qb" data-sd="pdf">PDF indir</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button>${svCan() ? '<button type="button" class="qb iade" id="sdIade">İade</button>' : ""}</div></div>
       <div class="db"><div class="ledger spkled nopr" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Sevk</div><div>Toplam sevk</div><div>Sipariş</div></div>
-        ${(x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return `<div class="row" role="row" style="cursor:default"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad || "")}</b><div class="desc">${esc([spVarAd(k), k.mahal].filter(Boolean).join(" · "))}</div></div><div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num"><b>${nf(y.miktar)}</b></div><div class="num">${nf(k.sevk || 0)}</div><div class="num">${nf(k.miktar || 0)} ${esc(k.birim || "")}</div></div>`; }).join("")}</div>
+        ${(x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return `<div class="row" role="row" style="cursor:default"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad || "")}</b><div class="desc">${esc([spVarAd(k), k.mahal].filter(Boolean).join(" · "))}</div></div><div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num"><b>${nf(y.miktar)}</b>${svIadeQ(x, y.k) ? `<div class="svir">${nf(svIadeQ(x, y.k))} iade</div>` : ""}</div><div class="num">${nf(k.sevk || 0)}</div><div class="num">${nf(k.miktar || 0)} ${esc(k.birim || "")}</div></div>`; }).join("")}</div>
+        ${(x.iadeler || []).length ? `<div class="izbal svib"><b>İadeler</b>${x.iadeler.slice().reverse().map(r => `<div class="svia"><div><b>${fmtS(r.tarih)}</b> · ${esc(r.satir.map(z => { const k = (s.kalemler || []).find(q => q.k === z.k) || {}; return `${nf(z.miktar)} ${k.birim || "adet"} ${k.kod || k.ad || ""}`; }).join(", "))}</div><div class="note">Sebep: ${esc(r.sebep)}</div><div class="note">${[r.stok ? "Stoğa eklendi" : "Stoğa eklenmedi", r.yeniden ? "yeniden sevk edilecek" : ""].filter(Boolean).join(" · ")} · ${esc(r.by)} · ${skTs(r.at)}</div></div>`).join("")}</div>` : ""}
         <div class="izbal"><b>Müşteriye gönderimler</b>${(x.gonderim || []).length ? x.gonderim.slice().reverse().map(g => `<div class="note">${skTs(g.at)} · ${esc(SA_KANAL[g.kanal] || g.kanal)}${g.kime ? " · " + esc(g.kime) : ""} · ${esc(g.by)}</div>`).join("") : '<div class="note">Henüz gönderilmedi</div>'}</div></div>
       <div class="df"><span class="note">Kayıt: ${esc(x.by || "")} · ${skTs(x.at)}</span><div class="r"><button class="btn ghost" id="sdC" type="button">Kapat</button></div></div></aside>`;
     $("#scrim").onclick = closeDrawer; $("#sdX").onclick = closeDrawer; $("#sdC").onclick = closeDrawer;
     document.querySelectorAll("[data-sd]").forEach(b => b.onclick = async () => { b.disabled = true; try { await svSend(s, idx, b.dataset.sd); } finally { b.disabled = false; } });
+    const ib = $("#sdIade"); if (ib) ib.onclick = () => svIade(s, idx);
   };
   paint();
+}
+// İade: sevk edilen üründen geri gelenler. Stoğa giriş (stok hareketi) ve isteğe bağlı yeniden sevk listesine düşürme
+const svIadeQ = (x, k) => (x.iadeler || []).reduce((a, r) => a + (r.satir || []).filter(z => z.k === k).reduce((b, z) => b + (Number(z.miktar) || 0), 0), 0);
+async function svIade(s, idx) {
+  const x = (s.sevkiyatlar || [])[idx]; if (!x || !svCan()) return;
+  const L = (x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return { y, k, max: Math.max(0, (Number(y.miktar) || 0) - svIadeQ(x, y.k)) }; }).filter(r => r.max > 0);
+  if (!L.length) { toast("Bu sevkiyattaki ürünlerin tamamı zaten iade edilmiş"); return; }
+  const r0 = await spModal(`<label>İade · ${esc(s.no)} · ${fmtS(x.tarih)}${x.irsaliye ? " · İrs. " + esc(x.irsaliye) : ""}</label>
+    <p class="note" style="margin:0 0 8px">${esc(s.cariAd || "")} · iade gelen ürünleri ve adetlerini girin</p>
+    <div class="svil">${L.map((r, i) => `<div class="svir2"><div class="ska">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b><div class="note">Sevk ${nf(r.y.miktar)}${r.max < Number(r.y.miktar) ? ` · daha önce ${nf(Number(r.y.miktar) - r.max)} iade` : ""}${r.k.sid ? "" : " · stok kartı yok"}</div></div>
+      <label class="svim">İade <input type="number" class="num" id="iaM${i}" min="0" max="${r.max}" step="any" placeholder="0" aria-label="İade adedi"> <small>/ ${nf(r.max)} ${esc(r.k.birim || "adet")}</small></label>
+      <button type="button" class="btn ghost sm" data-iat="${i}">Tümü</button></div>`).join("")}</div>
+    <div class="field" style="margin-top:10px"><label for="iaS">İade sebebi *</label><textarea id="iaS" maxlength="500" rows="3" placeholder="Örn. ölçü hatası, renk farklı, hasarlı teslim, müşteri iptali…"></textarea></div>
+    <div class="fgrid" style="margin-top:6px"><div class="field"><label for="iaT">İade tarihi</label><input id="iaT" type="date" value="${TODAY}"></div></div>
+    <label class="chk" style="margin-top:8px"><input type="checkbox" id="iaK" checked> İade gelen ürünleri stoğa ekle (stok girişi hareketi)</label>
+    <label class="chk"><input type="checkbox" id="iaY"> Yeniden sevk edilecek (sipariş "sevk bekleyenler" listesine geri düşsün)</label>
+    <div class="r" style="margin-top:10px"><button type="button" class="btn ghost" id="iaX">Vazgeç</button><button type="button" class="btn" id="iaO">İadeyi kaydet</button></div>`, (h, done) => {
+    h.onclick = null;
+    h.querySelectorAll("[data-iat]").forEach(b => b.onclick = () => { const i = Number(b.dataset.iat); h.querySelector("#iaM" + i).value = L[i].max; });
+    h.querySelector("#iaX").onclick = () => done(null);
+    h.querySelector("#iaO").onclick = () => {
+      const S = L.map((r, i) => ({ k: r.y.k, miktar: Number(h.querySelector("#iaM" + i).value) || 0, max: r.max })).filter(z => z.miktar > 0);
+      if (!S.length) { toast("İade adedini girin"); return; }
+      const fazla = S.find(z => z.miktar > z.max); if (fazla) { toast("İade adedi sevk edilenden fazla olamaz"); return; }
+      const seb = h.querySelector("#iaS").value.trim(); if (!seb) { toast("İade sebebini yazın"); h.querySelector("#iaS").focus(); return; }
+      done({ satir: S.map(({ k, miktar }) => ({ k, miktar })), sebep: seb, tarih: h.querySelector("#iaT").value || TODAY, stok: h.querySelector("#iaK").checked, yeniden: h.querySelector("#iaY").checked });
+    };
+  });
+  if (!r0) return;
+  try {
+    const now = Date.now(), s1 = SP.list.find(z => z.id === s.id) || s, SV2 = (s1.sevkiyatlar || []).map(z => ({ ...z })), x2 = SV2[idx];
+    x2.iadeler = [...(x2.iadeler || []), { at: now, by: ME.name, ...r0 }];
+    const NK = (s1.kalemler || []).map(k => { const z = r0.satir.find(q => q.k === k.k); if (!z) return k; const k2 = { ...k, iade: (Number(k.iade) || 0) + z.miktar }; if (r0.yeniden) k2.sevk = Math.max(0, (Number(k.sevk) || 0) - z.miktar); return k2; });
+    let stokG = 0;
+    if (r0.stok) for (const z of r0.satir) { const k = (s1.kalemler || []).find(q => q.k === z.k); if (!k || !k.sid) continue; const it = await skGet(k.sid); if (!it) continue;
+      await skMove(it, "giris", z.miktar, { belge: ("İADE " + (x.irsaliye || s1.no)).slice(0, 60), aciklama: `Müşteri iadesi · ${s1.no} · ${s1.cariAd || ""} · ${r0.sebep}`, ts: now }); stokG++; }
+    const top = r0.satir.reduce((a, z) => a + z.miktar, 0);
+    await updateDoc(doc(fs, "siparis", s1.id), { kalemler: NK, sevkiyatlar: SV2, updatedAt: now, updatedBy: ME.name, log: spLog(s1, `İade: ${top} adet (${fmtS(x.tarih)} sevkiyatından) · ${r0.sebep}`) });
+    toast(`İade kaydedildi${stokG ? ` · ${stokG} kalem stoğa eklendi` : ""}${r0.yeniden ? " · sevk bekleyenlere düştü" : ""}`);
+  } catch (e) { toast(writeErr(e)); }
 }
 async function svSend(s, idx, kanal) {
   const x = s.sevkiyatlar[idx], name = `${s.no}-sevk-${x.tarih}.pdf`;
@@ -8428,6 +8495,27 @@ function mesIsler(ist) {
   const so = { devam: 0, kismi: 1, hazir: 2, bekle: 3 }, onc = { cokacil: 0, acil: 1, normal: 2 };
   return L.sort((a, b) => (so[a.st] - so[b.st]) || ((onc[a.e.oncelik] ?? 2) - (onc[b.e.oncelik] ?? 2)) || String(a.e.termin || "9").localeCompare(String(b.e.termin || "9")));
 }
+// MES grupları açılır/kapanır: sipariş gruplamasında başlangıçta kapalı (liste), diğerlerinde açık; tercih cihazda saklanır
+const MES_GAC = (() => { try { return JSON.parse(localStorage.getItem("mesGAc") || "{}"); } catch (e) { return {}; } })();
+const mesGAcik = k => { const v = MES_GAC[MES.grup + ":" + k]; return v === undefined ? MES.grup !== "sip" : v; };
+const mesGAyar = (k, on) => { MES_GAC[MES.grup + ":" + k] = on; try { const K = Object.keys(MES_GAC); if (K.length > 400) K.slice(0, K.length - 400).forEach(x => delete MES_GAC[x]); localStorage.setItem("mesGAc", JSON.stringify(MES_GAC)); } catch (e) {} };
+function mesGrupOzet(k, L) {
+  const e0 = (L[0] || {}).e || {}, hz = L.filter(j => j.st === "hazir" || j.st === "kismi").length, dv = L.filter(j => j.st === "devam").length, bk = L.filter(j => j.st === "bekle").length;
+  const ieSet = new Set(L.map(j => j.e.id)), adet = L.reduce((a, j) => a + (Number(j.kalan) || 0), 0);
+  const ter = L.map(j => j.e.termin).filter(Boolean).sort()[0], gun = ter ? dnum(ter) - dnum(TODAY) : null;
+  let ust = "", alt = [];
+  if (MES.grup === "sip") {
+    const ad = [e0.musteri, mesProje(e0)].filter(Boolean).join(" · "), T = PL.ie.filter(x => x.siparisNo === k && x.durum !== "iptal"), bit = T.filter(x => x.durum === "bitti").length;
+    const acl = T.map(x => x.createdAt).filter(Boolean).sort((a, b) => a - b)[0], sp = mesSip(e0);
+    ust = ad;
+    alt = [`<span><b>${T.length}</b> iş emri · <b>${bit}</b> tamamlandı</span>`, sp && sp.tarih ? `<span>Sipariş ${fmtS(sp.tarih)}</span>` : "", acl ? `<span>İE açılış ${fmtS(new Date(acl).toISOString().slice(0, 10))}</span>` : ""];
+  }
+  alt = [`<span>Bu ekranda <b>${ieSet.size}</b> iş · ${nf(adet)} adet</span>`, ...alt, `<span class="mgz"><i style="--c:#4ade80"></i>${hz} hazır</span>`, dv ? `<span class="mgz"><i style="--c:#60a5fa"></i>${dv} çalışılıyor</span>` : "", bk ? `<span class="mgz"><i style="--c:#94a3b8"></i>${bk} bekliyor</span>` : ""].filter(Boolean);
+  const tc = gun == null ? "" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes";
+  return `<div class="mesgc" role="button" tabindex="0" data-gt="${esc(k)}" aria-expanded="false" aria-label="${esc(k)} grubunu aç">
+    <span class="mescar">▸</span><div class="mesgct"><div class="mesgc1"><b class="num">${esc(k)}</b>${ust ? ` <b class="mesgad">· ${esc(ust)}</b>` : ""}</div><div class="mesgc2">${alt.join("")}</div></div>
+    ${ter ? `<span class="mester ${tc}">${fmtS(ter).slice(0, 5)} · ${gun < 0 ? -gun + " gün geçti" : gun + " gün"}</span>` : ""}</div>`;
+}
 const MES_ST = { devam: ["ÇALIŞILIYOR", "var(--brand)"], kismi: ["YARIM KALDI", "var(--k-gec)"], hazir: ["HAZIR", "var(--k-fabrikada)"], bekle: ["ÖNCEKİ İŞLEM BEKLENİYOR", "var(--ink-3)"] };
 function mesKart(j) {
   const { e, st, q } = j, gun = e.termin ? dnum(e.termin) - dnum(TODAY) : null, tc = gun == null ? "" : gun < 0 ? "gec" : gun < 7 ? "kir" : gun <= 14 ? "tur" : "yes", key = j.key, renk = e.renk;
@@ -8450,13 +8538,36 @@ function mesKart(j) {
     <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
     <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
     ${mesProje(e) ? `<div class="mespj" title="Proje">${esc(mesProje(e))}</div>` : ""}
-    ${e.siparisNo ? `<div class="mesdr"><button type="button" class="mesd" data-ma="sd">Sipariş detay</button>${(() => { const n = ((mesSip(e) || {}).ekler || []).length; return n ? `<button type="button" class="mesd mesgv" data-ma="ek">Görsel${n > 1 ? " (" + n + ")" : ""}</button>` : ""; })()}</div>` : ""}
+    ${e.siparisNo || can("pl.ie") ? `<div class="mesdr">${e.siparisNo ? '<button type="button" class="mesd" data-ma="sd">Sipariş detay</button>' : ""}${can("pl.ie") ? `<button type="button" class="mesd" data-ma="not">${e.talimat ? "Notu düzenle" : "Not ekle"}</button>` : ""}${(() => { const n = ((mesSip(e) || {}).ekler || []).length; return n ? `<button type="button" class="mesd mesgv" data-ma="ek">Görsel${n > 1 ? " (" + n + ")" : ""}</button>` : ""; })()}</div>` : ""}
     <div class="mesio"><span class="num">${esc(e.no)}</span><span>${islem}</span></div>
     <div class="mesad"><b class="num">${nf(tamam)} / ${nf(q)}</b> <small>${esc(e.birim || "adet")}</small>${j.dk ? `<small> · ${plDur(j.dk)}</small>` : ""}${j.stage === "uretim" && j.lpVar ? `<span class="mlps">${(j.onDurum || []).map(x => `<span class="mlp ${x.ok ? "ok" : ""}">${esc(x.ad)} ${x.ok ? "✓" : "bekleniyor"}</span>`).join("")}</span>` : ""}</div>
     ${e.not ? `<div class="mesnot">${esc(e.not)}</div>` : ""}
+    ${e.talimat ? `<div class="mestl"><b>NOT</b> ${esc(e.talimat)}</div>` : ""}
     ${st === "bekle" ? `<div class="mesbk">${j.stage ? (j.stage === "boya" ? "Üretim bitince boyahaneye düşer" : "Önceki aşama bitince düşer") : "Önceki işlem bekleniyor"}</div>` : `<div class="mesb">${btn}<button type="button" class="mbtn sec" data-ma="sec" aria-pressed="${MES.sec.has(key)}" title="Seç">${MES.sec.has(key) ? "✓" : "Seç"}</button></div>`}
     ${son ? `<div class="messure">Başladı ${skTs(son.bas).split(" ").pop()} · ${esc(son.by || "")}</div>` : ""}
   </div>`;
+}
+// Yönetici notu (talimat): iş emrine sonradan eklenir, kartta kırmızı kutuda görünür, Başla'ya basınca personele gösterilir
+async function mesNotDuzenle(e) {
+  if (!can("pl.ie")) return;
+  const r = await spModal(`<label>${esc(e.no)} · personele not</label>
+    <p class="note" style="margin:0 0 8px">${esc(e.urunAd || "")}</p>
+    <div class="field"><textarea id="mnT" maxlength="1000" rows="5" placeholder="Örn. kanatlar ters takılacak, ölçüyü teyit etmeden kesme…">${esc(e.talimat || "")}</textarea></div>
+    <p class="note" style="margin:6px 0 10px">Kartta kırmızı kutuda görünür; personel Başla'ya bastığında ekrana gelir ve okuduğunu onaylar.</p>
+    <div class="r"><button type="button" class="btn ghost" id="mnX">Vazgeç</button>${e.talimat ? '<button type="button" class="btn ghost" id="mnD">Notu sil</button>' : ""}<button type="button" class="btn" id="mnO">Kaydet</button></div>`, (h, done) => {
+    h.querySelector("#mnX").onclick = () => done(null); const dl = h.querySelector("#mnD"); if (dl) dl.onclick = () => done("");
+    h.querySelector("#mnO").onclick = () => done(h.querySelector("#mnT").value.trim()); setTimeout(() => h.querySelector("#mnT").focus(), 30);
+  });
+  if (r === null) return;
+  try { await updateDoc(doc(fs, "isemri", e.id), { talimat: r, talimatBy: ME.name, talimatAt: Date.now(), updatedAt: Date.now(), updatedBy: ME.name }); toast(r ? "Not kaydedildi" : "Not silindi"); } catch (x) { toast(writeErr(x)); }
+}
+async function mesNotGoster(L) {
+  const N = L.filter(j => j && j.e && j.e.talimat); if (!N.length) return true;
+  return spModal(`<div class="mntl"><label>Başlamadan önce okuyun</label>
+    ${N.map(j => `<div class="mntb"><div class="note"><b class="num">${esc(j.e.no)}</b> · ${esc(j.e.urunAd || "")}</div><div class="mntx">${esc(j.e.talimat)}</div>${j.e.not ? `<div class="note">${esc(j.e.not)}</div>` : ""}<div class="note">${esc(j.e.talimatBy || "")}</div></div>`).join("")}</div>
+    <div class="r"><button type="button" class="btn ghost" id="mgX">Vazgeç</button><button type="button" class="btn" id="mgO">Okudum, başla</button></div>`, (h, done) => {
+    h.onclick = null; h.querySelector("#mgX").onclick = () => done(false); h.querySelector("#mgO").onclick = () => done(true);
+  });
 }
 const mesSip = e => (e.siparisIds && e.siparisIds.length && SP.list.find(x => x.id === e.siparisIds[0])) || SP.list.find(x => x.no === e.siparisNo) || null;
 const mesProje = e => { const sp = mesSip(e); return (sp && sp.proje && sp.proje.ad) || e.proje || ""; };
@@ -8547,12 +8658,16 @@ function plMesView(v) {
       <div class="meskpi">${[["Çalışılıyor", J.filter(j => j.st === "devam").length, "#60a5fa"], ["Hazır", J.filter(j => j.st === "hazir" || j.st === "kismi").length, "#4ade80"], ["Bekliyor", J.filter(j => j.st === "bekle").length, "#94a3b8"], ["Bugün biten", bugun, "#c4b5fd"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div>
       ${dev ? '<button type="button" class="btn ghost sm mesout" id="mesOut">Çıkış</button>' : ""}</div>
     <div class="mesgr2"><div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipi"], ["renk", "Renk"], ["sip", "Sipariş"], ...(mod === "basit" ? [["asama", "Aşama"]] : []), ["yok", "Yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
+      ${[...G.keys()].some(Boolean) ? `<div class="mesgall"><button type="button" class="btn ghost sm" data-gall="1">Tümünü aç</button><button type="button" class="btn ghost sm" data-gall="0">Tümünü kapat</button></div>` : ""}
       ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} seçili</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Başlat</button><button type="button" class="mbtn dur" data-ms="dur">Duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Temizle</button></div>` : ""}</div>
     ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.key), all = keys.length && keys.every(x => MES.sec.has(x));
-      return `${k ? `<div class="mesg"><div><b>${esc(k)}</b>${MES.grup === "sip" && L[0] && L[0].e ? (() => { const e0 = L[0].e, ad = [e0.musteri, mesProje(e0)].filter(Boolean).join(" · "); return ad ? ` <b class="mesgad">· ${esc(ad)}</b>` : ""; })() : ""} <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Seçimi kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
+      if (k && !mesGAcik(k)) return mesGrupOzet(k, L);
+      return `${k ? `<div class="mesg"><div><button type="button" class="mescar" data-gt="${esc(k)}" aria-expanded="true" aria-label="Grubu kapat">▾</button><b>${esc(k)}</b>${MES.grup === "sip" && L[0] && L[0].e ? (() => { const e0 = L[0].e, ad = [e0.musteri, mesProje(e0)].filter(Boolean).join(" · "); return ad ? ` <b class="mesgad">· ${esc(ad)}</b>` : ""; })() : ""} <span class="note">${L.length} iş · ${nf(L.reduce((a, j) => a + j.kalan, 0))} adet · ${hz.length} hazır</span></div>${hz.length > 1 ? `<button type="button" class="btn ghost sm" data-gs="${esc(k)}">${all ? "Seçimi kaldır" : "Grubu seç (" + hz.length + ")"}</button>` : ""}</div>` : ""}<div class="mesl">${L.map(mesKart).join("")}</div>`; }).join("")
       : `<div class="empty"><h3>Bekleyen iş yok</h3><p>Planlama iş emirlerini açtığında bu cihazın istasyonlarına düşen işler burada sırayla görünür.</p></div>`}`;
   const sel = $("#mesIst"); if (sel) sel.onchange = e => { MES.ist = e.target.value; MES.sec.clear(); try { localStorage.setItem("mesIst", MES.ist); } catch (x) {} plMesView(v); };
   v.querySelectorAll("[data-mm]").forEach(b => b.onclick = () => { MES.modSec = b.dataset.mm; MES.sec.clear(); plMesView(v); });
+  v.querySelectorAll("[data-gt]").forEach(b => { b.onclick = () => { mesGAyar(b.dataset.gt, !mesGAcik(b.dataset.gt)); plMesView(v); }; if (b.tagName === "DIV") b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.click(); } }; });
+  v.querySelectorAll("[data-gall]").forEach(b => b.onclick = () => { [...G.keys()].filter(Boolean).forEach(k => mesGAyar(k, b.dataset.gall === "1")); plMesView(v); });
   v.querySelectorAll("[data-mg]").forEach(b => b.onclick = () => { MES.grup = b.dataset.mg; try { localStorage.setItem("mesGrup", MES.grup); } catch (x) {} plMesView(v); });
   const fsb = $("#mesFs"); if (fsb) fsb.onclick = () => { const on = document.body.classList.toggle("mesfs"); if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {}); plMesView(v); };
   const opS = $("#mesOp"); if (opS) opS.onchange = e => { MES.op = e.target.value; try { localStorage.setItem("mesOp", MES.op); } catch (x) {} };
@@ -8565,11 +8680,14 @@ function plMesView(v) {
     if (a === "sec") { MES.sec.has(key) ? MES.sec.delete(key) : MES.sec.add(key); plMesView(v); return; }
     if (a === "sd") { const jj = byKey.get(key); if (jj) mesSipDetay(jj.e); return; }
     if (a === "ek") { const jj = byKey.get(key); if (jj) mesEkGor(jj.e); return; }
+    if (a === "not") { const jj = byKey.get(key); if (jj) mesNotDuzenle(jj.e); return; }
+    if (a === "bas" && j && !(await mesNotGoster([j]))) return;
     if (!j) return; b.disabled = true;
     if (a === "bit") { const r = await mesBitir([j], act); if (!r) { b.disabled = false; return; } } else await act(j, a); }));
   v.querySelectorAll("[data-gs]").forEach(b => b.onclick = () => { const L = G.get(b.dataset.gs).filter(j => j.st !== "bekle").map(j => j.key), all = L.every(x => MES.sec.has(x)); L.forEach(x => all ? MES.sec.delete(x) : MES.sec.add(x)); plMesView(v); });
   v.querySelectorAll("[data-ms]").forEach(b => b.onclick = async () => { const a = b.dataset.ms; if (a === "temizle") { MES.sec.clear(); plMesView(v); return; }
-    const F = [...MES.sec].map(k => byKey.get(k)).filter(j => j && j.st !== "bekle"); b.disabled = true;
+    const F = [...MES.sec].map(k => byKey.get(k)).filter(j => j && j.st !== "bekle");
+    if (a === "bas" && !(await mesNotGoster(F.filter(j => j.st !== "devam")))) return; b.disabled = true;
     if (a === "bit") { const r = await mesBitir(F, act); if (!r) { b.disabled = false; return; } }
     else for (const j of F) { if ((a === "bas" && j.st === "devam") || (a === "dur" && j.st !== "devam")) continue; await act(j, a); await new Promise(r => setTimeout(r, 150)); }
     MES.sec.clear(); plMesView(v); });
@@ -9283,7 +9401,7 @@ function mhSatirlar() {
     const id = mhId(s.id, x.at || si, y.k), fat = MH.F[id] || null;
     const birim = P.fiyat != null && P.fiyat !== "" ? Number(P.fiyat) : null, isk = Number(P.isk) || 0, kdv = Number(P.kdv ?? k.kdv ?? 20);
     const net = birim != null ? Number(y.miktar) * birim * (1 - isk / 100) : null;
-    L.push({ id, s, x, si, y, k, fat, pb, kur: F.kur || null, toplu: F.toplu != null && F.toplu !== "", birim, isk, kdv, net, kdvT: net != null ? net * kdv / 100 : null });
+    L.push({ id, s, x, si, y, k, fat, iade: svIadeQ(x, y.k), pb, kur: F.kur || null, toplu: F.toplu != null && F.toplu !== "", birim, isk, kdv, net, kdvT: net != null ? net * kdv / 100 : null });
   })));
   return L.sort((a, b) => String(b.x.tarih || "").localeCompare(String(a.x.tarih || "")) || (b.x.at || 0) - (a.x.at || 0));
 }
@@ -9332,7 +9450,7 @@ function renderMH() {
         <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}</div></div>
         <div class="ska"><b>${esc(r.s.cariAd || "—")}</b><div class="desc"><span class="num">${esc(r.s.no)}</span>${r.s.proje && r.s.proje.ad ? " · " + esc(r.s.proje.ad) : ""}</div></div>
         <div class="ska">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
-        <div class="num">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small></div>
+        <div class="num">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small>${r.iade ? `<div class="svir">${nf(r.iade)} iade</div>` : ""}</div>
         <div class="num">${!fg ? "—" : r.net != null ? money(r.net, r.pb) : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
         <div>${r.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${r.fat.faturaNo ? esc(r.fat.faturaNo) + " · " : ""}${fmtS(r.fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`).join("")}</div>
       ${R.length > 500 ? `<p class="note">İlk 500 kalem gösteriliyor; filtreyi daraltın.</p>` : ""}`
@@ -9380,7 +9498,7 @@ function mhDetay(id) {
       <div class="db">
         <section><h3 class="sec-t">Ürün</h3><div class="mhkv">
           ${sat("Stok kodu", k.kod ? `<span class="num">${esc(k.kod)}</span>` : "Serbest kalem")}${sat("Ürün", esc(k.ad || ""))}${sat("Renk", k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "")}${sat("Varyasyon / özel", esc(spVarAd(k)))}${sat("Mahal", esc(k.mahal || ""))}
-          ${sat("Bu sevkte", `${nf(r.y.miktar)} ${esc(k.birim || "Adet")}`)}${sat("Sipariş miktarı / toplam sevk", `${nf(k.miktar)} / ${nf(topSevk)} ${esc(k.birim || "Adet")}`)}</div>
+          ${sat("Bu sevkte", `${nf(r.y.miktar)} ${esc(k.birim || "Adet")}`)}${r.iade ? sat("İade", `<span style="color:#dc2626">${nf(r.iade)} ${esc(k.birim || "Adet")} · ${esc((x.iadeler || []).map(q => q.sebep).join(" / "))}</span>`) : ""}${sat("Sipariş miktarı / toplam sevk", `${nf(k.miktar)} / ${nf(topSevk)} ${esc(k.birim || "Adet")}`)}</div>
           ${k.aciklama ? `<div class="spacd">${esc(k.aciklama)}</div>` : ""}</section>
         ${fg ? `<section><h3 class="sec-t">Fiyat <small>${esc(r.pb)}${r.pb !== "TRY" && r.kur ? " · kur " + nf(r.kur) : ""}</small></h3><div class="mhkv">
           ${r.net != null ? sat("Birim fiyat", money(r.birim, r.pb)) + sat("İskonto", r.isk ? "%" + nf(r.isk) : "") + sat("Tutar (KDV hariç)", money(r.net, r.pb)) + sat("KDV %" + nf(r.kdv), money(r.kdvT, r.pb)) + sat("KDV dahil", `<b>${money(r.net + r.kdvT, r.pb)}</b>`) + (r.pb !== "TRY" && r.kur ? sat("TL karşılığı (KDV hariç)", moneyR(mhTL(r))) : "")

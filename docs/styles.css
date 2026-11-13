@@ -1470,3 +1470,37 @@ body.mesdev .toolbar{display:none}
 .mhkv b{font-weight:600;font-size:14px}
 @media (max-width:820px){.mhled .lhead{display:none}.mhled .row{grid-template-columns:28px 1fr 1fr}.mhled .row>div:nth-child(n+4){grid-column:2/-1}}
 .lhat{display:flex;align-items:center;gap:8px;font-size:14px;flex-wrap:wrap}.lhat input{width:18px;height:18px}.lhat small{font-size:12px}
+/* MES: personele not, açılır-kapanır sipariş grupları */
+.mestl{border:2px solid var(--bad,#dc2626);background:color-mix(in srgb,#dc2626 9%,#fff);color:#7f1d1d;border-radius:10px;padding:8px 10px;font-size:13.5px;font-weight:600;line-height:1.4;white-space:pre-line}
+.mestl b{display:inline-block;background:#dc2626;color:#fff;border-radius:6px;padding:1px 7px;margin-right:6px;font-size:11.5px;letter-spacing:.06em}
+.mntl label{font-size:18px}
+.mntb{border:2px solid #dc2626;border-radius:12px;padding:12px;margin:10px 0;background:color-mix(in srgb,#dc2626 6%,#fff)}
+.mntx{font-size:18px;font-weight:700;color:#7f1d1d;line-height:1.45;white-space:pre-line;margin:6px 0}
+.mescar{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;margin-right:8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:16px;cursor:pointer;flex:0 0 auto}
+.mesg>div:first-child{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+.mesgall{display:flex;gap:6px}
+.mesgc{display:flex;align-items:center;gap:12px;padding:12px 14px;margin:0 0 6px;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer}
+.mesgc:hover,.mesgc:focus-visible{border-color:var(--brand);outline:none}
+.mesgct{flex:1;min-width:0}
+.mesgc1{font-size:16px;line-height:1.3}
+.mesgc1 .mesgad{color:var(--ink);font-weight:700}
+.mesgc2{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;font-size:13px;color:var(--ink-2)}
+.mgz{display:inline-flex;align-items:center;gap:5px}.mgz i{width:9px;height:9px;border-radius:50%;background:var(--c)}
+.mesgc .mester{flex:0 0 auto}
+/* Sevkiyat · sevk bekleyen filtreleri */
+.svchips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.svchip{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;cursor:pointer}
+.svchip i{width:10px;height:10px;border-radius:50%;background:var(--c)}
+.svchip b{font-family:var(--mono);font-size:12.5px;color:var(--ink-3)}
+.svchip.on{border-color:var(--c);box-shadow:0 0 0 1px var(--c);background:color-mix(in srgb,var(--c) 10%,var(--surface))}
+.svchip.on b{color:var(--ink)}
+/* Sevkiyat · iade */
+.qb.iade{border-color:#dc2626;color:#dc2626}
+.svir{font-size:11.5px;font-weight:700;color:#dc2626}
+.svib{border-left:4px solid #dc2626}
+.svia{padding:6px 0;border-top:1px solid var(--line)}.svia:first-of-type{border-top:0}
+.svil{display:flex;flex-direction:column;gap:8px;max-height:44vh;overflow:auto}
+.svir2{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.svim{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
+.svim input{width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
+@media (max-width:560px){.svir2{grid-template-columns:1fr}}
