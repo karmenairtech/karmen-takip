@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "63";
+const APP_V = "64";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7961,7 +7961,7 @@ async function tkOpenForm(id, o = {}) {
             <span>İskonto %</span><input class="kin num" id="tIsk" type="number" min="0" max="100" step="0.5" style="width:90px" value="${esc(v("tIsk", base ? base.iskonto ?? "" : c && c.iskonto != null ? c.iskonto : ""))}"><button type="button" class="btn ghost sm" id="tIskA">Tüm kalemlere uygula</button>
             <span class="note">İskonto yalnızca bu ekranda görünür; müşteriye giden teklifte net birim fiyat yazar.</span></div>
           <div class="spk">${K.length ? K.map((k, i) => `<div class="spkr tkr">
-            <div class="spk1"><span class="tkth" data-th="${i}"></span><span class="num skk">${esc(k.kod || "Serbest")}</span>${k.sid ? ` <b>${esc(k.ad)}</b>` : `<input class="kin" id="qAd${i}" maxlength="140" value="${esc(k.ad)}" style="flex:1 1 220px">`}
+            <div class="spk1"><span class="spsn" title="Sıra no">${i + 1}</span><span class="tkth" data-th="${i}"></span><span class="num skk">${esc(k.kod || "Serbest")}</span>${k.sid ? ` <b>${esc(k.ad)}</b>` : `<input class="kin" id="qAd${i}" maxlength="140" value="${esc(k.ad)}" style="flex:1 1 220px">`}
               <input class="kin num" id="qM${i}" type="number" min="0" step="any" value="${esc(k.miktar)}" aria-label="Miktar"><select class="kin" id="qB${i}" aria-label="Birim">${[...new Set([...ST_BIRIM, "MT", "SET", k.birim].filter(Boolean))].map(b => opt(b, b, k.birim || "Adet")).join("")}</select>
               <button type="button" class="btn ghost sm" data-qu="${i}" aria-label="Yukarı" title="Yukarı taşı"${i ? "" : " disabled"}>↑</button><button type="button" class="btn ghost sm" data-qrm="${i}" aria-label="Kalemi kaldır">×</button></div>
             <div class="spk2">
@@ -8055,7 +8055,7 @@ function tkOpen(id) {
           ${ed && can("sp.edit") && !t.siparisId && d !== "kaybedildi" ? '<button type="button" class="qb ok" id="tkSip">Siparişe dönüştür</button>' : ""}${ed ? '<button type="button" class="qb mo" id="tkKop">Kopya oluştur</button>' : ""}</div></div>
       <div class="db">
         <div class="ledger tkkled" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Miktar</div><div>Liste</div><div>İsk.</div><div>Net birim</div><div>Tutar</div></div>
-          ${(t.kalemler || []).map((k, i) => `<div class="row" role="row" style="cursor:default"><div class="ska"><span class="tkth" data-th="${i}"></span>${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad)}</b><div class="desc">${esc([spVarAd({ ...k, ozel: "" }), k.adEn && "EN: " + k.adEn].filter(Boolean).join(" · "))}</div>${k.ozel ? `<div class="tkn">${esc(k.ozel)}</div>` : ""}</div>
+          ${(t.kalemler || []).map((k, i) => `<div class="row" role="row" style="cursor:default"><div class="ska"><span class="spsn sm" title="Sıra no">${i + 1}</span><span class="tkth" data-th="${i}"></span>${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad)}</b><div class="desc">${esc([spVarAd({ ...k, ozel: "" }), k.adEn && "EN: " + k.adEn].filter(Boolean).join(" · "))}</div>${k.ozel ? `<div class="tkn">${esc(k.ozel)}</div>` : ""}</div>
             <div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num">${nf(k.miktar)} ${esc(k.birim || "")}</div>
             <div class="num">${k.liste != null ? money(k.liste, t.pb) : "—"}</div><div class="num">${k.isk ? "%" + nf(k.isk) : "—"}</div><div class="num">${money(tkNet(k), t.pb)}</div><div class="num"><b>${money((Number(k.miktar) || 0) * tkNet(k), t.pb)}</b></div></div>`).join("")}</div>
         ${saSumHtml((t.kalemler || []).map(k => ({ miktar: k.miktar, fiyat: k.liste, isk: k.isk, kdv: k.kdv ?? 20 })), t.pb, t.kur)}
@@ -8638,7 +8638,14 @@ async function mesNotGoster(L) {
 const mesSip = e => (e.siparisIds && e.siparisIds.length && SP.list.find(x => x.id === e.siparisIds[0])) || SP.list.find(x => x.no === e.siparisNo) || null;
 const mesProje = e => { const sp = mesSip(e); return (sp && sp.proje && sp.proje.ad) || e.proje || ""; };
 // MES · sipariş detay: işin bağlı olduğu siparişin (ve aynı projedeki diğer siparişlerin) kalemleri, durum: Tamamlandı / Devam ediyor
-function mesSipDetay(e) {
+function mesSipDetay(e, ctx) {
+  const J = ctx ? ctx.isler() : [], yetki = !!ctx && can("pl.op");
+  const isOf = (s, k) => J.filter(j => (j.e.spKalem || []).some(r => r.spId === s.id && (k == null || r.k === k)) || (k == null && s.no && j.e.siparisNo === s.no));
+  const kontrol = L => !ctx ? "" : L.length ? `<div class="msdj">${L.map(j => { const o = j.o || (j.k != null ? j.e.ops[j.k] : null), A = j.stage ? MES_ASM[j.stage] : null, st = j.st;
+      const ad = A ? A[0] : o ? `${o.ad || o.tanim || "İşlem"} · ${o.ist}` : "İşlem", dep = j.stage === "depo";
+      const b1 = !dep && st !== "devam" && st !== "bekle", b2 = st === "devam" && !dep, b3 = dep ? st !== "bekle" : st === "devam" || st === "kismi";
+      return `<div class="msdjr ${st}" data-mdk="${esc(j.key)}"><div class="msdjt"><span class="mest" style="--tc:${MES_ST[st][1]}">${MES_ST[st][0]}</span> <b>${esc(ad)}</b> <span class="note">${esc(j.e.no || "")} · ${nf(j.kalan)} kalan</span></div>
+        ${st === "bekle" ? `<span class="note">${j.stage ? "Önceki aşama bitince düşer" : "Önceki işlem bekleniyor"}</span>` : yetki ? `<div class="msdjb"><button type="button" class="mdb bas" data-mda="bas" title="Başlat" aria-label="Başlat"${b1 ? "" : " disabled"}>▶</button><button type="button" class="mdb dur" data-mda="dur" title="Beklet" aria-label="Beklet"${b2 ? "" : " disabled"}>❚❚</button><button type="button" class="mdb bit" data-mda="bit" title="Bitir" aria-label="Bitir"${b3 ? "" : " disabled"}>■</button></div>` : ""}</div>`; }).join("")}</div>` : "";
   const sp0 = mesSip(e), pro = mesProje(e), cari = (sp0 && (sp0.cariId || sp0.cariAd)) || e.musteri || "";
   const L = sp0 ? (pro ? SP.list.filter(s => s.durum !== "iptal" && (s.cariId || s.cariAd) === cari && ((s.proje && s.proje.ad) || "") === pro) : [sp0]) : [];
   if (sp0 && !L.some(s => s.id === sp0.id)) L.unshift(sp0);
@@ -8648,8 +8655,8 @@ function mesSipDetay(e) {
   const sat = (ad, m, br, ies, cur) => { const ok = ies.length && ies.every(x => !plIeOpen(x));
     return `<div class="msdr${cur ? " cur" : ""}"><div><b>${esc(ad)}</b><div class="note">${ies.length ? ies.map(x => esc(x.no)).join(", ") : "iş emri açılmadı"}</div></div><span class="num">${nf(m)} <small>${esc(br || "adet")}</small></span><span class="msds ${ok ? "ok" : ""}">${ok ? "Tamamlandı" : "Devam ediyor"}</span></div>`; };
   const blok = s => { const K = s.kalemler || [];
-    const rows = K.length ? K.map(k => { const ies = ieOf(s, k.k); return { h: sat([k.kod, k.ad].filter(Boolean).join(" · ") || "Kalem", k.miktar, k.birim, ies, ies.some(x => x.id === e.id)), ok: ies.length && ies.every(x => !plIeOpen(x)) }; })
-      : ieOf(s).map(x => ({ h: sat(x.urunAd || x.no, x.miktar, x.birim, [x], x.id === e.id), ok: !plIeOpen(x) }));
+    const rows = K.length ? K.map(k => { const ies = ieOf(s, k.k); return { h: sat([k.kod, k.ad].filter(Boolean).join(" · ") || "Kalem", k.miktar, k.birim, ies, ies.some(x => x.id === e.id)) + kontrol(isOf(s, k.k)), ok: ies.length && ies.every(x => !plIeOpen(x)) }; })
+      : ieOf(s).map(x => ({ h: sat(x.urunAd || x.no, x.miktar, x.birim, [x], x.id === e.id) + kontrol(J.filter(j => j.e.id === x.id)), ok: !plIeOpen(x) }));
     const n = rows.filter(r => r.ok).length;
     return `<section><h3 class="sec-t">${esc(s.no)}${s.id === (sp0 || {}).id ? " · bu iş" : ""} <small>${n} / ${rows.length} kalem tamamlandı${s.termin ? " · termin " + fmtS(s.termin) : ""}</small></h3>${rows.map(r => r.h).join("") || '<p class="note">Kalem yok.</p>'}</section>`; };
   $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
@@ -8660,6 +8667,15 @@ function mesSipDetay(e) {
     <div class="df"><span></span><div class="r"><button class="btn" id="msdK" type="button">Kapat</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#msdX").onclick = closeDrawer; $("#msdK").onclick = closeDrawer;
+  if (!ctx) return;
+  const byK = new Map(J.map(j => [j.key, j]));
+  $("#drawerHost").querySelectorAll("[data-mda]").forEach(b => b.onclick = async () => {
+    const j = byK.get(b.closest("[data-mdk]").dataset.mdk), a = b.dataset.mda; if (!j) return;
+    if (a === "bas" && !(await mesNotGoster([j]))) return;
+    $("#drawerHost").querySelectorAll("[data-mda]").forEach(x => x.disabled = true);
+    try { if (a === "bit") await mesBitir([j], ctx.act); else await ctx.act(j, a); } catch (x) { toast(writeErr(x)); }
+    setTimeout(() => { if ($("#msdT")) { const sc = ($("#drawerHost .db") || {}).scrollTop || 0; mesSipDetay(e, ctx); const db = $("#drawerHost .db"); if (db) db.scrollTop = sc; } }, 350);
+  });
 }
 // MES · siparişe eklenen görsel ve PDF'ler: görseller ekranda, PDF sayfaları resim olarak (tablet tarayıcısı PDF açamasa da görünür)
 let PDFJS = null;
@@ -8740,11 +8756,13 @@ function plMesView(v) {
   const out = $("#mesOut"); if (out) out.onclick = () => signOut(auth);
   const sd = $("#mesSeed"); if (sd) sd.onclick = () => plMesSeed([...S].find(x => /^TST/.test(x)) || [...S][0] || "TST-1");
   const byKey = new Map(J.map(j => [j.key, j]));
+  // sipariş detay penceresi de aynı başlat / beklet / bitir mantığını kullanır
+  const mesCtx = { isler: () => { const S2 = mesStations(); return mesModu() === "basit" ? mesIslerBasit(S2) : mesIsler(S2); }, act: (j, a, n, fire) => act(j, a, n, fire) };
   const fresh = j => { const e = PL.ie.find(x => x.id === j.e.id) || j.e; return { ...j, e }; };
   const act = async (j, a, n, fire) => { j = fresh(j); if (j.stage) await mesAsamaAction(j.e, j.ks, a, n, fire, j.stage); else { if (fire) { await plOpAction(j.e, j.k, "fire", (Number(j.e.ops[j.k].fire) || 0) + Number(fire)); await new Promise(r => setTimeout(r, 150)); j = fresh(j); } await plOpAction(j.e, j.k, a, n); } };
   v.querySelectorAll("[data-mk]").forEach(c => c.querySelectorAll("[data-ma]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); const key = c.dataset.mk, a = b.dataset.ma, j = byKey.get(key);
     if (a === "sec") { MES.sec.has(key) ? MES.sec.delete(key) : MES.sec.add(key); plMesView(v); return; }
-    if (a === "sd") { const jj = byKey.get(key); if (jj) mesSipDetay(jj.e); return; }
+    if (a === "sd") { const jj = byKey.get(key); if (jj) mesSipDetay(jj.e, mesCtx); return; }
     if (a === "ek") { const jj = byKey.get(key); if (jj) mesEkGor(jj.e); return; }
     if (a === "not") { const jj = byKey.get(key); if (jj) mesNotDuzenle(jj.e); return; }
     if (a === "bas" && j && !(await mesNotGoster([j]))) return;

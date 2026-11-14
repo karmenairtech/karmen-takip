@@ -1555,3 +1555,13 @@ body.mesdev .toolbar{display:none}
 .ydchk input[type=time]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;font:inherit}
 .yderr{color:#d92d20;opacity:1!important}
 .yddrv .btn.sm{margin-left:auto}
+
+/* v64 — MES sipariş detay: başlat / beklet / bitir */
+.msdj{display:flex;flex-direction:column;gap:6px;margin:-2px 0 10px 14px;padding-left:12px;border-left:3px solid var(--line)}
+.msdjr{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--line) 25%,var(--surface))}
+.msdjr.devam{background:color-mix(in srgb,#60a5fa 14%,var(--surface))}
+.msdjt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.msdjb{display:flex;gap:8px}
+.mdb{width:56px;height:52px;border-radius:12px;border:0;color:#fff;font-size:20px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.mdb.bas{background:#2f9e44}.mdb.dur{background:#f08c00;font-size:16px}.mdb.bit{background:#e03131}
+.mdb:disabled{opacity:.25;cursor:not-allowed}
