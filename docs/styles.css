@@ -1592,3 +1592,17 @@ body.mesdev .toolbar{display:none}
 .mtops>div.bu{background:color-mix(in srgb,var(--brand) 6%,transparent)}
 .mtops .num:last-child{text-align:right}
 @media (max-width:800px){.mtg{grid-template-columns:1fr 1fr}.mtg #mtQ{grid-column:1/-1}.mtk{grid-template-columns:1fr 1fr}.mth{grid-template-columns:18px 1fr auto}.mth .mtt{grid-column:2/-1;order:-1}.mth .mts{display:none}.mtops{padding-left:14px}.mtops>div:not(.mestl){grid-template-columns:30px 1fr auto}.mtops>div>span:nth-child(3),.mtops>div>span:nth-child(4){display:none}}
+
+/* v66 — PDF program içinde */
+.pdfv{position:fixed;inset:0;z-index:10000;background:rgba(8,12,20,.62);display:flex;align-items:center;justify-content:center;padding:24px}
+.pdfvb{width:min(1100px,100%);height:100%;background:var(--surface);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.pdfvh{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.pdfvh .r{display:flex;align-items:center;gap:8px}
+.pdfvb iframe{flex:1;width:100%;border:0;background:#525659}
+.pdfvc{flex:1;overflow:auto;background:#525659;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px}.pdfvc canvas{width:min(900px,100%);height:auto;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+
+/* v67 — başka numara / e-posta kutusu */
+.sprox{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--line);border-radius:10px}
+.sprox .sproc{border:0;padding:4px 2px}
+.sprxi{width:100%;box-sizing:border-box;min-height:48px;padding:10px 14px;font-size:17px;font-family:var(--mono);border:2px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.sprxi:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 20%,transparent)}

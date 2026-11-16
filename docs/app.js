@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "65";
+const APP_V = "67";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -1781,6 +1781,33 @@ function openDiReport() {
       if (ok) { toast("Rapor hazırlandı"); closeDrawer(); } else { b.disabled = false; b.textContent = "PDF oluştur"; }
     } catch (e) { console.error(e); b.disabled = false; b.textContent = "PDF oluştur"; toast("Rapor hazırlanamadı: " + (e.message || e)); }
   };
+}
+// Bilgisayarda PDF program içinde açılır (yazdır / indir / yeni sekme); dokunmatik cihazda eskisi gibi indirilir
+const pdfIcAc = () => !matchMedia("(pointer:coarse)").matches;
+async function pdfGoster(blob, name) {
+  if (!pdfIcAc()) return saveFile(blob, name);
+  const pb = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" }), u = URL.createObjectURL(pb);
+  let h = document.getElementById("pdfHost"); if (h) h.remove();
+  h = document.createElement("div"); h.id = "pdfHost"; h.className = "pdfv";
+  h.innerHTML = `<div class="pdfvb" role="dialog" aria-modal="true" aria-label="${esc(name)}">
+    <div class="pdfvh"><b class="num">${esc(name)}</b><div class="r"><button type="button" class="btn ghost sm" data-pv="yaz">Yazdır</button><button type="button" class="btn ghost sm" data-pv="sek">Yeni sekmede aç</button><button type="button" class="btn sm" data-pv="ind">İndir</button><button type="button" class="x" data-pv="kap" aria-label="Kapat">×</button></div></div>
+    <iframe src="${u}#view=FitH" title="${esc(name)}"></iframe></div>`;
+  document.body.appendChild(h);
+  if (navigator.pdfViewerEnabled === false) (async () => {   // tarayıcının PDF görüntüleyicisi yoksa sayfalar resim olarak çizilir
+    try { const lib = await pdfjsYukle(), pdf = await lib.getDocument({ data: new Uint8Array(await pb.arrayBuffer()) }).promise, box = document.createElement("div"); box.className = "pdfvc";
+      for (let n = 1; n <= Math.min(pdf.numPages, 30); n++) { const pg = await pdf.getPage(n), vp = pg.getViewport({ scale: 1.6 }), c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise; box.appendChild(c); }
+      const fr = h.querySelector("iframe"); if (fr) fr.replaceWith(box);
+    } catch (e) { console.warn("pdf.js", e && e.message); }
+  })();
+  const kapat = () => { h.remove(); document.removeEventListener("keydown", esc0, true); setTimeout(() => URL.revokeObjectURL(u), 1000); };
+  const esc0 = e => { if (e.key === "Escape") { e.stopPropagation(); kapat(); } };
+  document.addEventListener("keydown", esc0, true);
+  h.onclick = e => { if (e.target === h) kapat(); };
+  h.querySelectorAll("[data-pv]").forEach(b => b.onclick = () => { const a = b.dataset.pv;
+    if (a === "kap") kapat(); else if (a === "ind") saveFile(pb, name);
+    else if (a === "sek") window.open(u, "_blank", "noopener");
+    else if (a === "yaz") { try { h.querySelector("iframe").contentWindow.print(); } catch (e) { window.open(u, "_blank", "noopener"); } } });
+  return true;
 }
 async function saveFile(blob, name) {
   try {
@@ -6172,7 +6199,7 @@ async function saSend(kind, id, kanal) {
       toast("PDF hazırlanıyor…");
       const blob = await saPdf(kind, d), file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
       const mobile = matchMedia("(pointer:coarse)").matches, canShare = mobile && file && navigator.canShare && navigator.canShare({ files: [file] });
-      if (kanal === "pdf") { await saveFile(blob, name); return; }
+      if (kanal === "pdf") { await pdfGoster(blob, name); return; }
       const wr = kanal === "wa" ? await waPdfPaylas(file, m.metin, m.konu) : "yok"; if (wr === "iptal") return;
       if (wr === "ok") {}
       else if (canShare && kanal !== "wa") { try { await navigator.share({ files: [file], title: m.konu, text: m.metin }); } catch (e) { if (e && e.name === "AbortError") return; throw e; } }
@@ -7450,8 +7477,8 @@ function spOpen(id) {
     const edb = $("#spEd"); if (edb) edb.onclick = () => spOpenForm(s.id);
     const on = $("#spOn"); if (on) on.onclick = () => spOpenForm(s.id).then(() => { const b = $("#sfS"); if (b) b.focus(); });
     const sv = $("#spSv"); if (sv) sv.onclick = () => spOpenSevk(s.id);
-    $("#spPdf").onclick = async () => { const fiyatli = pr ? await spEmin("Teyit formu", "<p>Sipariş teyit formuna birim fiyat ve tutarlar da yazılsın mı?</p>", "Fiyatlı") : false; try { toast("PDF hazırlanıyor…"); await saveFile(await spPdf(s, "teyit", { fiyatli }), `${s.no}-teyit.pdf`); } catch (x) { console.error(x); toast("PDF hazırlanamadı"); } };
-    document.querySelectorAll("[data-spl]").forEach(b => b.onclick = async () => { try { const x = s.sevkiyatlar[Number(b.dataset.spl)]; await saveFile(await spPdf(s, "sevk", { sevk: x }), `${s.no}-sevk-${x.tarih}.pdf`); } catch (er) { toast("PDF hazırlanamadı"); } });
+    $("#spPdf").onclick = async () => { const fiyatli = pr ? await spEmin("Teyit formu", "<p>Sipariş teyit formuna birim fiyat ve tutarlar da yazılsın mı?</p>", "Fiyatlı") : false; try { toast("PDF hazırlanıyor…"); await pdfGoster(await spPdf(s, "teyit", { fiyatli }), `${s.no}-teyit.pdf`); } catch (x) { console.error(x); toast("PDF hazırlanamadı"); } };
+    document.querySelectorAll("[data-spl]").forEach(b => b.onclick = async () => { try { const x = s.sevkiyatlar[Number(b.dataset.spl)]; await pdfGoster(await spPdf(s, "sevk", { sevk: x }), `${s.no}-sevk-${x.tarih}.pdf`); } catch (er) { toast("PDF hazırlanamadı"); } });
     document.querySelectorAll("[data-spek]").forEach(b => b.onclick = async () => { const x = s.ekler[Number(b.dataset.spek)]; try { await saveFile(await spEkOku(s.id, x), x.ad); } catch (er) { toast("Ek açılamadı"); } });
     const tl = $("#spTal"); if (tl) tl.onclick = () => saOpenTalepForm(null, { siparisId: s.id, ref: s.no, aciklama: `${s.no} · ${s.cariAd || ""}${P.ad ? " · " + P.ad : ""} için`, termin: s.verilenTermin });
     const fa = $("#spFat"); if (fa) fa.onclick = async () => { const n = await prompt2("Bilsoft fatura numarası"); if (n == null) return; up({ faturalar: [...(s.faturalar || []), { no: n, tarih: TODAY, by: ME.name }] }, "Faturalandı" + (n ? ": " + n : "")); };
@@ -8077,7 +8104,7 @@ function tkOpen(id) {
       <div class="dh"><h2 id="tkT"><span class="num skk">${esc(t.no)}</span> ${esc(t.cariAd || "")} <span class="ttag" style="--tc:var(--ink-3)">${tkRevAd(t.rev)}</span></h2><button class="x" id="tkX" aria-label="Kapat">×</button></div>
       <div class="skhead"><div class="skbig" style="--tc:${TK_DUR[d][1]}"><b>${money(T.genel, t.pb)}</b><span>${TK_DUR[d][0]} · KDV dahil</span></div>
         <div class="skhm"><span>${esc(t.santiye || "Şantiye belirtilmedi")}${t.yetkili ? " · " + esc(t.yetkili) : ""}</span><span>${fmtS(t.tarih)} · ${t.gecerlilik} gün geçerli · teslim ${esc(t.teslimSure || "—")} · ${esc(t.teslimTur || "")}</span><span>${esc(t.odeme || "")} · ${t.dil === "EN" ? "İngilizce" : "Türkçe"}${t.siparisNo ? ` · sipariş <b>${esc(t.siparisNo)}</b>` : ""}</span></div>
-        <div class="skhb tkbtn"><button type="button" class="qb" data-ts="pdf">PDF indir</button><button type="button" class="qb ok" data-ts="wa">WhatsApp gönder</button><button type="button" class="qb" data-ts="mail">Mail gönder</button>
+        <div class="skhb tkbtn"><button type="button" class="qb" data-ts="pdf">${pdfIcAc() ? "PDF görüntüle" : "PDF indir"}</button><button type="button" class="qb ok" data-ts="wa">WhatsApp gönder</button><button type="button" class="qb" data-ts="mail">Mail gönder</button>
           ${ed && can("sp.edit") && !t.siparisId && d !== "kaybedildi" ? '<button type="button" class="qb ok" id="tkSip">Siparişe dönüştür</button>' : ""}${ed ? '<button type="button" class="qb mo" id="tkKop">Kopya oluştur</button>' : ""}</div></div>
       <div class="db">
         <div class="ledger tkkled" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Miktar</div><div>Liste</div><div>İsk.</div><div>Net birim</div><div>Tutar</div></div>
@@ -8127,10 +8154,14 @@ function aliciSec(kanal, c, ekstra = []) {
   if (c) { (c.yetkililer || []).forEach(y => add(y.ad, y.tel, y.eposta, y.gorev || "Firma yetkilisi")); add(crAd(c), c.whatsapp || c.tel, c.eposta, "Firma"); }
   return spModal(`<label>${mail ? "E-posta" : "WhatsApp"} ile kime gönderilsin?</label>
     <div class="sproz">${A.map((x, i) => `<label class="chk sproc"><input type="radio" name="al" value="${i}"${i ? "" : " checked"}><span><b>${esc(x.ad || x.val)}</b><small>${esc(x.val)}${x.not ? " · " + esc(x.not) : ""}</small></span></label>`).join("")}
-      <label class="chk sproc"><input type="radio" name="al" value="x"${A.length ? "" : " checked"}><span><b>Başka ${mail ? "e-posta" : "numara"}</b><input id="alX" class="kin" type="${mail ? "email" : "tel"}" placeholder="${mail ? "ornek@firma.com" : "05xx xxx xx xx"}" style="margin-top:4px"></span></label></div>
+      <div class="sprox"><label class="chk sproc"><input type="radio" name="al" value="x"${A.length ? "" : " checked"}><span><b>Başka ${mail ? "e-posta adresi" : "numara"}</b><small>Listede olmayan ${mail ? "bir adrese" : "bir numaraya"} gönder</small></span></label>
+        <input id="alX" class="sprxi" type="${mail ? "email" : "tel"}" inputmode="${mail ? "email" : "tel"}" autocomplete="off" placeholder="${mail ? "ornek@firma.com" : "05xx xxx xx xx"}" aria-label="Başka ${mail ? "e-posta adresi" : "numara"}"></div></div>
     <p class="note" style="margin:0">${matchMedia("(pointer:coarse)").matches ? "Telefonda paylaşım menüsü açılır; PDF doğrudan eklenir." : "PDF indirilir ve " + (mail ? "e-posta taslağı" : "WhatsApp sohbeti") + " açılır; PDF'i sohbete / e-postaya sürükleyin."}</p>
     <div class="r"><button type="button" class="btn ghost" id="alC">Vazgeç</button><button type="button" class="btn" id="alO">Gönder</button></div>`, (h, done) => {
-    const X = h.querySelector("#alX"); X.addEventListener("focus", () => { h.querySelector('input[value="x"]').checked = true; });
+    const X = h.querySelector("#alX"), sx = () => { h.querySelector('input[value="x"]').checked = true; };
+    X.addEventListener("focus", sx); X.addEventListener("input", sx); X.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); h.querySelector("#alO").click(); } });
+    h.querySelector('input[value="x"]').addEventListener("change", () => X.focus());
+    if (!A.length) setTimeout(() => X.focus(), 50);
     h.querySelector("#alC").onclick = () => done(null);
     h.querySelector("#alO").onclick = () => { const s = h.querySelector('input[name="al"]:checked'); if (!s) return; if (s.value === "x") { const v = X.value.trim(); if (!v) { X.focus(); return; } done({ ad: "", val: v }); } else done(A[Number(s.value)]); };
   });
@@ -8160,7 +8191,7 @@ async function docSend(o) {   // {blob, name, konu, metin, kanal: wa|mail, val}
 async function tkSend(t, kanal) {
   const name = `${t.no}-${tkRevAd(t.rev)}.pdf`;
   try {
-    if (kanal === "pdf") { toast("PDF hazırlanıyor…"); await saveFile(await tkPdf(t), name); return; }
+    if (kanal === "pdf") { toast("PDF hazırlanıyor…"); await pdfGoster(await tkPdf(t), name); return; }
     const c = crFind(t.cariId), al = await aliciSec(kanal, c, [{ ad: t.yetkili, tel: t.tel, eposta: t.eposta, not: "Teklifteki yetkili" }]); if (!al) return;
     toast("PDF hazırlanıyor…"); const blob = await tkPdf(t), F = tkCfg().firma.unvan, en = t.dil === "EN", T = tkTot(t.kalemler);
     const hit = al.ad ? (en ? `Dear ${al.ad},` : `Sayın ${al.ad},`) : en ? "Dear Sir/Madam," : "Merhaba,";
@@ -8387,7 +8418,7 @@ function svSevkDetay(spId, idx) {
       <div class="dh"><h2 id="sdT">Sevkiyat · ${fmtS(x.tarih)} · <span class="num skk">${esc(s.no)}</span> ${esc(s.cariAd || "")}</h2><button class="x" id="sdX" aria-label="Kapat">×</button></div>
       <div class="skhead"><div class="skbig" style="--tc:var(--k-fabrikada)"><b>${nf((x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0))}</b><span>adet sevk edildi</span></div>
         <div class="skhm"><span>${x.irsaliye ? "İrsaliye " + esc(x.irsaliye) : "İrsaliye no yok"}${x.arac ? " · " + esc(x.arac) : ""}</span><span>${x.teslimAlan ? "Teslim alan: " + esc(x.teslimAlan) : ""}</span><span>${esc((s.proje && s.proje.adres) || "")}</span></div>
-        <div class="skhb"><button type="button" class="qb" data-sd="pdf">PDF indir</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button>${svCan() ? '<button type="button" class="qb iade" id="sdIade">İade</button>' : ""}</div></div>
+        <div class="skhb"><button type="button" class="qb" data-sd="pdf">${pdfIcAc() ? "PDF görüntüle" : "PDF indir"}</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button>${svCan() ? '<button type="button" class="qb iade" id="sdIade">İade</button>' : ""}</div></div>
       <div class="db"><div class="ledger spkled nopr" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Sevk</div><div>Toplam sevk</div><div>Sipariş</div></div>
         ${(x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return `<div class="row" role="row" style="cursor:default"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad || "")}</b><div class="desc">${esc([spVarAd(k), k.mahal].filter(Boolean).join(" · "))}</div></div><div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num"><b>${nf(y.miktar)}</b>${svIadeQ(x, y.k) ? `<div class="svir">${nf(svIadeQ(x, y.k))} iade</div>` : ""}</div><div class="num">${nf(k.sevk || 0)}</div><div class="num">${nf(k.miktar || 0)} ${esc(k.birim || "")}</div></div>`; }).join("")}</div>
         ${(x.iadeler || []).length ? `<div class="izbal svib"><b>İadeler</b>${x.iadeler.slice().reverse().map(r => `<div class="svia"><div><b>${fmtS(r.tarih)}</b> · ${esc(r.satir.map(z => { const k = (s.kalemler || []).find(q => q.k === z.k) || {}; return `${nf(z.miktar)} ${k.birim || "adet"} ${k.kod || k.ad || ""}`; }).join(", "))}</div><div class="note">Sebep: ${esc(r.sebep)}</div><div class="note">${[r.stok ? "Stoğa eklendi" : "Stoğa eklenmedi", r.yeniden ? "yeniden sevk edilecek" : ""].filter(Boolean).join(" · ")} · ${esc(r.by)} · ${skTs(r.at)}</div></div>`).join("")}</div>` : ""}
@@ -8442,7 +8473,7 @@ async function svIade(s, idx) {
 async function svSend(s, idx, kanal) {
   const x = s.sevkiyatlar[idx], name = `${s.no}-sevk-${x.tarih}.pdf`;
   try {
-    if (kanal === "pdf") { await saveFile(await spPdf(s, "sevk", { sevk: x }), name); return; }
+    if (kanal === "pdf") { await pdfGoster(await spPdf(s, "sevk", { sevk: x }), name); return; }
     const P = s.proje || {}, al = await aliciSec(kanal, crFind(s.cariId), [{ ad: P.yetkili, tel: P.tel, not: "Şantiye yetkilisi" }, { ad: x.teslimAlan, not: "Teslim alan" }]); if (!al) return;
     toast("PDF hazırlanıyor…"); const blob = await spPdf(s, "sevk", { sevk: x }), F = tkCfg().firma.unvan, adet = (x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0);
     const metin = `${al.ad ? "Sayın " + al.ad + "," : "Merhaba,"}\n\n${s.no} numaralı siparişinize ait ${adet} adet ürün ${fmtS(x.tarih)} tarihinde sevk edilmiştir.${x.irsaliye ? "\nİrsaliye no: " + x.irsaliye : ""}${x.arac ? "\nAraç: " + x.arac : ""}${P.ad ? "\nProje: " + P.ad : ""}\n\nSevk / paketleme listesi ektedir.\n\nSaygılarımızla,\n${ME.name}\n${F}`;
@@ -9650,7 +9681,7 @@ function mhDetay(id) {
       </div>
       <div class="df"><span>${r.fat && can("mh.fatura") ? '<button class="btn ghost" id="mhGeri" type="button">Faturayı geri al</button>' : ""}</span><div class="r"><button class="btn ghost" id="mhC2" type="button">Kapat</button>${!r.fat && can("mh.fatura") ? '<button class="btn" id="mhKes" type="button">FATURA KESİLMİŞTİR</button>' : ""}</div></div></aside>`;
     $("#scrim").onclick = closeDrawer; $("#mhX").onclick = closeDrawer; $("#mhC2").onclick = closeDrawer;
-    $("#mhPdf").onclick = async () => { try { await saveFile(await spPdf(s, "sevk", { sevk: x }), `${s.no}-sevk-${x.tarih}.pdf`); } catch (e) { toast("PDF hazırlanamadı: " + (e.message || e)); } };
+    $("#mhPdf").onclick = async () => { try { await pdfGoster(await spPdf(s, "sevk", { sevk: x }), `${s.no}-sevk-${x.tarih}.pdf`); } catch (e) { toast("PDF hazırlanamadı: " + (e.message || e)); } };
     const ks = $("#mhKes"); if (ks) ks.onclick = () => mhFaturaKes([r], () => setTimeout(paint, 300));
     const gr = $("#mhGeri"); if (gr) { let a = false; gr.onclick = async () => { if (!a) { a = true; gr.textContent = "Geri alınsın mı? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "muhasebe_fatura", r.id)); toast("Fatura işareti geri alındı"); setTimeout(paint, 300); } catch (e) { toast(writeErr(e)); } }; }
   };
