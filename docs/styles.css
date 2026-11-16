@@ -1565,3 +1565,30 @@ body.mesdev .toolbar{display:none}
 .mdb{width:56px;height:52px;border-radius:12px;border:0;color:#fff;font-size:20px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
 .mdb.bas{background:#2f9e44}.mdb.dur{background:#f08c00;font-size:16px}.mdb.bit{background:#e03131}
 .mdb:disabled{opacity:.25;cursor:not-allowed}
+
+/* v65 — cari iskonto, stok karakter onarımı, MES tamamlanan iş emirleri */
+.crisk{padding:10px 14px;border-radius:10px;background:color-mix(in srgb,var(--brand) 8%,var(--surface));font-size:14px}
+.crisk b{font-size:18px;color:var(--brand);margin:0 6px}
+.skfx{max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:8px}
+.skfx>div{display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:start;font-size:13px;padding:4px 2px;border-bottom:1px solid var(--line)}
+.skfx s{display:block;color:#d92d20;opacity:.8}.skfx b{display:block}
+.mestmb{background:var(--k-fabrikada,#2f9e44)!important;border-color:var(--k-fabrikada,#2f9e44)!important;color:#fff!important;font-weight:700}
+.mtf{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.mtf .seg{flex-wrap:wrap}
+.mtd{display:flex;align-items:center;gap:8px}.mtd .f{max-width:180px}
+.mtg{display:grid;grid-template-columns:minmax(200px,1.6fr) repeat(4,minmax(140px,1fr)) auto;gap:8px;align-items:center}
+.mtk{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.mtk>div{padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--line) 30%,var(--surface));border-left:4px solid var(--k-fabrikada,#2f9e44)}
+.mtk span{display:block;font-size:12px;color:var(--ink-3)}.mtk b{font-size:22px}
+.mtl{display:flex;flex-direction:column;gap:8px}
+.mtr{border:1px solid var(--line);border-left:5px solid var(--k-fabrikada,#2f9e44);border-radius:12px;background:var(--surface);overflow:hidden}
+.mth{all:unset;box-sizing:border-box;width:100%;display:grid;grid-template-columns:18px 96px minmax(0,1fr) 110px 150px;gap:12px;align-items:center;padding:10px 14px;cursor:pointer}
+.mth:hover{background:color-mix(in srgb,var(--brand) 5%,var(--surface))}.mth:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.mtc{color:var(--ink-3)}.mtt small,.mtu small,.mtn small{display:block;font-size:12px;color:var(--ink-3);font-weight:400}
+.mtu{min-width:0}.mtu b{margin-right:4px}.mtn{text-align:right}.mts{text-align:right;font-size:12px}
+.mtfr{color:#d92d20!important}
+.mtops{border-top:1px solid var(--line);padding:8px 14px 12px 44px;display:flex;flex-direction:column;gap:4px}
+.mtops>div:not(.mestl){display:grid;grid-template-columns:36px minmax(0,1.6fr) 130px minmax(0,1fr) 110px;gap:10px;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+.mtops>div.bu{background:color-mix(in srgb,var(--brand) 6%,transparent)}
+.mtops .num:last-child{text-align:right}
+@media (max-width:800px){.mtg{grid-template-columns:1fr 1fr}.mtg #mtQ{grid-column:1/-1}.mtk{grid-template-columns:1fr 1fr}.mth{grid-template-columns:18px 1fr auto}.mth .mtt{grid-column:2/-1;order:-1}.mth .mts{display:none}.mtops{padding-left:14px}.mtops>div:not(.mestl){grid-template-columns:30px 1fr auto}.mtops>div>span:nth-child(3),.mtops>div>span:nth-child(4){display:none}}

@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "64";
+const APP_V = "65";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3180,6 +3180,11 @@ const skSeviye = (m, mn, mx) => { m = Number(m) || 0; mn = Number(mn) || 0; mx =
 const skNorm = s => String(s || "").toLocaleLowerCase("tr").normalize("NFC");
 // Sunucu aramasında en seçici kelime: ölçü (rakam içeren) önce, sonra en uzun kelime; kalan kelimeler ekranda süzülür
 const skBestTok = q => { const t = skNorm(q).split(/[^0-9a-zçğıöşü]+/).filter(Boolean); return (t.filter(x => /\d/.test(x)).sort((a, b) => b.length - a.length)[0] || t.sort((a, b) => b.length - a.length)[0] || skNorm(q)).slice(0, 11); };
+// Müşteri iskontosu = genel müşteri iskontosu (herkese %40) + özel müşteri iskontosu
+const CR_GENEL_ISK = 40;
+const crIskG = c => { if (!c) return CR_GENEL_ISK; if (c.iskGenel != null) return Number(c.iskGenel) || 0; return c.iskonto != null && Number(c.iskonto) < CR_GENEL_ISK ? Number(c.iskonto) || 0 : CR_GENEL_ISK; };
+const crIskO = c => { if (!c) return 0; if (c.iskOzel != null) return Number(c.iskOzel) || 0; return c.iskonto != null ? Math.max(0, (Number(c.iskonto) || 0) - CR_GENEL_ISK) : 0; };
+const crIsk = c => Math.min(100, crIskG(c) + crIskO(c));
 function skWords(it) {
   const src = [it.ad, it.kod, it.anaGrup, it.altGrup, it.olcu, it.barkod, it.ted && it.ted.firma, it.ted && it.ted.kod, STK_TIP[it.tip]].join(" ");
   const set = new Set(); skNorm(src).split(/[^0-9a-zçğıöşü]+/).filter(Boolean).forEach(w => { set.add(w); for (let k = 3; k < w.length && k < 12; k++) set.add(w.slice(0, k)); });
@@ -3331,6 +3336,7 @@ function renderStok() {
   $("#skAdd").hidden = !can("s.edit"); $("#skAdd").onclick = () => skOpenCard(null);
   const ob = $("#skOlcuBtn"); if (ob) ob.onclick = () => skOpenOlcu();
   $("#skCfgBtn").hidden = !can("s.cfg"); $("#skCfgBtn").onclick = skOpenCfg;
+  { const fb = $("#skFixBtn"); if (fb) { fb.hidden = !isAdmin(); fb.onclick = skKarakterOnar; } }
   const v = $("#skView");
   if (!SK.ready) { v.innerHTML = '<div class="empty"><h3>Stok kartları yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
   if (SK.cnt.toplam === 0 && !SK.page.length && !SK.F.q && !SK.F.dur) {
@@ -3886,7 +3892,7 @@ function skOpenBulk() {
     $("#sbFn").textContent = f.name + " okunuyor…";
     try {
       if (/\.xlsx$/i.test(f.name)) { const r = await skReadXlsx(f); ingest(r.rows, `${f.name}${r.sayfa ? " › " + r.sayfa : ""}`); }
-      else { const t = await f.text(); ingest(t.split(/\r?\n/).map(l => l.split(/\t|;/)), f.name); }
+      else { const t = await metinOku(f); ingest(t.split(/\r?\n/).map(l => l.split(/\t|;/)), f.name); }
       $("#sbFn").textContent = f.name;
     } catch (x) { console.warn(x); $("#sbFn").textContent = ""; toast("Dosya okunamadı: " + (x.message || x)); }
   };
@@ -5167,7 +5173,9 @@ function crOpen(id, tip) {
       <div class="field"><label for="kWeb">Web sitesi</label><input id="kWeb" maxlength="100" value="${esc(v("kWeb", c.web || ""))}"${dis}></div>
       <div class="field"><label for="kVade">Ödeme vadesi (gün)</label><input id="kVade" type="number" min="0" max="365" value="${esc(v("kVade", c.vade ?? ""))}"${dis}></div>
       <div class="field"><label for="kPb">Para birimi</label><select id="kPb"${dis}>${ST_PB.map(p => opt(p, p, v("kPb", c.pb || "TRY"))).join("")}</select></div>
-      <div class="field"><label for="kIsk">Müşteri iskontosu (%)</label><input id="kIsk" type="number" min="0" max="100" step="0.5" value="${esc(v("kIsk", c.iskonto ?? ""))}" placeholder="Teklifte kalemlere otomatik gelir"${dis}></div>
+      <div class="field"><label for="kIskG">Genel müşteri iskontosu (%)</label><input id="kIskG" type="number" min="0" max="100" step="0.5" value="${esc(v("kIskG", crIskG(cur ? c : null)))}"${dis}></div>
+      <div class="field"><label for="kIskO">Özel müşteri iskontosu (%)</label><input id="kIskO" type="number" min="0" max="100" step="0.5" value="${esc(v("kIskO", crIskO(cur ? c : null) || ""))}" placeholder="Bu müşteriye ek iskonto"${dis}></div>
+      <div class="field full"><div class="crisk">Toplam iskonto: <b id="kIskT">%${nf(Math.min(100, (Number(v("kIskG", crIskG(cur ? c : null))) || 0) + (Number(v("kIskO", crIskO(cur ? c : null))) || 0)))}</b> <span class="note">genel + özel · teklifte kalemlere otomatik gelir</span></div></div>
       <div class="field full"><label for="kIban">IBAN</label><input id="kIban" maxlength="40" value="${esc(v("kIban", c.iban || ""))}" style="font-family:var(--mono)"${dis}></div>
     </div>
     <section><h3 class="sec-t">Yetkililer <small>sipariş ve fiyat talepleri ilk yetkiliye hitaben yazılır</small></h3>
@@ -5184,6 +5192,8 @@ function crOpen(id, tip) {
   }
   function bind(cur) {
     $("#kC").onclick = closeDrawer;
+    const iskT = () => { const t = $("#kIskT"); if (t) t.textContent = "%" + nf(Math.min(100, (Number($("#kIskG").value) || 0) + (Number($("#kIskO").value) || 0))); };
+    ["#kIskG", "#kIskO"].forEach(id => { const el = $(id); if (el) el.oninput = iskT; });
     const ya = $("#yAdd"); if (ya) ya.onclick = () => { keep(); yet.push({ ad: "", gorev: "", tel: "", eposta: "" }); paint(); };
     document.querySelectorAll("[data-yrm]").forEach(b => b.onclick = () => { keep(); yet.splice(Number(b.dataset.yrm), 1); if (!yet.length) yet.push({ ad: "", gorev: "", tel: "", eposta: "" }); paint(); });
     const del = $("#kDel"); if (del) { let armed = false; del.onclick = async () => {
@@ -5203,7 +5213,7 @@ function crOpen(id, tip) {
       if (dupN) { toast(`Aynı unvanla kart var: ${dupN.kod || ""} ${crAd(dupN)}`); return; }
       const now = Date.now(), Y = yet.map(y => ({ ad: y.ad.trim().slice(0, 60), gorev: y.gorev.trim().slice(0, 40), tel: y.tel.trim().slice(0, 30), eposta: y.eposta.trim().slice(0, 100) })).filter(y => y.ad || y.tel || y.eposta);
       const data = { kod: g("kKod") || crNextKod(), muhasebeKod: g("kMk"), unvan: unvan.slice(0, 160), kisaAd: g("kKa"), tedarikci: !!form.kTt, musteri: !!form.kTm, kategori: g("kKat"), vd: g("kVd"), vergiNo: vn, mersis: g("kMer"),
-        adres: g("kAdr"), il: g("kIl"), ilce: g("kIlc"), tel: g("kTel"), whatsapp: g("kWa"), eposta: g("kMail"), web: g("kWeb"), vade: form.kVade === "" ? null : Math.max(0, Number(form.kVade) || 0), pb: form.kPb || "TRY", iskonto: form.kIsk === "" || form.kIsk == null ? null : Math.min(100, Math.max(0, Number(form.kIsk) || 0)), iban: g("kIban").replace(/\s+/g, " ").toUpperCase(),
+        adres: g("kAdr"), il: g("kIl"), ilce: g("kIlc"), tel: g("kTel"), whatsapp: g("kWa"), eposta: g("kMail"), web: g("kWeb"), vade: form.kVade === "" ? null : Math.max(0, Number(form.kVade) || 0), pb: form.kPb || "TRY", iskGenel: Math.min(100, Math.max(0, Number(form.kIskG) || 0)), iskOzel: Math.min(100, Math.max(0, Number(form.kIskO) || 0)), iskonto: Math.min(100, Math.max(0, Number(form.kIskG) || 0) + Math.max(0, Number(form.kIskO) || 0)), iban: g("kIban").replace(/\s+/g, " ").toUpperCase(),
         yetkililer: Y, not: g("kNot"), aktif: cur ? !form.kPas : true, updatedAt: now, updatedBy: ME.name };
       sv.disabled = true;
       try {
@@ -6929,7 +6939,7 @@ function startSP() {
     e => { SP.ready = true; spChanged(); toast("Siparişler okunamadı: " + (e.code || e.message)); }));
   SP.fiyat = {};
   if (can("sp.fiyat") || can("mh.fiyat")) dataUnsubs.push(onSnapshot(collection(fs, "siparis_fiyat"), s => { SP.fiyat = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); spChanged(); }, () => {}));
-  dataUnsubs.push(onSnapshot(doc(fs, "config", "siparis"), s => { const d = s.exists() ? s.data() : {}; SP.cfg = { sikRenkler: Array.isArray(d.sikRenkler) && d.sikRenkler.length ? d.sikRenkler : ["9016", "9010", "7016", "9005", "9006", "7035"], varyasyon: d.varyasyon ?? SP_VAR_DEF, tkNotTR: d.tkNotTR, tkNotEN: d.tkNotEN, tkFirma: d.tkFirma, tkGecerlilik: d.tkGecerlilik, tkTeslimSure: d.tkTeslimSure, tkKase: d.tkKase }; spChanged(); }, () => {}));
+  dataUnsubs.push(onSnapshot(doc(fs, "config", "siparis"), s => { const d = s.exists() ? s.data() : {}; SP.cfg = { sikRenkler: Array.isArray(d.sikRenkler) && d.sikRenkler.length ? d.sikRenkler : ["9016", "9010", "7016", "9005", "9006", "7035"], varyasyon: d.varyasyon ?? SP_VAR_DEF, tkNotTR: d.tkNotTR, tkNotEN: d.tkNotEN, tkFirma: d.tkFirma, tkFirmaV: d.tkFirmaV, tkGecerlilik: d.tkGecerlilik, tkTeslimSure: d.tkTeslimSure, tkKase: d.tkKase }; spChanged(); }, () => {}));
   if (lvl("satinalma") === "none") dataUnsubs.push(onSnapshot(doc(fs, "config", "satinalma"), s => { const d = s.exists() ? s.data() : {}; SA.cfg = { ...SA.cfg, firma: { ...SA.cfg.firma, ...(d.firma || {}) } }; }, () => {}));
 }
 function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "muhasebe") renderMH(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
@@ -7502,7 +7512,8 @@ function spOpenCfg() {
         <div class="field full"><label for="cgFu">Firma unvanı (teklif altı)</label><input id="cgFu" maxlength="120" value="${esc(C.firma.unvan)}"></div>
         <div class="field full"><label for="cgFa">Adres</label><input id="cgFa" maxlength="200" value="${esc(C.firma.adres)}"></div>
         <div class="field"><label for="cgFt">Telefon</label><input id="cgFt" maxlength="40" value="${esc(C.firma.tel)}"></div><div class="field"><label for="cgFw">Web</label><input id="cgFw" maxlength="80" value="${esc(C.firma.web)}"></div>
-        <div class="field full"><label for="cgFe">E-posta</label><input id="cgFe" maxlength="160" value="${esc(C.firma.eposta)}"></div>
+        <div class="field"><label for="cgFe">E-posta</label><input id="cgFe" maxlength="160" value="${esc(C.firma.eposta)}"></div><div class="field"><label for="cgFv">Vergi dairesi</label><input id="cgFv" maxlength="80" value="${esc(C.firma.vd || "")}"></div>
+        <div class="field full"><label for="cgFi">Banka hesapları (teklif ve sipariş formunda basılır) <small class="note">her satır: Banka | IBAN | Para birimi</small></label><textarea id="cgFi" class="cfgta" style="min-height:150px;font-family:var(--mono)">${esc(C.firma.iban || "")}</textarea></div>
         <div class="field"><label for="cgGc">Varsayılan geçerlilik (gün)</label><input id="cgGc" type="number" min="1" max="365" value="${esc(C.gecerlilik)}"></div><div class="field"><label for="cgTs">Varsayılan teslim süresi</label><input id="cgTs" maxlength="60" value="${esc(C.teslimSure)}"></div>
         <div class="field full"><label class="chk"><input type="checkbox" id="cgKs"${C.kase ? " checked" : ""}> Teklif PDF'inde firma kaşesi (hazırlayan alanında) basılsın</label></div>
         <div class="field full"><label for="cgNt">Genel şartlar (Türkçe, her satır bir madde)</label><textarea id="cgNt" class="cfgta" style="min-height:170px">${esc(C.notTR)}</textarea></div>
@@ -7513,7 +7524,7 @@ function spOpenCfg() {
   $("#scrim").onclick = closeDrawer; $("#scX2").onclick = closeDrawer; $("#scC2").onclick = closeDrawer;
   const ca = $("#cgAll"); if (ca) ca.onclick = spTumunuSil;
   $("#scS2").onclick = async () => { try { await setDoc(doc(fs, "config", "siparis"), { varyasyon: $("#cgV").value.trim(), sikRenkler: $("#cgR").value.split(/[,\s]+/).map(x => x.replace(/\D/g, "")).filter(x => x.length === 4).slice(0, 16),
-      tkFirma: { unvan: $("#cgFu").value.trim(), adres: $("#cgFa").value.trim(), tel: $("#cgFt").value.trim(), eposta: $("#cgFe").value.trim(), web: $("#cgFw").value.trim() }, tkGecerlilik: Math.max(1, Number($("#cgGc").value) || 15), tkTeslimSure: $("#cgTs").value.trim(), tkKase: $("#cgKs").checked, tkNotTR: $("#cgNt").value.trim(), tkNotEN: $("#cgNe").value.trim(),
+      tkFirma: { unvan: $("#cgFu").value.trim(), adres: $("#cgFa").value.trim(), tel: $("#cgFt").value.trim(), eposta: $("#cgFe").value.trim(), web: $("#cgFw").value.trim(), vd: $("#cgFv").value.trim(), iban: $("#cgFi").value.split("\n").map(l => l.trim()).filter(Boolean).join("\n") }, tkFirmaV: TK_FIRMA_V, tkGecerlilik: Math.max(1, Number($("#cgGc").value) || 15), tkTeslimSure: $("#cgTs").value.trim(), tkKase: $("#cgKs").checked, tkNotTR: $("#cgNt").value.trim(), tkNotEN: $("#cgNe").value.trim(),
       updatedAt: Date.now(), updatedBy: ME.name }, { merge: true }); toast("Ayarlar kaydedildi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } };
 }
 
@@ -7521,7 +7532,7 @@ function spOpenCfg() {
 async function spPdf(s, mod, o = {}) {
   try { await document.fonts.ready; } catch (e) {}
   const W = 1240, H = 1754, M = 64, CW = W - 2 * M, F = { b: "'IBM Plex Sans', Arial, sans-serif", d: "'Rubik', Arial, sans-serif", m: "'IBM Plex Mono', monospace" }, C = { ink: "#0d1118", ink2: "#4a5466", ink3: "#7d8799", line: "#d8dee9", soft: "#eef2f8", brand: "#1747c9" };
-  const FI = SA.cfg.firma || {}, c = crFind(s.cariId) || { unvan: s.cariAd }, P = s.proje || {}, FP = SP.fiyat[s.id] || {}, fiy = !!o.fiyatli && can("sp.fiyat");
+  const FI = { ...(SA.cfg.firma || {}), ...tkCfg().firma }, c = crFind(s.cariId) || { unvan: s.cariAd }, P = s.proje || {}, FP = SP.fiyat[s.id] || {}, fiy = !!o.fiyatli && can("sp.fiyat");
   let logo = null; try { logo = await loadSrc(LOGO_SRC); } catch (e) {}
   const pages = []; let cv, x, Y;
   const font = (w, z, f = F.b) => { x.font = `${w} ${z}px ${f}`; };
@@ -7534,7 +7545,7 @@ async function spPdf(s, mod, o = {}) {
   const ensure = h => { if (Y + h > H - M - 50) { newPage(); return true; } return false; };
   newPage();
   const bw = (CW - 20) / 2, block = (bx, ttl, lines) => { const L = []; lines.forEach(([t, w]) => { font(w || 400, w === 700 ? 19 : 16); wrap(t, bw - 32).forEach(z => L.push([z, w || 400])); }); const h = 30 + L.length * 22 + 16; x.fillStyle = C.soft; x.fillRect(bx, Y, bw, h); font(600, 13); x.fillStyle = C.ink3; x.fillText(ttl, bx + 16, Y + 12); let yy = Y + 34; L.forEach(([z, w]) => { font(w, w === 700 ? 19 : 16); x.fillStyle = w === 700 ? C.ink : C.ink2; x.fillText(z, bx + 16, yy); yy += 22; }); return h; };
-  const h1 = block(M, "FİRMA", [[FI.unvan || "KAR-MEN AIRTECH", 700], [FI.adres], [[FI.tel, FI.eposta].filter(Boolean).join(" · ")]].filter(l => l[0]));
+  const h1 = block(M, "FİRMA", [[FI.unvan || "KAR-MEN AIRTECH", 700], [FI.adres], ["Tel: " + (FI.tel || "")], [[FI.eposta, FI.web].filter(Boolean).join(" · ")], [FI.vd]].filter(l => l[0]));
   const h2 = block(M + bw + 20, "MÜŞTERİ / PROJE", [[c.unvan || s.cariAd || "", 700], [P.ad && "Proje: " + P.ad], [P.adres && "Teslim: " + P.adres], [[P.yetkili, P.tel].filter(Boolean).join(" · ")]].filter(l => l[0]));
   Y += Math.max(h1, h2) + 18;
   const info = mod === "teyit" ? [["Sipariş no", s.no], ["Sipariş tarihi", fmtS(s.tarih)], ["Termin", s.verilenTermin ? fmtS(s.verilenTermin) : "—"], ["Müşteri sipariş no", s.musteriSipNo || "—"], ["Teklif no", s.teklifNo || "—"], ["Sevkiyat", P.sevk || "—"], ["Ödeme", s.odeme || "—"], ["Revizyon", s.rev ? "Rev. " + s.rev : "İlk sürüm"]]
@@ -7567,6 +7578,7 @@ async function spPdf(s, mod, o = {}) {
     [...G.values()].forEach(g => { if (g.r && spBoyali(g.r)) { x.fillStyle = spHex(g.r); x.fillRect(M, Y, 34, 26); x.strokeStyle = C.ink3; x.strokeRect(M, Y, 34, 26); } font(600, 16); x.fillStyle = C.ink; x.fillText(spRenkAd(g.r), M + 46, Y + 4); font(400, 15); x.fillStyle = C.ink2; x.fillText(`${g.n} kalem · ${nf(g.a)} adet`, M + 420, Y + 5); Y += 34; });
     if (fiy) { const T = spTotals(s.id); if (T) { Y += 6; font(700, 18); x.fillStyle = C.ink; x.textAlign = "right"; x.fillText(`Ara toplam ${money(T.ara, T.pb)} · KDV ${money(T.kdv, T.pb)} · GENEL TOPLAM ${money(T.genel, T.pb)}`, W - M, Y); x.textAlign = "left"; Y += 34; } }
     if (s.not) { font(400, 15); const L = wrap("Not: " + s.not, CW); ensure(L.length * 21 + 10); x.fillStyle = C.ink2; L.forEach(z => { x.fillText(z, M, Y); Y += 21; }); Y += 8; }
+    { const n = firmaIban(FI).length; if (n) { ensure(60 + n * 26 + 20); Y += pdfIbanBlok(x, M, Y, CW, FI, { soft: C.soft, brand: C.brand, brand2: C.brand, ink: C.ink, ink2: C.ink2, ink3: C.ink3, font: F.b, mono: F.m }) + 20; } }
     ensure(170); font(600, 16); x.fillStyle = C.ink; const L = wrap("Yukarıdaki ürünlerin kod, ölçü, adet, renk ve varyasyonlarını kontrol ettik ve onaylıyoruz. Onaydan sonraki değişiklikler termini etkileyebilir.", CW); L.forEach(z => { x.fillText(z, M, Y); Y += 24; }); Y += 16;
   } else ensure(150);
   const sw = CW / 2; (mod === "teyit" ? [["Hazırlayan", s.createdBy || ME.name], ["Müşteri onayı (kaşe / imza)", ""]] : [["Teslim eden", ME.name], ["Teslim alan (ad / imza)", o.sevk.teslimAlan || ""]]).forEach(([k, val], i) => { const sx = M + i * sw; font(600, 14); x.fillStyle = C.ink3; x.fillText(k.toLocaleUpperCase("tr"), sx, Y); font(500, 16); x.fillStyle = C.ink; x.fillText(val, sx, Y + 24); x.strokeStyle = C.ink3; x.beginPath(); x.moveTo(sx, Y + 96); x.lineTo(sx + sw - 40, Y + 96); x.stroke(); });
@@ -7856,8 +7868,22 @@ const TK_DUR = { taslak: ["Taslak", "var(--ink-3)"], gonderildi: ["Gönderildi",
 const TK_TESLIM = ["Fabrika teslim", "Şantiye teslim", "Kargo ile", "Nakliye alıcıya ait"];
 const TK_NOT_TR = ["Sözleşme Temsile Yetkili Kişi veya Kişilerce Kaşelenip İmzalanmadıkça Dikkate Alınmaz.", "Sözleşme Kapsamında Doğacak İhtilaflarda KONYA Mahkemeleri ve İcra Daireleri Yetkilidir. Ürün İadesi İşlemlerinde, 4822 Sayılı Kanun ile Değişik 4077 Sayılı Tüketicinin Korunması Hakkında Kanun Şartları Uygulanır.", "Ödeme karşılıklı görüşülecektir.", "6698 Sayılı K.V.K.K. (Kişisel Verilerin Korunması Kanunu) Kapsamındaki Tüm Maddeler Geçerlidir.", "Nakliye ve Kargo alıcıya aittir.", "Fiyatlarımız döviz bazında olup GARANTİ BANKASI kuru baz alınmaktadır.", "Ödeme karşılıklı görüşülecek ve ödeme netleştikten sonra imalata başlanılacaktır.", "İmalatını yaptığımız ürünlerimiz TSE K 542 standardına uygundur."];
 const TK_NOT_EN = ["The contract is not valid unless stamped and signed by the authorized person(s).", "KONYA Courts and Enforcement Offices are authorized for disputes arising under this contract. Product returns are subject to Consumer Protection Law No. 4077 as amended by Law No. 4822.", "Payment terms are subject to mutual agreement.", "All provisions of Personal Data Protection Law No. 6698 (KVKK) apply.", "Freight and courier costs belong to the buyer.", "Our prices are in foreign currency; GARANTİ BANK exchange rate is taken as basis.", "Payment terms will be agreed mutually and production starts after payment is finalized.", "Our manufactured products comply with TSE K 542 standard."];
-const TK_FIRMA = { unvan: "KAR-MEN MÜHENDİSLİK", adres: "Fevziçakmak Mah. 10727 Sk. Konsan Sanayi Sitesi No:10 Karatay / KONYA", tel: "0538 762 72 38", eposta: "menfez@kar-men.com.tr · muhasebe@kar-men.com.tr", web: "" };
-const tkCfg = () => { const c = SP.cfg || {}; return { notTR: c.tkNotTR != null ? c.tkNotTR : TK_NOT_TR.join("\n"), notEN: c.tkNotEN != null ? c.tkNotEN : TK_NOT_EN.join("\n"), firma: { ...TK_FIRMA, ...(c.tkFirma || {}) }, gecerlilik: Number(c.tkGecerlilik) || 15, teslimSure: c.tkTeslimSure || "20 gün", kase: c.tkKase !== false }; };
+const TK_FIRMA = { unvan: "BİRKAN KILIÇ KAR-MEN MÜHENDİSLİK", adres: "Fevzi Çakmak Mah. 10727 Sk. No:10 Konsan Sanayi Sitesi Karatay / KONYA", tel: "0332 346 08 39 · 0538 762 72 38", eposta: "menfez@kar-men.com.tr · muhasebe@kar-men.com.tr", web: "www.kar-men.com.tr", vd: "Selçuk V.D.",
+  iban: ["GARANTİ BANKASI | TR88 0006 2000 7900 0006 2942 70 | TL", "ZİRAAT BANKASI | TR56 0001 0021 9770 7258 9450 04 | TL", "VAKIF BANKASI | TR88 0001 5001 5800 7323 5940 00 | TL", "VAKIF BANKASI | TR96 0001 5001 5804 8023 5395 50 | USD", "GARANTİ BANKASI | TR57 0006 2000 7900 0009 0895 92 | USD", "ZİRAAT BANKASI | TR29 0001 0021 9770 7258 9450 05 | USD"].join("\n") };
+const TK_FIRMA_V = 2;   // firma bilgisi bu sürümle güncellendi; eski kayıtlı bilgi yerine yeni varsayılan kullanılır
+const firmaIban = FI => String(FI.iban || "").split("\n").map(l => l.split("|").map(x => x.trim())).filter(r => r[0] || r[1]).map(([banka, iban, pb]) => ({ banka: banka || "", iban: iban || "", pb: pb || "" }));
+// PDF'lere banka hesap bilgileri bloğu (teklif ve sipariş formu ortak)
+function pdfIbanBlok(x, X0, Y0, w, FI, o = {}) {
+  const R = firmaIban(FI); if (!R.length) return 0;
+  const bf = o.font || "'IBM Plex Sans', Arial, sans-serif", mf = o.mono || "'IBM Plex Mono', monospace", rh = 26, h = 52 + R.length * rh + 8;
+  x.save(); x.textBaseline = "top"; x.fillStyle = o.soft || "#f3f6fa"; x.fillRect(X0, Y0, w, h); x.fillStyle = o.brand || "#1a8fe3"; x.fillRect(X0, Y0, 4, h);
+  x.font = `700 13px ${bf}`; x.fillStyle = o.brand2 || "#0f6fd1"; x.fillText(o.en ? "BANK ACCOUNT DETAILS" : "BANKA HESAP BİLGİLERİ", X0 + 18, Y0 + 14);
+  x.font = `500 12.5px ${bf}`; x.fillStyle = o.ink3 || "#8a93a3"; x.textAlign = "right"; x.fillText((o.en ? "Account holder: " : "Hesap sahibi: ") + (FI.unvan || ""), X0 + w - 16, Y0 + 15, w * .6); x.textAlign = "left";
+  R.forEach((r, i) => { const yy = Y0 + 44 + i * rh; x.font = `600 14px ${bf}`; x.fillStyle = o.ink || "#0d1118"; x.fillText(r.banka, X0 + 18, yy, 230);
+    x.font = `600 14.5px ${mf}`; x.fillText(r.iban, X0 + 260, yy, w - 380); x.font = `700 13px ${bf}`; x.fillStyle = o.ink2 || "#4a5466"; x.textAlign = "right"; x.fillText(r.pb, X0 + w - 16, yy + 1); x.textAlign = "left"; });
+  x.restore(); return h;
+}
+const tkCfg = () => { const c = SP.cfg || {}; return { notTR: c.tkNotTR != null ? c.tkNotTR : TK_NOT_TR.join("\n"), notEN: c.tkNotEN != null ? c.tkNotEN : TK_NOT_EN.join("\n"), firma: { ...TK_FIRMA, ...(c.tkFirmaV >= TK_FIRMA_V ? c.tkFirma || {} : {}) }, gecerlilik: Number(c.tkGecerlilik) || 15, teslimSure: c.tkTeslimSure || "20 gün", kase: c.tkKase !== false }; };
 const tkDurum = t => t.durum === "gonderildi" && t.tarih && t.gecerlilik && dnum(t.tarih) + Number(t.gecerlilik) < dnum(TODAY) ? "suresi" : t.durum;
 const tkAcik = t => ["taslak", "gonderildi", "onaylandi"].includes(tkDurum(t));
 const tkRevAd = r => "REV" + String(r || 1).padStart(2, "0");
@@ -7958,7 +7984,7 @@ async function tkOpenForm(id, o = {}) {
           <div class="field"><label for="tKur">Kur (${pb === "TRY" ? "USD" : esc(pb)}/TL, bilgi için)</label><input id="tKur" type="number" step="0.0001" min="0" value="${esc(v("tKur", base ? base.kur || "" : (SA.cfg.kur || {})[pb === "TRY" ? "USD" : pb] || ""))}"></div></div></section>
         <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>
           <div class="sprdef"><span>Varsayılan renk:</span><button type="button" class="btn ghost sm" id="tRen">${varsR ? spSw(varsR) + " " + esc(spRenkAd(varsR)) : "Renk seç"}</button>
-            <span>İskonto %</span><input class="kin num" id="tIsk" type="number" min="0" max="100" step="0.5" style="width:90px" value="${esc(v("tIsk", base ? base.iskonto ?? "" : c && c.iskonto != null ? c.iskonto : ""))}"><button type="button" class="btn ghost sm" id="tIskA">Tüm kalemlere uygula</button>
+            <span>İskonto %</span><input class="kin num" id="tIsk" type="number" min="0" max="100" step="0.5" style="width:90px" value="${esc(v("tIsk", base ? base.iskonto ?? "" : c ? crIsk(c) : ""))}"><button type="button" class="btn ghost sm" id="tIskA">Tüm kalemlere uygula</button>
             <span class="note">İskonto yalnızca bu ekranda görünür; müşteriye giden teklifte net birim fiyat yazar.</span></div>
           <div class="spk">${K.length ? K.map((k, i) => `<div class="spkr tkr">
             <div class="spk1"><span class="spsn" title="Sıra no">${i + 1}</span><span class="tkth" data-th="${i}"></span><span class="num skk">${esc(k.kod || "Serbest")}</span>${k.sid ? ` <b>${esc(k.ad)}</b>` : `<input class="kin" id="qAd${i}" maxlength="140" value="${esc(k.ad)}" style="flex:1 1 220px">`}
@@ -7981,7 +8007,7 @@ async function tkOpenForm(id, o = {}) {
     </aside>`;
     formKapat(() => K.length, "#tfX", "#tfC");
     K.forEach(async (k, i) => { const u = await tkFoto(k); const el = document.querySelector(`[data-th="${i}"]`); if (el && u) el.innerHTML = `<img src="${u}" alt="">`; });
-    $("#tCari").onchange = () => { keep(); const c2 = crFind(f.tCari); if (c2) { const y = (c2.yetkililer || []).find(x => x.ad) || {}; f.tYet = y.ad || ""; f.tTel = y.tel || c2.tel || ""; f.tMail = y.eposta || c2.eposta || ""; f.tAdr = [c2.adres, c2.ilce, c2.il].filter(Boolean).join(" "); if (c2.iskonto != null) { f.tIsk = String(c2.iskonto); K.forEach(k => k.isk = Number(c2.iskonto) || 0); } if (c2.vade) f.tOd = c2.vade + " gün vadeli"; } paint(); };
+    $("#tCari").onchange = () => { keep(); const c2 = crFind(f.tCari); if (c2) { const y = (c2.yetkililer || []).find(x => x.ad) || {}; f.tYet = y.ad || ""; f.tTel = y.tel || c2.tel || ""; f.tMail = y.eposta || c2.eposta || ""; f.tAdr = [c2.adres, c2.ilce, c2.il].filter(Boolean).join(" "); { const ci = crIsk(c2); f.tIsk = String(ci); K.forEach(k => k.isk = ci); } if (c2.vade) f.tOd = c2.vade + " gün vadeli"; } paint(); };
     const nc = $("#tNewC"); if (nc) nc.onclick = () => { toast("Müşteri kartını kaydedip teklife dönün"); crOpen(null, "mus"); };
     $("#tYet").onchange = () => { const c2 = crFind($("#tCari").value), y = c2 && (c2.yetkililer || []).find(x => x.ad === $("#tYet").value); if (y) { if (y.tel) $("#tTel").value = y.tel; if (y.eposta) $("#tMail").value = y.eposta; } };
     $("#tPb").onchange = () => { keep(); const old = pbOld; if (K.some(k => k.liste != null) && old !== f.tPb) { K.forEach(k => { if (k.liste != null) { const x = tkConv(k.liste, old, f.tPb, f.tKur); if (x != null) k.liste = Math.round(x * 100) / 100; } }); toast("Fiyatlar yeni para birimine çevrildi; kontrol edin"); } pbOld = f.tPb; paint(); };
@@ -8227,6 +8253,8 @@ async function tkPdf(t) {
   if (notlar.length) { font(400, 13); const NL = notlar.map(n => wrap(n, CW - 30)); const nh = NL.reduce((a, l) => a + l.length * 18 + 4, 0) + 36; ensure(Math.min(nh, 600));
     font(700, 13); x.fillStyle = K.brand2; x.fillText(L.notlar, M, Y); Y += 24;
     NL.forEach(Ls => { ensure(Ls.length * 18 + 4); x.fillStyle = K.brand; x.beginPath(); x.arc(M + 6, Y + 8, 3, 0, 7); x.fill(); font(400, 13); x.fillStyle = K.ink2; Ls.forEach(l => { x.fillText(l, M + 20, Y); Y += 18; }); Y += 4; }); Y += 14; }
+  // banka hesap bilgileri
+  { const n = firmaIban(FI).length; if (n) { ensure(60 + n * 26 + 20); Y += pdfIbanBlok(x, M, Y, CW, FI, { en, ...K, font: Fn.b, mono: Fn.m }) + 22; } }
   // imza alanları
   ensure(190);
   const sw = (CW - 24) / 2;
@@ -8235,7 +8263,7 @@ async function tkPdf(t) {
   Y += 180;
   const stamp = new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "short", timeStyle: "short" });
   pages.forEach((pg, i) => { const g = pg.getContext("2d"); g.textBaseline = "top"; g.fillStyle = K.soft; g.fillRect(0, H - 64, W, 64); g.fillStyle = K.brand; g.fillRect(0, H - 64, W, 3);
-    g.font = `600 13px ${Fn.b}`; g.fillStyle = K.ink; g.fillText(FI.unvan || "KAR-MEN", M, H - 50); g.font = `400 12.5px ${Fn.b}`; g.fillStyle = K.ink2; g.fillText([FI.adres, FI.tel, FI.eposta, FI.web].filter(Boolean).join("  ·  "), M, H - 30, CW - 140);
+    g.font = `600 13px ${Fn.b}`; g.fillStyle = K.ink; g.fillText(FI.unvan || "KAR-MEN", M, H - 50); g.font = `400 12.5px ${Fn.b}`; g.fillStyle = K.ink2; g.fillText([FI.adres, FI.tel, FI.eposta, FI.web, FI.vd].filter(Boolean).join("  ·  "), M, H - 30, CW - 140);
     g.textAlign = "right"; g.fillStyle = K.ink3; g.fillText(`${L.sayfa} ${i + 1} / ${pages.length}`, W - M, H - 40); g.textAlign = "left"; });
   void stamp; void foot;
   return jpegPagesToPdf(pages.map(pg => pg.toDataURL("image/jpeg", 0.9)), W, H);
@@ -8740,6 +8768,7 @@ function plMesView(v) {
       <div class="meskpi">${[["Çalışılıyor", J.filter(j => j.st === "devam").length, "#60a5fa"], ["Hazır", J.filter(j => j.st === "hazir" || j.st === "kismi").length, "#4ade80"], ["Bekliyor", J.filter(j => j.st === "bekle").length, "#94a3b8"], ["Bugün biten", bugun, "#c4b5fd"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div>
       ${dev ? '<button type="button" class="btn ghost sm mesout" id="mesOut">Çıkış</button>' : ""}</div>
     <div class="mesgr2"><div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipi"], ["renk", "Renk"], ["sip", "Sipariş"], ...(mod === "basit" ? [["asama", "Aşama"]] : []), ["yok", "Yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
+      <button type="button" class="btn sm mestmb" id="mesTam">✓ Tamamlanan iş emirleri</button>
       ${[...G.keys()].some(Boolean) ? `<div class="mesgall"><button type="button" class="btn ghost sm" data-gall="1">Tümünü aç</button><button type="button" class="btn ghost sm" data-gall="0">Tümünü kapat</button></div>` : ""}
       ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} seçili</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Başlat</button><button type="button" class="mbtn dur" data-ms="dur">Duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Temizle</button></div>` : ""}</div>
     ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.key), all = keys.length && keys.every(x => MES.sec.has(x));
@@ -8754,6 +8783,7 @@ function plMesView(v) {
   const fsb = $("#mesFs"); if (fsb) fsb.onclick = () => { const on = document.body.classList.toggle("mesfs"); if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {}); plMesView(v); };
   const opS = $("#mesOp"); if (opS) opS.onchange = e => { MES.op = e.target.value; try { localStorage.setItem("mesOp", MES.op); } catch (x) {} };
   const out = $("#mesOut"); if (out) out.onclick = () => signOut(auth);
+  $("#mesTam").onclick = () => mesTamamlanan();
   const sd = $("#mesSeed"); if (sd) sd.onclick = () => plMesSeed([...S].find(x => /^TST/.test(x)) || [...S][0] || "TST-1");
   const byKey = new Map(J.map(j => [j.key, j]));
   // sipariş detay penceresi de aynı başlat / beklet / bitir mantığını kullanır
@@ -9745,4 +9775,105 @@ function renderYedek() {
   $("#ydDosya").onchange = e => ydKaydet({ dosya: e.target.checked });
   $("#ydOto").onchange = async e => { await ydKaydet({ oto: e.target.checked }); renderYedek(); };
   $("#ydSaat").onchange = e => { if (e.target.value) ydKaydet({ saat: e.target.value }); };
+}
+
+
+/* ================= Bozuk Türkçe karakter onarımı (stok kartları) =================
+   Eski bir CSV / muhasebe aktarımında Türkçe harfler U+FFFD (soru işaretli kutu) olarak kaydedilmiş (ör. ÇİFT → "??FT", DAMPERLİ → "DAMPERL?").
+   Her bozuk kelime, temiz kartlarda geçen kelimelerle eşleştirilerek düzeltilir; eşleşmeyenler olduğu gibi kalır. */
+// Metin dosyaları: UTF-8 değilse Windows Türkçe (1254) olarak okunur — bozulmanın kaynağı buydu
+async function metinOku(f) {
+  const buf = await f.arrayBuffer();
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch (e) { return new TextDecoder("windows-1254").decode(buf); }
+}
+const SK_TR_SOZ = "ÇİFT TEK SIRA DAMPERLİ DAMPERSİZ DAMPERİ KANATLI KANATLARI MENFEZİ MENFEZLER DİFÜZÖR DİFÜZÖRÜ IZGARA IZGARASI PANJUR PANJURU GİRİŞ ÇIKIŞ DÖNÜŞ EMİŞ ÜFLEME KÖŞE DÜZ DİKDÖRTGEN ÖZEL GÜNEŞ ÇATI BAĞLANTI BAĞLANTISI ŞAPKA SÜZGEÇ YÜKSEK ALÜMİNYUM GALVANİZ PASLANMAZ KÖR BOŞ İÇ DIŞ ÜST ALT DÖRT ÜÇ İKİ ÇEMBER KIVRIMLI KAPAĞI SİSTEMİ SİSTEMLERİ HAVALANDIRMA KANALI MÜŞTERİ DİREKT DİĞER ÇELİK SAÇ SAC BÜKÜM KESİM YÖNLÜ YÖNLENDİRMELİ AYARLI SABİT HAREKETLİ KİLİT KİLİTLİ LİNEER LİNEAR KONİK DİFÜZÖRLER FİLTRE FİLTRELİ ÇERÇEVE ÇERÇEVELİ GÖVDE GÖVDESİ PLENUM PLENUMLU PERDE YANGIN DUMAN KONTROL MOTORLU MOTORSUZ ŞEKİLLİ BÜYÜK KÜÇÜK GENİŞ UZUN".split(" ");
+async function skKarakterOnar() {
+  if (!isAdmin()) return;
+  toast("Stok kartları taranıyor…");
+  let L; try { L = (await getDocs(collection(fs, "stok"))).docs.map(d => ({ id: d.id, ...d.data() })); } catch (e) { toast(writeErr(e)); return; }
+  const ALAN = ["ad", "anaGrup", "altGrup", "olcu"], BOZ = /\uFFFD/;
+  const say = new Map(), ekle = w => { if (!w || BOZ.test(w) || w.length < 2) return; say.set(w, (say.get(w) || 0) + 1); };
+  L.forEach(i => ALAN.forEach(a => String(i[a] || "").toLocaleUpperCase("tr").split(/[^0-9A-ZÇĞİÖŞÜ]+/).forEach(ekle)));
+  SK_TR_SOZ.forEach(w => say.set(w, (say.get(w) || 0) + 1));
+  const SOZ = [...say.keys()], cache = new Map(), harf = "[A-ZÇĞİÖŞÜ]";
+  const kelimeDuzelt = w => { if (cache.has(w)) return cache.get(w);
+    const up = w.toLocaleUpperCase("tr"), re = new RegExp("^" + up.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\uFFFD+/g, m => `${harf}{1,${m.length}}`) + "$");
+    const ad = SOZ.filter(x => re.test(x)).sort((a, b) => say.get(b) - say.get(a)); const r = ad[0] || null; cache.set(w, r); return r; };
+  const duzelt = t => { let kalan = 0; const out = String(t).replace(/[0-9A-Za-zÇĞİÖŞÜçğıöşü\uFFFD]*\uFFFD[0-9A-Za-zÇĞİÖŞÜçğıöşü\uFFFD]*/g, w => { const r = kelimeDuzelt(w); if (!r) { kalan++; return w; } return r; }); return { out, kalan }; };
+  const D = []; L.forEach(i => { const p = {}; let kalan = 0, deg = false; ALAN.forEach(a => { if (!BOZ.test(String(i[a] || ""))) return; const r = duzelt(i[a]); kalan += r.kalan; if (r.out !== i[a]) { p[a] = r.out; deg = true; } }); if (deg || kalan) D.push({ i, p, kalan }); });
+  const ok = D.filter(d => Object.keys(d.p).length), eksik = D.filter(d => d.kalan);
+  spModal(`<label>Bozuk Türkçe karakter onarımı</label>
+    <p class="note" style="margin:0">${D.length ? `${nf(L.length)} stok kartından <b>${nf(D.length)}</b> tanesinde "${"\uFFFD"}" bozuk karakter var. <b>${nf(ok.length)}</b> kart düzeltilebiliyor${eksik.length ? `, ${nf(eksik.length)} kartta tahmin edilemeyen kelime kalıyor (elle düzeltin)` : ""}.` : "Bozuk karakterli stok kartı bulunmadı."}</p>
+    ${ok.length ? `<div class="skfx">${ok.slice(0, 300).map(d => `<div><span class="num skk">${esc(d.i.kod || "")}</span><div><s>${esc(d.i.ad || "")}</s><b>${esc(d.p.ad || d.i.ad || "")}</b></div></div>`).join("")}${ok.length > 300 ? `<p class="note">… ve ${nf(ok.length - 300)} kart daha</p>` : ""}</div>` : ""}
+    ${eksik.length ? `<details><summary class="note">Tahmin edilemeyenler (${nf(eksik.length)})</summary><div class="skfx">${eksik.slice(0, 100).map(d => `<div><span class="num skk">${esc(d.i.kod || "")}</span><div><b>${esc((d.p.ad || d.i.ad || ""))}</b></div></div>`).join("")}</div></details>` : ""}
+    <p class="note" style="margin:0">Sipariş ve tekliflere daha önce eklenmiş kalemlerin adları değişmez; yalnızca stok kartları düzeltilir.</p>
+    <div class="r"><button type="button" class="btn ghost" id="fxC">Kapat</button>${ok.length ? `<button type="button" class="btn" id="fxO">${nf(ok.length)} kartı düzelt</button>` : ""}</div>`, (h, done) => {
+    h.querySelector("#fxC").onclick = () => done(false);
+    const b = h.querySelector("#fxO"); if (b) b.onclick = async () => { b.disabled = true; b.textContent = "Kaydediliyor…";
+      try { const now = Date.now();
+        for (let k = 0; k < ok.length; k += 400) { const bt = writeBatch(fs); ok.slice(k, k + 400).forEach(d => { const yeni = { ...d.i, ...d.p }; bt.update(doc(fs, "stok", d.i.id), { ...d.p, kelimeler: skWords(yeni), updatedAt: now, updatedBy: ME.name }); }); await bt.commit(); b.textContent = `Kaydediliyor… ${Math.min(k + 400, ok.length)}/${ok.length}`; }
+        toast(`${nf(ok.length)} stok kartı düzeltildi`); done(true);
+      } catch (e) { toast(writeErr(e)); b.disabled = false; b.textContent = "Tekrar dene"; } };
+  });
+}
+
+
+/* ================= MES · tamamlanan iş emirleri (detay filtreli) ================= */
+const MES_TF = { per: "bugun", t1: "", t2: "", q: "", cari: "", sp: "", tip: "", kap: "cihaz", ac: new Set() };
+const ieBitis = e => e.bitis || Math.max(0, ...(e.ops || []).map(o => Number(o.bitis) || 0)) || e.updatedAt || 0;
+const ieSure = e => (e.ops || []).reduce((a, o) => a + (o.calisma || []).reduce((b, c) => b + (c.bit && c.bas ? Math.max(0, c.bit - c.bas) : 0), 0), 0) / 60000;
+const ieYapan = e => [...new Set((e.ops || []).flatMap(o => [...(o.calisma || []).map(c => c.by), o.operator]).filter(Boolean))];
+function mesTamamlanan() {
+  const F = MES_TF, S = mesStations(), gun = ts => ts ? new Date(ts + 3 * 36e5).toISOString().slice(0, 10) : "";
+  const per = () => { const d = new Date(TODAY + "T00:00:00Z"), wd = (d.getUTCDay() + 6) % 7;
+    if (F.per === "bugun") return [TODAY, TODAY]; if (F.per === "dun") { const y = new Date(d - 864e5).toISOString().slice(0, 10); return [y, y]; }
+    if (F.per === "hafta") return [new Date(d - wd * 864e5).toISOString().slice(0, 10), TODAY]; if (F.per === "ay") return [TODAY.slice(0, 8) + "01", TODAY];
+    if (F.per === "ozel") return [F.t1 || "0000", F.t2 || "9999"]; return ["0000", "9999"]; };
+  const ciz = () => {
+    const [a, b] = per(), q = araFold(F.q || "");
+    const T = PL.ie.filter(e => e.durum === "bitti" && (F.kap === "tum" || (e.ops || []).some(o => mesMatch(o, S))));
+    const tipler = [...new Set(T.map(e => e.akisAd || "Diğer"))].sort((x, y) => x.localeCompare(y, "tr"));
+    const cariler = [...new Set(T.map(e => e.musteri).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr"));
+    const L = T.filter(e => { const g = gun(ieBitis(e)); if (g < a || g > b) return false; if (F.tip && (e.akisAd || "Diğer") !== F.tip) return false; if (F.cari && e.musteri !== F.cari) return false; if (F.sp && e.siparisNo !== F.sp) return false;
+      if (q && !araFold([e.no, e.urunAd, e.renkAd, e.siparisNo, e.musteri, mesProje(e), e.akisAd, ...ieYapan(e)].join(" ")).includes(q)) return false; return true; })
+      .sort((x, y) => ieBitis(y) - ieBitis(x));
+    const spler = [...new Set(T.filter(e => !F.cari || e.musteri === F.cari).map(e => e.siparisNo).filter(Boolean))].sort((x, y) => y.localeCompare(x, "tr"));
+    const adet = L.reduce((s0, e) => s0 + (Number(e.miktar) || 0), 0), fire = L.reduce((s0, e) => s0 + (e.ops || []).reduce((t, o) => t + (Number(o.fire) || 0), 0), 0), sure = L.reduce((s0, e) => s0 + ieSure(e), 0);
+    const filtreVar = F.q || F.cari || F.sp || F.tip || F.per !== "bugun" || F.kap !== "cihaz";
+    $("#mtB").innerHTML = `<div class="mtf">
+        <div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["tum", "Tümü"], ["ozel", "Tarih aralığı"]].map(([k, l]) => `<button type="button" data-mtp="${k}" aria-pressed="${F.per === k}">${l}</button>`).join("")}</div>
+        ${F.per === "ozel" ? `<div class="mtd"><input type="date" class="f" id="mtT1" value="${esc(F.t1)}" aria-label="Başlangıç"><span>–</span><input type="date" class="f" id="mtT2" value="${esc(F.t2)}" aria-label="Bitiş"></div>` : ""}
+        <div class="mtg"><input type="search" class="f" id="mtQ" placeholder="İş emri, ürün, renk, sipariş, kişi ara…" value="${esc(F.q)}" aria-label="Ara">
+          <select class="f" id="mtC" aria-label="Müşteri"><option value="">Tüm müşteriler</option>${cariler.map(c => opt(c, c, F.cari)).join("")}</select>
+          <select class="f" id="mtS" aria-label="Sipariş"><option value="">Tüm siparişler</option>${spler.map(c => opt(c, c, F.sp)).join("")}</select>
+          <select class="f" id="mtTp" aria-label="Ürün tipi"><option value="">Tüm ürün tipleri</option>${tipler.map(c => opt(c, c, F.tip)).join("")}</select>
+          <select class="f" id="mtK" aria-label="Kapsam"><option value="cihaz"${F.kap === "cihaz" ? " selected" : ""}>Bu cihazın iş emirleri</option><option value="tum"${F.kap === "tum" ? " selected" : ""}>Tüm iş emirleri</option></select>
+          ${filtreVar ? '<button type="button" class="btn ghost sm" id="mtX">Filtreleri temizle</button>' : ""}</div></div>
+      <div class="mtk">${[["İş emri", nf(L.length)], ["Üretilen adet", nf(adet)], ["Fire", nf(fire)], ["Çalışma süresi", sure ? plDur(sure) : "—"]].map(([k, v0]) => `<div><span>${k}</span><b class="num">${v0}</b></div>`).join("")}</div>
+      ${L.length ? `<div class="mtl">${L.slice(0, 300).map(e => { const ac = F.ac.has(e.id), ops = (e.ops || []).filter(o => !o.atlandi), fr = ops.reduce((t, o) => t + (Number(o.fire) || 0), 0), sr = ieSure(e), yp = ieYapan(e);
+          return `<div class="mtr${ac ? " on" : ""}"><button type="button" class="mth" data-mte="${esc(e.id)}" aria-expanded="${ac}">
+            <span class="mtc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
+            <span class="mtt"><b class="num">${fmtS(gun(ieBitis(e)))}</b><small>${new Date(ieBitis(e)).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</small></span>
+            <span class="mtu"><b class="num">${esc(e.no || "")}</b> <b>${esc(e.urunAd || "")}</b><small>${e.renkAd ? esc(e.renkAd) + " · " : ""}${esc(e.siparisNo || "Stoka üretim")}${e.musteri ? " · " + esc(e.musteri) : ""}${mesProje(e) ? " · " + esc(mesProje(e)) : ""}</small></span>
+            <span class="mtn num"><b>${nf(e.miktar)}</b> <small>${esc(e.birim || "adet")}</small>${fr ? `<small class="mtfr">${nf(fr)} fire</small>` : ""}</span>
+            <span class="mts note">${sr ? plDur(sr) : ""}${yp.length ? `<br>${esc(yp.slice(0, 2).join(", "))}${yp.length > 2 ? " +" + (yp.length - 2) : ""}` : ""}</span></button>
+            ${ac ? `<div class="mtops">${ops.map((o, k) => `<div class="${mesMatch(o, S) ? "bu" : ""}"><span class="num">${esc(plNo(o, k))}.</span><span><b>${esc(o.ad || o.tanim || "")}</b> <small class="note">${esc(o.ist || "")}</small></span><span class="note">${o.bitis ? skTs(o.bitis) : "—"}</span><span class="note">${esc([...new Set([...(o.calisma || []).map(c => c.by), o.operator].filter(Boolean))].join(", ") || "—")}</span><span class="num">${nf(o.tamam ?? e.miktar)}${o.fire ? ` · <span class="mtfr">${nf(o.fire)} fire</span>` : ""}</span></div>`).join("")}${e.talimat ? `<div class="mestl">${esc(e.talimat)}</div>` : ""}</div>` : ""}</div>`; }).join("")}${L.length > 300 ? `<p class="note">İlk 300 iş emri gösteriliyor; filtreyi daraltın.</p>` : ""}</div>`
+        : `<div class="empty"><h3>Bu filtrede tamamlanan iş emri yok</h3><p>${F.per === "bugun" ? "Bugün henüz biten iş emri yok. Dönemi “Bu hafta” ya da “Tümü” yapabilirsiniz." : "Filtreleri genişletmeyi deneyin."}</p></div>`}`;
+    const B = $("#mtB"), re = () => { const sc = B.scrollTop; ciz(); B.scrollTop = sc; };
+    B.querySelectorAll("[data-mtp]").forEach(x => x.onclick = () => { F.per = x.dataset.mtp; re(); });
+    B.querySelectorAll("[data-mte]").forEach(x => x.onclick = () => { const id = x.dataset.mte; F.ac.has(id) ? F.ac.delete(id) : F.ac.add(id); re(); });
+    const qi = $("#mtQ"); qi.oninput = () => { F.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { ciz(); const n = $("#mtQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
+    $("#mtC").onchange = e => { F.cari = e.target.value; F.sp = ""; re(); }; $("#mtS").onchange = e => { F.sp = e.target.value; re(); };
+    $("#mtTp").onchange = e => { F.tip = e.target.value; re(); }; $("#mtK").onchange = e => { F.kap = e.target.value; re(); };
+    const t1 = $("#mtT1"); if (t1) { t1.onchange = () => { F.t1 = t1.value; re(); }; $("#mtT2").onchange = e => { F.t2 = e.target.value; re(); }; }
+    const xb = $("#mtX"); if (xb) xb.onclick = () => { Object.assign(F, { per: "bugun", t1: "", t2: "", q: "", cari: "", sp: "", tip: "", kap: "cihaz" }); re(); };
+  };
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="mtTt" style="width:min(1100px,100%)">
+    <div class="dh"><h2 id="mtTt">Tamamlanan iş emirleri</h2><button class="x" id="mtXx" aria-label="Kapat">×</button></div>
+    <div class="db" id="mtB"></div>
+    <div class="df"><span class="note">Satıra dokununca işlemler, bitiş saatleri ve yapanlar açılır.</span><div class="r"><button class="btn" id="mtKp" type="button">Kapat</button></div></div>
+  </aside>`;
+  $("#scrim").onclick = closeDrawer; $("#mtXx").onclick = closeDrawer; $("#mtKp").onclick = closeDrawer;
+  ciz();
 }
