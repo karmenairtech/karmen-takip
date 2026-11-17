@@ -19,7 +19,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b); b.comm
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "73";
+const APP_V = "74";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -9715,6 +9715,8 @@ function mhSevkEt(spId, kk) {
     };
   });
 }
+// Faturaya yazılacak ürün adı: "ÜRÜN ADI (varyasyon) - BOYA" — boyasızda yalnızca ad
+const mhUrunAd = k => { const ad = [k.ad, spVarAd(k)].filter(Boolean).join(" "), r = k.renk, rk = r && (spBoyali(r) || /eloksal/i.test(r.yuzey || "")) ? spRenkAd(r).replace(/ · /g, " ") : ""; return rk ? `${ad} - ${rk}` : ad; };
 function mhSatirlar() {
   const L = [];
   SP.list.forEach(s => (s.sevkiyatlar || []).forEach((x, si) => (x.satir || []).forEach(y => {
@@ -9789,7 +9791,7 @@ function renderMH() {
         return `<div class="row${m.fat ? " mhok" : ""}" role="row" tabindex="0" data-mh="${esc(r.id)}" style="--stripe:${m.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}">
         <div>${fatYetki && !m.fat ? `<input type="checkbox" data-mhs="${esc(m.ids.join(","))}" aria-label="Seç"${secili ? " checked" : ""}>` : ""}</div>
         <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${cok ? `<span class="mhbir">${m.L.length} sevk birleşti</span>${m.L.map(z => `<button type="button" class="linkbtn mhsl" data-mhd="${esc(z.id)}">${fmtS(z.x.tarih).slice(0, 5)} · ${nf(z.y.miktar)}${z.x.irsaliye ? " · " + esc(z.x.irsaliye) : ""}</button>`).join("")}` : r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}${m.L.some(z => z.x.muhasebe) ? '<div class="mhmuh">muhasebe işaretledi</div>' : ""}</div></div>
-        <div class="ska mhcpw">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${mhCp([r.k.ad, spVarAd(r.k)].filter(Boolean).join(" "), "Ürün adını kopyala")}${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
+        <div class="ska mhcpw">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${mhCp(mhUrunAd(r.k), "Ürün adını boyasıyla kopyala: " + mhUrunAd(r.k))}${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}<div class="mhrk">${r.k.renk && (spBoyali(r.k.renk) || /eloksal/i.test(r.k.renk.yuzey || "")) ? spSw(r.k.renk) + " " + esc(spRenkAd(r.k.renk)) : `<span class="note">Boyasız${r.k.renk && r.k.renk.yuzey ? " · " + esc(r.k.renk.yuzey) : ""}</span>`}</div></div>
         <div class="num mhcpw"><b>${nf(m.miktar)}</b> <small>${esc(r.k.birim || "Adet")}</small>${mhCp(mhSayi(m.miktar, 0), "Adedi kopyala")}${m.iade ? `<div class="svir">${nf(m.iade)} iade</div>` : ""}</div>
         <div class="num mhcpw">${!fg ? "—" : m.net != null ? `<b>${money(m.net, m.pb)}</b>${mhCp(mhSayi(m.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(nb, m.pb)}${mhCp(mhSayi(nb), "Birim fiyatı kopyala")}</div>` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
         <div>${m.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${[...new Set(m.L.map(z => z.fat.faturaNo).filter(Boolean))].map(esc).join(", ")}${m.L[0].fat.faturaNo ? " · " : ""}${fmtS(m.L[0].fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`; }).join("")}</div>
