@@ -13,13 +13,19 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 // Kullanım takibi için kullanıcının yaptığı kayıtlar sayılır (veri yazma işlevleri aynen çalışır)
 let KUL_KAYIT = 0;
 const kulSay = r => { const p = String((r && (r.path || r.c)) || ""); if (!/^(reads|kullanim)\b/.test(p)) KUL_KAYIT++; };   // okundu işaretleri sayılmaz
-const setDoc = (...a) => { kulSay(a[0]); return _setDoc(...a); }, updateDoc = (...a) => { kulSay(a[0]); return _updateDoc(...a); };
-const deleteDoc = (...a) => { kulSay(a[0]); return _deleteDoc(...a); }, addDoc = (...a) => { kulSay(a[0]); return _addDoc(...a); };
-const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b); b.commit = () => { KUL_KAYIT++; return c(); }; return b; };
+const lk = (op, r, d) => { if (typeof logKaydet === "function") logKaydet(op, r, d); };
+const setDoc = (...a) => { kulSay(a[0]); const p = _setDoc(...a); p.then(() => lk(a[2] && a[2].merge ? "guncelle" : "ekle", a[0], a[1]), () => { }); return p; };
+const updateDoc = (...a) => { kulSay(a[0]); const p = _updateDoc(...a); p.then(() => lk("guncelle", a[0], a[1]), () => { }); return p; };
+const deleteDoc = (...a) => { kulSay(a[0]); const p = _deleteDoc(...a); p.then(() => lk("sil", a[0], null), () => { }); return p; };
+const addDoc = (...a) => { kulSay(a[0]); const p = _addDoc(...a); p.then(r => lk("ekle", r || a[0], a[1]), () => { }); return p; };
+const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = [], s0 = b.set.bind(b), u0 = b.update.bind(b), d0 = b.delete ? b.delete.bind(b) : null;
+  b.set = (r, d, o) => { Q.push([o && o.merge ? "guncelle" : "ekle", r, d]); s0(r, d, o); return b; }; b.update = (r, d) => { Q.push(["guncelle", r, d]); u0(r, d); return b; };
+  if (d0) b.delete = r => { Q.push(["sil", r, null]); d0(r); return b; };
+  b.commit = () => { KUL_KAYIT++; const p = c(); p.then(() => { if (Q.length <= 15) Q.forEach(q => lk(...q)); else lk("guncelle", Q[0][1], { log: [{ t: `Toplu işlem: ${Q.length} kayıt` + (Q[0][2] && Array.isArray(Q[0][2].log) && Q[0][2].log.length ? " · " + Q[0][2].log[Q[0][2].log.length - 1].t : "") }] }); }, () => { }); return p; }; return b; };
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "74";
+const APP_V = "75";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -240,7 +246,7 @@ function enter(user) {
 let dataUnsubs = [];
 function stopDataSubs() { dataUnsubs.forEach(u => { try { u(); } catch (e) {} }); dataUnsubs = []; }
 function startData() {
-  kulBasla();
+  kulBasla(); logBasla();
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
@@ -1036,8 +1042,8 @@ function mesGeriKoru() {
 addEventListener("popstate", () => { setTimeout(() => { const md = typeof mesMyDev === "function" ? mesMyDev() : null; if (md && ROUTE === "planlama" && !(history.state && history.state.mesK)) { try { history.pushState({ mesK: 1 }, "", location.hash || "#planlama"); } catch (e) {} } }, 0); });
 function route() {
   let r = (location.hash || "").replace(/^#/, "") || "home";
-  if (r === "yetki" && !isAdmin()) { r = "home"; try { history.replaceState(null, "", "#home"); } catch (e) {} }
-  if (r !== "home" && r !== "yetki" && !MODULES.some(m => m.id === r)) r = "home";
+  if ((r === "yetki" || r === "kullanici") && !isAdmin()) { r = "home"; try { history.replaceState(null, "", "#home"); } catch (e) {} }
+  if (r !== "home" && r !== "yetki" && r !== "kullanici" && !MODULES.some(m => m.id === r)) r = "home";
   const mdev = typeof mesMyDev === "function" ? mesMyDev() : null, mkil = !!(mdev && mdev.kilit === "tam");
   document.body.classList.toggle("mesdev", mkil);
   // tam kilit: yalnızca MES · esnek: girişte bir kez MES açılır, diğer modüllere geçilebilir
@@ -1063,8 +1069,9 @@ function route() {
   $("#modMH").hidden = r !== "muhasebe";
   $("#modPano").hidden = r !== "pano"; if (r !== "pano") document.body.classList.remove("panofs");
   $("#modYetki").hidden = r !== "yetki";
+  $("#modKT").hidden = r !== "kullanici";
   $("#modPh").hidden = !(mod && !mod.active);
-  $("#crumb").innerHTML = r === "home" ? "<b>Ana ekran</b>" : `<a href="#home">‹ <span>Ana ekran</span></a><b>${esc(mod ? mod.name : "YETKİLENDİRME")}</b>`;
+  $("#crumb").innerHTML = r === "home" ? "<b>Ana ekran</b>" : `<a href="#home">‹ <span>Ana ekran</span></a><b>${esc(mod ? mod.name : r === "kullanici" ? "KULLANICI TAKİP" : "YETKİLENDİRME")}</b>`;
   if (mod && !mod.active) renderPh(mod);
   renderHome();
   if (r === "proje") render();
@@ -1080,6 +1087,7 @@ function route() {
   if (r === "pano") panoGir();
   if (r === "urun") renderUT();
   if (r === "muhasebe") renderMH();
+  if (r === "kullanici") renderKT();
   setTimeout(mesGeriKoru, 0);
   if (r === "yetki") { if (!YT.dirty) ytLoad(); renderYetki(); renderYtMes(); }
   if (changed && r !== "yetki" && YT.dirty) toast("Yetkilendirmede kaydedilmemiş değişiklik var. Kaydetmek için Yetkilendirme ekranına dönün.");
@@ -1118,7 +1126,7 @@ function renderHome() {
       <div><div class="nm">${esc(m.name)}</div><div class="ds">${esc(m.desc)}</div></div></a>`;
   };
   // Kişiye özel ana ekran: sık kullanılanlar üstte, gizlenen modüller yalnızca düzenleme modunda görünür
-  const M = [...MODULES.filter(m => lvl(m.id) !== "none").map(m => ({ id: m.id, ad: m.name, html: () => tileOf(m) })), ...(isAdmin() ? [{ id: "yetki", ad: "Yetkilendirme", html: yetkiTile }] : [])];
+  const M = [...MODULES.filter(m => lvl(m.id) !== "none").map(m => ({ id: m.id, ad: m.name, html: () => tileOf(m) })), ...(isAdmin() ? [{ id: "yetki", ad: "Yetkilendirme", html: yetkiTile }, { id: "kullanici", ad: "Kullanıcı takip", html: ktTile }] : [])];
   const ids = new Set(M.map(m => m.id)), gz = new Set(HOME.gizli.filter(i => ids.has(i))), fav = HOME.fav.filter(i => ids.has(i) && !gz.has(i)), d = HOME.duzen;
   const by = id => M.find(m => m.id === id);
   const kart = m => !d ? m.html() : `<div class="tw${gz.has(m.id) ? " gz" : ""}${fav.includes(m.id) ? " fv" : ""}" data-mid="${m.id}">${m.html()}<div class="twc">
@@ -2055,7 +2063,7 @@ function ytSetLevel(r, m, L) {
 function ytMark() { YT.dirty = true; const b = $("#ytSave"); if (b) b.disabled = false; const s = $("#ytState"); if (s) s.textContent = "Kaydedilmemiş değişiklik var"; }
 function renderYetki() {
   if (!isAdmin() || $("#modYetki").hidden) return;
-  renderYedek(); renderKullanim();
+  renderYedek();
   const R = YT.rows;
   const adminN = R.filter(r => r.role === "admin").length;
   $("#ytSum").innerHTML = `<span><b>${R.length}</b> kişi</span><span><b>${adminN}</b> yönetici</span><span><b>${R.length - adminN}</b> kullanıcı</span>`;
@@ -10141,12 +10149,12 @@ async function kulYukle(zorla) {
   try { const bas = new Date(Date.now() - 62 * 864e5).toISOString().slice(0, 10);
     KULV.L = (await getDocs(query(collection(fs, "kullanim"), where("gun", ">=", bas)))).docs.map(d => d.data()); KULV.at = Date.now(); KULV.hata = ""; }
   catch (e) { KULV.L = KULV.L || []; KULV.at = Date.now(); KULV.hata = (e && e.message) || String(e); }
-  KULV.yuk = false; if (ROUTE === "yetki") renderKullanim();
+  KULV.yuk = false; if (ROUTE === "kullanici") renderKT();
 }
 const kulSure = dk => { dk = Math.round(dk || 0); if (dk < 60) return dk + " dk"; const h = Math.floor(dk / 60), m = dk % 60; return h + " sa" + (m ? " " + m + " dk" : ""); };
 const kulSaat = ts => ts ? new Date(ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—";
 function renderKullanim() {
-  const h = $("#ytKul"); if (!h || !isAdmin()) return;
+  const h = $("#ytKul"); if (!h || !isAdmin() || ROUTE !== "kullanici") return;
   if (!KULV.L) { h.innerHTML = `<div class="ph-box"><h3>Kullanım takibi</h3><p class="note">Yükleniyor…</p></div>`; kulYukle(); return; }
   kulYukle();
   const d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
@@ -10161,7 +10169,7 @@ function renderKullanim() {
   const L = [...U.values()].sort((x, y) => y.dk - x.dk || y.son - x.son), mx = Math.max(1, ...L.map(u => u.dk)), top = L.reduce((t, u) => t + u.dk, 0);
   const sonTxt = ts => { if (!ts) return "Takip başladığından beri girmedi"; const g = Math.floor((Date.now() - ts) / 60000); return g < 6 ? '<b style="color:var(--k-fabrikada)">● Şu an kullanıyor</b>' : g < 60 ? `Son görülme ${g} dk önce` : "Son görülme " + skTs(ts); };
   const bar = (k, v, t) => `<div class="kulmr"><span>${esc(k)}</span><i style="--w:${Math.round(v / Math.max(1, t) * 100)}%"></i><b class="num">${kulSure(v)}</b></div>`;
-  h.innerHTML = `<div class="ph-box kulbox"><div class="kulh"><h3>Kullanım takibi</h3><button type="button" class="btn ghost sm" id="kulR">Yenile</button></div>
+  h.innerHTML = `<div class="ph-box kulbox"><div class="kulh"><h3>Kullanım süreleri</h3><button type="button" class="btn ghost sm" id="kulR">Yenile</button></div>
     <p class="note" style="margin:0 0 10px">Program açık ve kullanılırken geçen aktif süre; 2 dakika hareketsiz kalınan süre sayılmaz. Takip bu sürümle başladı, öncesi yoktur. MES tabletlerinde süre cihaz hesabına yazılır. Veriler 5 dakikada bir güncellenir.</p>
     <div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["30", "Son 30 gün"]].map(([k, l]) => `<button type="button" data-kp="${k}" aria-pressed="${KULV.per === k}">${l}</button>`).join("")}</div>
     ${KULV.hata ? `<p class="note" style="color:#d92d20">Okunamadı: ${esc(KULV.hata)} — Firestore kurallarının yayınlandığından emin olun.</p>` : ""}
@@ -10179,4 +10187,118 @@ function renderKullanim() {
   h.querySelectorAll("[data-kp]").forEach(x => x.onclick = () => { KULV.per = x.dataset.kp; renderKullanim(); });
   h.querySelectorAll("[data-ku]").forEach(x => x.onclick = () => { const id = x.dataset.ku; KULV.ac.has(id) ? KULV.ac.delete(id) : KULV.ac.add(id); renderKullanim(); });
   $("#kulR").onclick = async () => { await kulYaz(); kulYukle(true); };
+}
+
+
+/* ================= KULLANICI TAKİP · İŞLEM KAYITLARI =================
+   Programdan yapılan her kayıt (ekleme / güncelleme / silme) kısa bir açıklamayla tamponlanır,
+   dakikada bir islem_log koleksiyonuna toplu yazılır. Yalnızca yönetici okur.
+   Mesaj içerikleri kaydedilmez. Bu sürümden önceki işlemler için sipariş ve iş emri geçmişleri de gösterilir. */
+const LOG_KOL = { siparis: "Sipariş", siparis_fiyat: "Sipariş fiyatı", teklif: "Teklif", isemri: "İş emri", stok: "Stok", stok_hareket: "Stok hareketi", stok_fiyat: "Stok fiyatı", satis_fiyat: "Satış fiyatı",
+  cari: "Cari", cari_eslesme: "Cari", sa_talep: "Satınalma talebi", sa_teklif: "Fiyat talebi", sa_siparis: "Satınalma siparişi", sa_fatura: "Satınalma faturası", muhasebe_fatura: "Muhasebe faturası",
+  tasks: "Proje görevi", feedback: "Proje geri bildirim", disis: "Dış iş", personel: "Personel", personel_ozel: "Personel", izinler: "İzin", yoklama: "Yoklama", cv: "CV", cv_dosya: "CV",
+  messages: "Mesaj", msg_files: "Mesaj", urun_tanitim: "Ürün tanıtım", urun_egitim: "Ürün eğitimi", urun_foto: "Ürün tanıtım", config: "Ayarlar", sayac: "", sp_dosya: "Sipariş dosyası",
+  disis_files: "Dış iş", stok_foto: "Stok" };
+const LOG = { T: [], on: false };
+const logEtiket = (col, id) => { try {
+  if (col === "siparis" || col === "siparis_fiyat") { const s = SP.list.find(z => z.id === id); return s ? `${s.no} · ${s.cariAd || ""}` : ""; }
+  if (col === "isemri") { const e = PL.ie.find(z => z.id === id); return e ? `${e.no} · ${e.urunAd || ""}` : ""; }
+  if (col === "stok") { const i = (SK.items || []).find(z => z.id === id); return i ? `${i.kod} · ${i.ad}` : ""; }
+  if (col === "cari") { const c = crFind(id); return c ? c.unvan || c.kisaAd || "" : ""; }
+  if (col === "muhasebe_fatura") { const [sp] = String(id).split("__"); const s = SP.list.find(z => z.id === sp); return s ? `${s.no} · ${s.cariAd || ""}` : ""; }
+} catch (e) { } return ""; };
+function logKaydet(op, ref, data) {
+  try {
+    if (!ME || !ME.uid || !ref) return;
+    const p = String(ref.path || (ref.c ? ref.c + "/" + (ref.id || "") : "")), [col, id] = p.split("/");
+    if (!col || /^(reads|kullanim|islem_log|sayac)$/.test(col)) return;
+    let t = "";
+    if (col === "messages" || col === "msg_files") t = op === "sil" ? "Mesaj silindi" : "Mesaj gönderildi";
+    else if (data && Array.isArray(data.log) && data.log.length) t = String((data.log[data.log.length - 1] || {}).t || "");
+    if (!t && data && col !== "messages") { const ad = data.no || data.kod || data.unvan || data.ad || data.urunAd || data.baslik || data.title || ""; if (ad && typeof ad === "string") t = ad; }
+    if (col === "config") t = `${id} ayarları` + (t ? " · " + t : "");
+    if (col === "muhasebe_fatura") t = op === "sil" ? "Fatura işareti geri alındı" : `FATURA KESİLMİŞTİR${data && data.faturaNo ? " · No " + data.faturaNo : ""}`;
+    LOG.T.push({ at: Date.now(), op, col, id: id || "", t: t.slice(0, 220), b: logEtiket(col, id).slice(0, 140), m: kulMod() });
+    if (LOG.T.length > 40) logYaz();
+  } catch (e) { }
+}
+function logBasla() {
+  if (LOG.on) return; LOG.on = true;
+  setInterval(logYaz, 60000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") logYaz(); });
+  addEventListener("pagehide", logYaz);
+}
+async function logYaz() {
+  if (!ME || !ME.uid || !LOG.T.length) return;
+  const L = LOG.T.splice(0, LOG.T.length);
+  try { await _addDoc(collection(fs, "islem_log"), { uid: ME.uid, ad: ME.name || "", eposta: ME.email || "", gun: TODAY, at: Date.now(), cihaz: kulCihaz(), L }); }
+  catch (e) { LOG.T.unshift(...L.slice(-200)); console.warn("işlem kaydı yazılamadı", e && e.message); }
+}
+
+// ---- Modül ekranı
+const KT = { tab: "kul", F: { per: "bugun", t1: "", t2: "", u: "", col: "", q: "", gecmis: true }, L: null, yuk: false, at: 0, hata: "" };
+function ktTile() {
+  return `<a class="tile adm" href="#kullanici" aria-label="Kullanıcı takip modülünü aç">
+    <div class="t-top"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.4 3.6 5.2"/></svg></span><span class="st">YÖNETİCİ</span></div>
+    <div><div class="nm">KULLANICI TAKİP</div><div class="ds">Kim ne kadar kullandı, kim hangi kaydı yaptı · kullanım süresi ve işlem kayıtları</div><div class="stats"><span>Yalnızca yönetici</span></div></div></a>`;
+}
+async function ktLogYukle(zorla) {
+  if (KT.yuk || (!zorla && KT.L && Date.now() - KT.at < 90000)) return;
+  KT.yuk = true;
+  try { const bas = new Date(Date.now() - 92 * 864e5).toISOString().slice(0, 10);
+    KT.L = (await getDocs(query(collection(fs, "islem_log"), where("gun", ">=", bas)))).docs.map(d => d.data()); KT.at = Date.now(); KT.hata = ""; }
+  catch (e) { KT.L = KT.L || []; KT.at = Date.now(); KT.hata = (e && e.message) || String(e); }
+  KT.yuk = false; if (ROUTE === "kullanici") renderKT();
+}
+function renderKT() {
+  if (!isAdmin() || $("#modKT").hidden) return;
+  document.querySelectorAll("[data-ktv]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.ktv === KT.tab); b.onclick = () => { KT.tab = b.dataset.ktv; renderKT(); }; });
+  $("#ytKul").hidden = KT.tab !== "kul"; $("#ktLog").hidden = KT.tab !== "log";
+  if (KT.tab === "kul") { renderKullanim(); return; }
+  const h = $("#ktLog");
+  if (!KT.L) { h.innerHTML = '<div class="ph-box"><p class="note">İşlem kayıtları yükleniyor…</p></div>'; ktLogYukle(); return; }
+  ktLogYukle();
+  const F = KT.F, d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
+  const [a, b] = F.per === "ozel" ? [F.t1 || "0000", F.t2 || "9999"] : { bugun: [TODAY, TODAY], dun: [gs(1), gs(1)], hafta: [gs(wd), TODAY], ay: [TODAY.slice(0, 8) + "01", TODAY], "90": [gs(89), TODAY] }[F.per];
+  const gunOf = ts => new Date(ts + 3 * 36e5).toISOString().slice(0, 10);
+  // 1) yeni işlem kayıtları
+  const R = [];
+  KT.L.forEach(x => (x.L || []).forEach(y => R.push({ at: y.at, ad: x.ad, eposta: x.eposta, op: y.op, col: y.col, id: y.id, t: y.t, b: y.b, m: y.m, cihaz: x.cihaz, kay: "log" })));
+  // 2) bu sürümden önceki geçmiş: sipariş ve iş emri belgelerindeki geçmiş satırları (yinelenenler atlanır)
+  if (F.gecmis) {
+    const anahtar = new Set(R.map(r => `${r.ad}|${r.t}|${Math.round(r.at / 120000)}`));
+    const ekle = (col, id, b, L) => (L || []).forEach(l => { if (!l || !l.at) return; const k = `${l.by}|${l.t}|${Math.round(l.at / 120000)}`; if (anahtar.has(k)) return; R.push({ at: l.at, ad: l.by || "", op: "gec", col, id, t: l.t || "", b, kay: "gecmis" }); });
+    (SP.list || []).forEach(s => ekle("siparis", s.id, `${s.no} · ${s.cariAd || ""}`, s.log));
+    (typeof PL !== "undefined" ? PL.ie : []).forEach(e => ekle("isemri", e.id, `${e.no} · ${e.urunAd || ""}`, e.log));
+  }
+  const kisiler = [...new Set(R.map(r => r.ad).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr"));
+  const turler = [...new Set(R.map(r => LOG_KOL[r.col] || r.col).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr"));
+  const q = araFold(F.q || "");
+  const L = R.filter(r => { const g = gunOf(r.at); if (g < a || g > b) return false; if (F.u && r.ad !== F.u) return false; if (F.col && (LOG_KOL[r.col] || r.col) !== F.col) return false;
+    if (q && !araFold([r.ad, r.t, r.b, LOG_KOL[r.col]].join(" ")).includes(q)) return false; return true; }).sort((x, y) => y.at - x.at);
+  const OP = { ekle: ["Ekledi", "var(--k-fabrikada)"], guncelle: ["Güncelledi", "var(--brand)"], sil: ["Sildi", "#d92d20"], gec: ["İşlem", "var(--ink-3)"] };
+  let son = "";
+  h.innerHTML = `<div class="ph-box ktbox">
+    <div class="mtf"><div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["90", "Son 90 gün"], ["ozel", "Tarih aralığı"]].map(([k, l]) => `<button type="button" data-ktp="${k}" aria-pressed="${F.per === k}">${l}</button>`).join("")}</div>
+      ${F.per === "ozel" ? `<div class="mtd"><input type="date" class="f" id="ktT1" value="${esc(F.t1)}" aria-label="Başlangıç"><span>–</span><input type="date" class="f" id="ktT2" value="${esc(F.t2)}" aria-label="Bitiş"></div>` : ""}
+      <div class="ktg"><input type="search" class="f" id="ktQ" placeholder="Açıklama, belge no, müşteri ara…" value="${esc(F.q)}" aria-label="Ara">
+        <select class="f" id="ktU" aria-label="Kullanıcı"><option value="">Tüm kullanıcılar</option>${kisiler.map(k => opt(k, k, F.u)).join("")}</select>
+        <select class="f" id="ktC" aria-label="Kayıt türü"><option value="">Tüm kayıt türleri</option>${turler.map(k => opt(k, k, F.col)).join("")}</select>
+        <label class="chk ktgc"><input type="checkbox" id="ktG"${F.gecmis ? " checked" : ""}> Eski sipariş / iş emri geçmişini de göster</label>
+        <button type="button" class="btn ghost sm" id="ktR">Yenile</button></div></div>
+    ${KT.hata ? `<p class="note" style="color:#d92d20">Okunamadı: ${esc(KT.hata)} — Firestore kurallarının yayınlandığından emin olun.</p>` : ""}
+    <p class="note" style="margin:0 0 10px">${nf(L.length)} işlem${L.length > 600 ? " · ilk 600 gösteriliyor" : ""} · işlem kayıtları dakikada bir güncellenir; mesaj içerikleri kaydedilmez.</p>
+    ${L.length ? `<div class="ktl">${L.slice(0, 600).map(r => { const g = gunOf(r.at), bas = g !== son ? `<div class="ktday">${fmtS(g)}</div>` : ""; son = g; const o = OP[r.op] || OP.gec;
+      return `${bas}<div class="ktr${r.kay === "gecmis" ? " gec" : ""}"><span class="num ktt">${new Date(r.at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span>
+        <span class="ktk"><b>${esc(r.ad || "—")}</b>${r.cihaz ? `<small>${esc(r.cihaz)}</small>` : ""}</span>
+        <span><span class="kst" style="--tc:${o[1]}">${o[0]}</span></span>
+        <span class="ktd"><small>${esc(LOG_KOL[r.col] || r.col || "")}${r.b ? " · " + esc(r.b) : ""}</small>${esc(r.t || "—")}</span></div>`; }).join("")}</div>`
+      : `<div class="empty"><h3>Bu filtrede işlem yok</h3><p>Dönemi genişletin ya da filtreleri temizleyin.</p></div>`}</div>`;
+  const re = () => renderKT();
+  h.querySelectorAll("[data-ktp]").forEach(x => x.onclick = () => { F.per = x.dataset.ktp; re(); });
+  const qi = $("#ktQ"); qi.oninput = () => { F.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { re(); const n = $("#ktQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
+  $("#ktU").onchange = e => { F.u = e.target.value; re(); }; $("#ktC").onchange = e => { F.col = e.target.value; re(); };
+  $("#ktG").onchange = e => { F.gecmis = e.target.checked; re(); };
+  $("#ktR").onclick = async () => { await logYaz(); ktLogYukle(true); };
+  const t1 = $("#ktT1"); if (t1) { t1.onchange = () => { F.t1 = t1.value; re(); }; $("#ktT2").onchange = e => { F.t2 = e.target.value; re(); }; }
 }
