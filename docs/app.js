@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "67";
+const APP_V = "68";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4343,6 +4343,8 @@ function plOpenIe(id) {
       <div class="seg sktabs" role="tablist"><button type="button" data-it="ops" aria-pressed="${T === "ops"}">Operasyonlar</button><button type="button" data-it="bilgi" aria-pressed="${T === "bilgi"}">Bilgiler</button><button type="button" data-it="mal" aria-pressed="${T === "mal"}">Malzeme ihtiyacı</button><button type="button" data-it="log" aria-pressed="${T === "log"}">Geçmiş</button></div>
       <div class="db">${T === "ops" ? `
         <div class="flowbox">${plFlow(O, { ops: true, q, click: true })}</div>
+        ${opOk && plIeOpen(e) && e.durum !== "bekle" ? (() => { const kalan = O.filter(o => o.durum !== "bitti" && !o.atlandi), bas = kalan.filter(o => !(o.calisma || []).some(c => !c.bit));
+          return kalan.length ? `<div class="optop"><span class="note">${kalan.length} aşama bitmedi${kalan.length - bas.length ? ` · ${kalan.length - bas.length} çalışıyor` : ""}</span><button type="button" class="qb go" id="opTB"${bas.length ? "" : " disabled"}>▶ Tüm aşamaları başlat</button><button type="button" class="qb opbit" id="opTF">■ Tüm aşamaları bitir</button></div>` : ""; })() : ""}
         <div class="ledger opled" role="table"><div class="lhead" role="row"><div>#</div><div>Operasyon / istasyon</div><div>Plan</div><div>Gerçek</div><div>Tamamlanan · fire</div><div>Durum</div><div></div></div>
         ${O.map((o, k) => { const od = PL_ODUR[o.durum || "bekliyor"], a = plOpAct(o), p = plStepPlan(o, q), run = (o.calisma || []).some(c => !c.bit);
           const opv = a >= 1 && plOpDone(o, q) > 0 ? Math.round(p * plOpDone(o, q) / a * 100) : null;
@@ -4366,6 +4368,10 @@ function plOpenIe(id) {
     document.querySelectorAll("[data-it]").forEach(b => b.onclick = () => { T = b.dataset.it; paint(); });
     document.querySelectorAll("[data-fn]").forEach(el => el.onclick = () => { const r = $("#op" + el.dataset.fn); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1200); } });
     document.querySelectorAll("[data-op]").forEach(b => b.onclick = () => { b.disabled = true; plOpAction(e, Number(b.dataset.k), b.dataset.op); });
+    const tb = $("#opTB"); if (tb) tb.onclick = async () => { tb.disabled = true; await plOpToplu(e, "bas"); };
+    const tf = $("#opTF"); if (tf) tf.onclick = async () => { const n = (e.ops || []).filter(o => o.durum !== "bitti" && !o.atlandi).length;
+      if (!(await spEmin("Tüm aşamaları bitir", `<p><b>${esc(e.no)}</b> iş emrinin bitmemiş <b>${n}</b> aşaması ${nf(e.miktar)} ${esc(e.birim || "adet")} tamamlanmış olarak kapatılacak. İş emri tamamlanır.</p>`, "Tümünü bitir"))) return;
+      tf.disabled = true; await plOpToplu(e, "bit"); };
     document.querySelectorAll("[data-opq]").forEach(inp => inp.onchange = () => plOpAction(e, Number(inp.dataset.opq), "adet", Number(inp.value)));
     document.querySelectorAll("[data-opf]").forEach(inp => inp.onchange = () => plOpAction(e, Number(inp.dataset.opf), "fire", Number(inp.value)));
     const pr = $("#iePrint"); if (pr) pr.onclick = () => plPrintIe(e);
@@ -4399,6 +4405,20 @@ function plOpenIe(id) {
   paint();
 }
 // Operasyon işlemleri: başlat / duraklat / bitir / geri al / adet
+// İş emrindeki bitmemiş tüm aşamaları tek seferde başlatır ya da bitirir (tek kayıt)
+async function plOpToplu(e, act) {
+  const now = Date.now(), q = Number(e.miktar) || 0, by = typeof mesBy === "function" ? mesBy() : ME.name;
+  const O = (e.ops || []).map(o => ({ ...o, calisma: (o.calisma || []).map(c => ({ ...c })) }));
+  let n = 0;
+  O.forEach(o => { if (o.durum === "bitti" || o.atlandi) return; n++;
+    if (act === "bas") { if (!o.calisma.some(c => !c.bit)) o.calisma.push({ bas: now, by }); o.durum = "devam"; o.operator = o.operator || by; }
+    else { o.calisma.forEach(c => { if (!c.bit) c.bit = now; }); o.durum = "bitti"; o.tamam = q; o.bitis = now; o.operator = o.operator || by; } });
+  if (!n) return;
+  const all = O.every(x => x.durum === "bitti" || x.atlandi), msg = act === "bas" ? `${n} aşama birlikte başlatıldı` : `${n} aşama birlikte bitirildi`;
+  const patch = { ops: O, durum: all ? "bitti" : "uretim", updatedAt: now, updatedBy: by, log: [...(e.log || []), { at: now, by, t: msg }, ...(all && e.durum !== "bitti" ? [{ at: now, by, t: "İş emri tamamlandı" }] : [])].slice(-80) };
+  if (all && e.durum !== "bitti") patch.bitis = now; if (!e.basladi) patch.basladi = now;
+  try { await updateDoc(doc(fs, "isemri", e.id), patch); toast(all && e.durum !== "bitti" ? `${e.no} tamamlandı · ${msg}` : msg); } catch (x) { toast(writeErr(x)); plChanged(); }
+}
 async function plOpAction(e, k, act, val) {
   const O = (e.ops || []).map(o => ({ ...o, calisma: (o.calisma || []).map(c => ({ ...c })) })), o = O[k]; if (!o) return;
   const now = Date.now(), q = Number(e.miktar) || 0, close = () => o.calisma.forEach(c => { if (!c.bit) c.bit = now; });
@@ -9538,6 +9558,14 @@ function startMH() {
   dataUnsubs.push(() => { if (MH.unsub) MH.unsub(); MH.unsub = null; MH.F = {}; MH.ready = false; });
 }
 // tüm sevk satırları: tutar sipariş fiyatından (kalem fiyatı × sevk miktarı); toplu fiyatlı siparişte kalem tutarı yoktur
+// Muhasebe: fatura programına yapıştırmak için tek tıkla kopyalama (sayılar Türkçe biçimde, para birimi olmadan)
+const mhSayi = (n, d = 2) => (Number(n) || 0).toLocaleString("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false });
+const mhCp = (t, l) => `<button type="button" class="mhcp" data-cp="${esc(t)}" title="${esc(l)}" aria-label="${esc(l)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>`;
+async function kopyala(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch (e) { const ta = document.createElement("textarea"); ta.value = t; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (x) { } ta.remove(); }
+  toast(`Kopyalandı: ${t.length > 60 ? t.slice(0, 60) + "…" : t}`);
+}
 function mhSatirlar() {
   const L = [];
   SP.list.forEach(s => (s.sevkiyatlar || []).forEach((x, si) => (x.satir || []).forEach(y => {
@@ -9611,9 +9639,9 @@ function renderMH() {
       ${g.L.map(r => `<div class="row${r.fat ? " mhok" : ""}" role="row" tabindex="0" data-mh="${esc(r.id)}" style="--stripe:${r.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}">
         <div>${fatYetki && !r.fat ? `<input type="checkbox" data-mhs="${esc(r.id)}" aria-label="Seç"${MH.sec.has(r.id) ? " checked" : ""}>` : ""}</div>
         <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}</div></div>
-        <div class="ska">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
-        <div class="num">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small>${r.iade ? `<div class="svir">${nf(r.iade)} iade</div>` : ""}</div>
-        <div class="num">${!fg ? "—" : r.net != null ? money(r.net, r.pb) : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
+        <div class="ska mhcpw">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${mhCp([r.k.ad, spVarAd(r.k)].filter(Boolean).join(" "), "Ürün adını kopyala")}${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
+        <div class="num mhcpw">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small>${mhCp(mhSayi(r.y.miktar, 0), "Adedi kopyala")}${r.iade ? `<div class="svir">${nf(r.iade)} iade</div>` : ""}</div>
+        <div class="num mhcpw">${!fg ? "—" : r.net != null ? `<b>${money(r.net, r.pb)}</b>${mhCp(mhSayi(r.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(r.birim * (1 - r.isk / 100), r.pb)}${mhCp(mhSayi(r.birim * (1 - r.isk / 100)), "Birim fiyatı kopyala")}</div>` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
         <div>${r.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${r.fat.faturaNo ? esc(r.fat.faturaNo) + " · " : ""}${fmtS(r.fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`).join("")}</div>
         ${fatYetki && bk.length ? `<div class="mhgf"><button class="btn sm primary" type="button" data-mhgf="${esc(g.id)}">Bu siparişin ${bk.length} kalemine fatura kes</button></div>` : ""}` : ""}
         </section>`; }).join("")}</div>
@@ -9628,6 +9656,7 @@ function renderMH() {
   const rs = $("#mhR"); if (rs) rs.onclick = () => { MH.Fl = { d: "bekleyen", c: "", sp: "", q: "", t1: MH.Fl.t1, t2: MH.Fl.t2 }; renderMH(); };
   v.querySelectorAll("[data-mhs]").forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? MH.sec.add(c.dataset.mhs) : MH.sec.delete(c.dataset.mhs); renderMH(); }; });
   const al = $("#mhAll"); if (al) al.onchange = () => { R.filter(r => !r.fat).forEach(r => al.checked ? MH.sec.add(r.id) : MH.sec.delete(r.id)); renderMH(); };
+  v.querySelectorAll("[data-cp]").forEach(b => b.onclick = e => { e.stopPropagation(); kopyala(b.dataset.cp); b.classList.add("ok"); setTimeout(() => b.classList.remove("ok"), 1200); });
   v.querySelectorAll("[data-mhg]").forEach(el => { const tg = () => { const id = el.dataset.mhg, g = G.find(x => x.id === id); if (!g) return; acik(g) ? (MH.ac.delete(id), MH.kp.add(id)) : (MH.ac.add(id), MH.kp.delete(id)); renderMH(); }; el.onclick = e => { if (e.target.closest("input")) return; tg(); }; el.onkeydown = e => { if (e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); tg(); } }; });
   v.querySelectorAll("[data-mhgs]").forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { const g = G.find(x => x.id === c.dataset.mhgs); if (g) g.L.filter(r => !r.fat).forEach(r => c.checked ? MH.sec.add(r.id) : MH.sec.delete(r.id)); renderMH(); }; });
   v.querySelectorAll("[data-mhgf]").forEach(b => b.onclick = () => { const g = G.find(x => x.id === b.dataset.mhgf); if (g) mhFaturaKes(g.L.filter(r => !r.fat)); });
@@ -9862,14 +9891,17 @@ function mesTamamlanan() {
     if (F.per === "ozel") return [F.t1 || "0000", F.t2 || "9999"]; return ["0000", "9999"]; };
   const ciz = () => {
     const [a, b] = per(), q = araFold(F.q || "");
-    const T = PL.ie.filter(e => e.durum === "bitti" && (F.kap === "tum" || (e.ops || []).some(o => mesMatch(o, S))));
+    // bu cihazın istasyonlarında BİTİRİLEN işlemler (iş emrinin tamamı bitmemiş olsa da) — tarih: işlemin bitiş zamanı
+    const opsOf = e => (e.ops || []).map((o, k) => ({ o, k })).filter(({ o }) => o.durum === "bitti" && !o.atlandi && Number(o.bitis) > 0 && (F.kap === "tum" || mesMatch(o, S)));
+    const T = PL.ie.map(e => ({ e, B: opsOf(e) })).filter(x => x.B.length).map(x => ({ ...x.e, _B: x.B }));
     const tipler = [...new Set(T.map(e => e.akisAd || "Diğer"))].sort((x, y) => x.localeCompare(y, "tr"));
     const cariler = [...new Set(T.map(e => e.musteri).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr"));
-    const L = T.filter(e => { const g = gun(ieBitis(e)); if (g < a || g > b) return false; if (F.tip && (e.akisAd || "Diğer") !== F.tip) return false; if (F.cari && e.musteri !== F.cari) return false; if (F.sp && e.siparisNo !== F.sp) return false;
+    const L = T.map(e => ({ ...e, _B: e._B.filter(({ o }) => { const g = gun(o.bitis); return g >= a && g <= b; }) })).filter(e => e._B.length).map(e => ({ ...e, _bit: Math.max(...e._B.map(({ o }) => o.bitis)) })).filter(e => { if (F.tip && (e.akisAd || "Diğer") !== F.tip) return false; if (F.cari && e.musteri !== F.cari) return false; if (F.sp && e.siparisNo !== F.sp) return false;
       if (q && !araFold([e.no, e.urunAd, e.renkAd, e.siparisNo, e.musteri, mesProje(e), e.akisAd, ...ieYapan(e)].join(" ")).includes(q)) return false; return true; })
-      .sort((x, y) => ieBitis(y) - ieBitis(x));
+      .sort((x, y) => y._bit - x._bit);
     const spler = [...new Set(T.filter(e => !F.cari || e.musteri === F.cari).map(e => e.siparisNo).filter(Boolean))].sort((x, y) => y.localeCompare(x, "tr"));
-    const adet = L.reduce((s0, e) => s0 + (Number(e.miktar) || 0), 0), fire = L.reduce((s0, e) => s0 + (e.ops || []).reduce((t, o) => t + (Number(o.fire) || 0), 0), 0), sure = L.reduce((s0, e) => s0 + ieSure(e), 0);
+    const opSure = o => (o.calisma || []).reduce((b0, c) => b0 + (c.bit && c.bas ? Math.max(0, c.bit - c.bas) : 0), 0) / 60000;
+    const islem = L.reduce((s0, e) => s0 + e._B.length, 0), adet = L.reduce((s0, e) => s0 + (Number(e.miktar) || 0), 0), fire = L.reduce((s0, e) => s0 + e._B.reduce((t, { o }) => t + (Number(o.fire) || 0), 0), 0), sure = L.reduce((s0, e) => s0 + e._B.reduce((t, { o }) => t + opSure(o), 0), 0);
     const filtreVar = F.q || F.cari || F.sp || F.tip || F.per !== "bugun" || F.kap !== "cihaz";
     $("#mtB").innerHTML = `<div class="mtf">
         <div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["tum", "Tümü"], ["ozel", "Tarih aralığı"]].map(([k, l]) => `<button type="button" data-mtp="${k}" aria-pressed="${F.per === k}">${l}</button>`).join("")}</div>
@@ -9878,18 +9910,18 @@ function mesTamamlanan() {
           <select class="f" id="mtC" aria-label="Müşteri"><option value="">Tüm müşteriler</option>${cariler.map(c => opt(c, c, F.cari)).join("")}</select>
           <select class="f" id="mtS" aria-label="Sipariş"><option value="">Tüm siparişler</option>${spler.map(c => opt(c, c, F.sp)).join("")}</select>
           <select class="f" id="mtTp" aria-label="Ürün tipi"><option value="">Tüm ürün tipleri</option>${tipler.map(c => opt(c, c, F.tip)).join("")}</select>
-          <select class="f" id="mtK" aria-label="Kapsam"><option value="cihaz"${F.kap === "cihaz" ? " selected" : ""}>Bu cihazın iş emirleri</option><option value="tum"${F.kap === "tum" ? " selected" : ""}>Tüm iş emirleri</option></select>
+          <select class="f" id="mtK" aria-label="Kapsam"><option value="cihaz"${F.kap === "cihaz" ? " selected" : ""}>Bu tabletin istasyonları</option><option value="tum"${F.kap === "tum" ? " selected" : ""}>Tüm istasyonlar</option></select>
           ${filtreVar ? '<button type="button" class="btn ghost sm" id="mtX">Filtreleri temizle</button>' : ""}</div></div>
-      <div class="mtk">${[["İş emri", nf(L.length)], ["Üretilen adet", nf(adet)], ["Fire", nf(fire)], ["Çalışma süresi", sure ? plDur(sure) : "—"]].map(([k, v0]) => `<div><span>${k}</span><b class="num">${v0}</b></div>`).join("")}</div>
-      ${L.length ? `<div class="mtl">${L.slice(0, 300).map(e => { const ac = F.ac.has(e.id), ops = (e.ops || []).filter(o => !o.atlandi), fr = ops.reduce((t, o) => t + (Number(o.fire) || 0), 0), sr = ieSure(e), yp = ieYapan(e);
+      <div class="mtk">${[["Biten işlem", nf(islem)], ["İş emri", nf(L.length)], ["Adet", nf(adet)], ["Fire", nf(fire)], ["Çalışma süresi", sure ? plDur(sure) : "—"]].map(([k, v0]) => `<div><span>${k}</span><b class="num">${v0}</b></div>`).join("")}</div>
+      ${L.length ? `<div class="mtl">${L.slice(0, 300).map(e => { const ac = F.ac.has(e.id), ops = (e.ops || []).filter(o => !o.atlandi), bk = new Set(e._B.map(x => x.k)), fr = e._B.reduce((t, { o }) => t + (Number(o.fire) || 0), 0), sr = e._B.reduce((t, { o }) => t + opSure(o), 0), yp = [...new Set(e._B.flatMap(({ o }) => [...(o.calisma || []).map(c => c.by), o.operator]).filter(Boolean))];
           return `<div class="mtr${ac ? " on" : ""}"><button type="button" class="mth" data-mte="${esc(e.id)}" aria-expanded="${ac}">
             <span class="mtc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
-            <span class="mtt"><b class="num">${fmtS(gun(ieBitis(e)))}</b><small>${new Date(ieBitis(e)).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</small></span>
-            <span class="mtu"><b class="num">${esc(e.no || "")}</b> <b>${esc(e.urunAd || "")}</b><small>${e.renkAd ? esc(e.renkAd) + " · " : ""}${esc(e.siparisNo || "Stoka üretim")}${e.musteri ? " · " + esc(e.musteri) : ""}${mesProje(e) ? " · " + esc(mesProje(e)) : ""}</small></span>
+            <span class="mtt"><b class="num">${fmtS(gun(e._bit))}</b><small>${new Date(e._bit).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</small></span>
+            <span class="mtu"><b class="num">${esc(e.no || "")}</b> <b>${esc(e.urunAd || "")}</b><small class="mtbo">${e._B.map(({ o }) => esc(o.ad || o.tanim || o.ist)).slice(0, 3).join(" · ")}${e._B.length > 3 ? ` +${e._B.length - 3}` : ""}${e.durum === "bitti" ? ' <span class="mtie">iş emri tamamlandı</span>' : ""}</small><small>${e.renkAd ? esc(e.renkAd) + " · " : ""}${esc(e.siparisNo || "Stoka üretim")}${e.musteri ? " · " + esc(e.musteri) : ""}${mesProje(e) ? " · " + esc(mesProje(e)) : ""}</small></span>
             <span class="mtn num"><b>${nf(e.miktar)}</b> <small>${esc(e.birim || "adet")}</small>${fr ? `<small class="mtfr">${nf(fr)} fire</small>` : ""}</span>
             <span class="mts note">${sr ? plDur(sr) : ""}${yp.length ? `<br>${esc(yp.slice(0, 2).join(", "))}${yp.length > 2 ? " +" + (yp.length - 2) : ""}` : ""}</span></button>
-            ${ac ? `<div class="mtops">${ops.map((o, k) => `<div class="${mesMatch(o, S) ? "bu" : ""}"><span class="num">${esc(plNo(o, k))}.</span><span><b>${esc(o.ad || o.tanim || "")}</b> <small class="note">${esc(o.ist || "")}</small></span><span class="note">${o.bitis ? skTs(o.bitis) : "—"}</span><span class="note">${esc([...new Set([...(o.calisma || []).map(c => c.by), o.operator].filter(Boolean))].join(", ") || "—")}</span><span class="num">${nf(o.tamam ?? e.miktar)}${o.fire ? ` · <span class="mtfr">${nf(o.fire)} fire</span>` : ""}</span></div>`).join("")}${e.talimat ? `<div class="mestl">${esc(e.talimat)}</div>` : ""}</div>` : ""}</div>`; }).join("")}${L.length > 300 ? `<p class="note">İlk 300 iş emri gösteriliyor; filtreyi daraltın.</p>` : ""}</div>`
-        : `<div class="empty"><h3>Bu filtrede tamamlanan iş emri yok</h3><p>${F.per === "bugun" ? "Bugün henüz biten iş emri yok. Dönemi “Bu hafta” ya da “Tümü” yapabilirsiniz." : "Filtreleri genişletmeyi deneyin."}</p></div>`}`;
+            ${ac ? `<div class="mtops">${(e.ops || []).map((o, k) => o.atlandi ? "" : `<div class="${bk.has(k) ? "bu" : "dg"}"><span class="num">${esc(plNo(o, k))}.</span><span><b>${esc(o.ad || o.tanim || "")}</b> <small class="note">${esc(o.ist || "")}</small></span><span class="note">${o.durum === "bitti" && o.bitis ? skTs(o.bitis) : esc((PL_ODUR[o.durum || "bekliyor"] || ["—"])[0])}</span><span class="note">${esc([...new Set([...(o.calisma || []).map(c => c.by), o.operator].filter(Boolean))].join(", ") || "—")}</span><span class="num">${nf(o.tamam ?? e.miktar)}${o.fire ? ` · <span class="mtfr">${nf(o.fire)} fire</span>` : ""}</span></div>`).join("")}${e.talimat ? `<div class="mestl">${esc(e.talimat)}</div>` : ""}</div>` : ""}</div>`; }).join("")}${L.length > 300 ? `<p class="note">İlk 300 iş emri gösteriliyor; filtreyi daraltın.</p>` : ""}</div>`
+        : `<div class="empty"><h3>Bu filtrede bitirilen işlem yok</h3><p>${F.per === "bugun" ? "Bugün bu tabletin istasyonlarında henüz bitirilen işlem yok. Dönemi “Bu hafta” ya da “Tümü” yapabilirsiniz." : "Filtreleri genişletmeyi deneyin."}</p></div>`}`;
     const B = $("#mtB"), re = () => { const sc = B.scrollTop; ciz(); B.scrollTop = sc; };
     B.querySelectorAll("[data-mtp]").forEach(x => x.onclick = () => { F.per = x.dataset.mtp; re(); });
     B.querySelectorAll("[data-mte]").forEach(x => x.onclick = () => { const id = x.dataset.mte; F.ac.has(id) ? F.ac.delete(id) : F.ac.add(id); re(); });
@@ -9901,9 +9933,9 @@ function mesTamamlanan() {
   };
   $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
   <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="mtTt" style="width:min(1100px,100%)">
-    <div class="dh"><h2 id="mtTt">Tamamlanan iş emirleri</h2><button class="x" id="mtXx" aria-label="Kapat">×</button></div>
+    <div class="dh"><h2 id="mtTt">Tamamlanan işler · <span style="color:var(--brand)">${esc(((document.querySelector(".mesnm") || {}).textContent || "").trim())}</span></h2><button class="x" id="mtXx" aria-label="Kapat">×</button></div>
     <div class="db" id="mtB"></div>
-    <div class="df"><span class="note">Satıra dokununca işlemler, bitiş saatleri ve yapanlar açılır.</span><div class="r"><button class="btn" id="mtKp" type="button">Kapat</button></div></div>
+    <div class="df"><span class="note">Bu tablette bitirilen işlemler, bitiş zamanına göre. Satıra dokununca iş emrinin tüm aşamaları açılır.</span><div class="r"><button class="btn" id="mtKp" type="button">Kapat</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#mtXx").onclick = closeDrawer; $("#mtKp").onclick = closeDrawer;
   ciz();
