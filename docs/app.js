@@ -13,7 +13,7 @@ import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "68";
+const APP_V = "69";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -9566,6 +9566,38 @@ async function kopyala(t) {
   catch (e) { const ta = document.createElement("textarea"); ta.value = t; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (x) { } ta.remove(); }
   toast(`Kopyalandı: ${t.length > 60 ? t.slice(0, 60) + "…" : t}`);
 }
+// Aynı siparişte aynı ürün (stok kodu + varyasyon + net birim fiyat + fatura durumu) tek satırda toplanır
+function mhBirlestir(L) {
+  const M = new Map();
+  L.forEach(r => { const nb = r.birim != null ? r.birim * (1 - r.isk / 100) : "x";
+    const key = [r.k.kod || r.k.ad || r.y.k, spVarAd(r.k), r.k.renk ? spRenkKey(r.k.renk) : "", r.pb, typeof nb === "number" ? nb.toFixed(4) : nb, r.fat ? "f" : "b", r.kdv].join("|");
+    let m = M.get(key); if (!m) M.set(key, m = { r0: r, L: [], ids: [], miktar: 0, iade: 0, net: r.net != null ? 0 : null, birim: r.birim, isk: r.isk, pb: r.pb, fat: !!r.fat });
+    m.L.push(r); m.ids.push(r.id); m.miktar += Number(r.y.miktar) || 0; m.iade += Number(r.iade) || 0; if (m.net != null && r.net != null) m.net += r.net; });
+  return [...M.values()];
+}
+// Siparişte henüz sevk edilmemiş kalemler ve üretim durumu (muhasebeye bilgi)
+function mhSevkBekleyen(spId) {
+  const s = SP.list.find(z => z.id === spId); if (!s) return [];
+  const plOk = typeof PL !== "undefined" && PL.ready && lvl("planlama") !== "none";
+  return (s.kalemler || []).map((k, i) => ({ k, sira: i + 1 })).filter(({ k }) => spSevkKalan(k) > 0).map(({ k, sira }) => {
+    const sevk = Number(k.sevk) || 0, kalan = spSevkKalan(k), ies = (k.ie || []).map(x => ({ x, e: spIeOf(x.id) })), planli = spPlanli(k);
+    let dur, renk, not = "";
+    if (s.durum === "iptal") { dur = "Sipariş iptal"; renk = "var(--ink-3)"; }
+    else if (!ies.length && !(Number(k.stok) || 0)) { dur = "Üretim başlamadı"; renk = "var(--k-izinsiz)"; not = s.durum === "taslak" ? "Sipariş taslakta" : "Planlama havuzunda, iş emri açılmadı"; }
+    else if (!plOk) { dur = "İş emri açıldı"; renk = "var(--brand)"; not = ies.map(({ x }) => esc(x.no)).join(", "); }
+    else {
+      const u = Math.floor(spUretilen(k)), hazir = Math.max(0, u - sevk), uret = ies.some(({ e }) => e && e.durum === "uretim"), tumBitti = ies.length && ies.every(({ e }) => e && e.durum === "bitti");
+      if (hazir >= kalan) { dur = "Üretildi, sevk bekliyor"; renk = "var(--k-fabrikada)"; not = `${nf(hazir)} ${esc(k.birim || "adet")} hazır`; }
+      else if (uret || hazir > 0) { dur = "Yarım kaldı / üretimde"; renk = "var(--k-gec)"; not = `${nf(u)} / ${nf(k.miktar)} üretildi`; }
+      else if (tumBitti) { dur = "Üretildi, sevk bekliyor"; renk = "var(--k-fabrikada)"; }
+      else { dur = "Planlandı, üretim başlamadı"; renk = "var(--brand)"; }
+      if (planli < (Number(k.miktar) || 0)) not += `${not ? " · " : ""}<span class="late">${nf((Number(k.miktar) || 0) - planli)} planlanmadı</span>`;
+      const ieTxt = ies.map(({ x, e }) => `${esc(x.no)}${e ? " " + esc(PL_EDUR[e.durum] ? PL_EDUR[e.durum][0] : e.durum) : ""}`).join(", ");
+      if (ieTxt) not += `${not ? " · " : ""}${ieTxt}`;
+    }
+    return { k, sira, sevk, kalan, dur, renk, not };
+  });
+}
 function mhSatirlar() {
   const L = [];
   SP.list.forEach(s => (s.sevkiyatlar || []).forEach((x, si) => (x.satir || []).forEach(y => {
@@ -9632,18 +9664,23 @@ function renderMH() {
           <span class="mhgc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
           ${fatYetki ? (bk.length ? `<input type="checkbox" data-mhgs="${esc(g.id)}" aria-label="Siparişin fatura bekleyen kalemlerini seç"${bk.every(r => MH.sec.has(r.id)) ? " checked" : ""}>` : "<span></span>") : ""}
           <div class="mhgt"><b class="num">${esc(s0.no || "—")}</b> <b>${esc(s0.cariAd || "—")}</b>${s0.proje && s0.proje.ad ? `<div class="desc">${esc(s0.proje.ad)}</div>` : ""}</div>
-          <div class="mhgs">${tb.length ? `<span class="kst" style="--tc:var(--k-gec)">${tb.length} kalem fatura bekliyor</span>` : ""}${ks ? `<span class="kst" style="--tc:var(--k-fabrikada)">${ks} kalem fatura kesildi</span>` : ""}<span class="note">${g.T.length} sevk kalemi · son sevk ${fmtS(g.L[0].x.tarih)}</span></div>
+          <div class="mhgs">${tb.length ? `<span class="kst" style="--tc:var(--k-gec)">${mhBirlestir(tb).length} kalem fatura bekliyor</span>` : ""}${ks ? `<span class="kst" style="--tc:var(--k-fabrikada)">${mhBirlestir(tk).length} kalem fatura kesildi</span>` : ""}<span class="note">${g.T.length} sevk · son sevk ${fmtS(g.L[0].x.tarih)}</span>${(() => { const n = mhSevkBekleyen(g.id).length; return n ? `<span class="kst" style="--tc:var(--ink-3)">${n} kalem henüz sevk edilmedi</span>` : ""; })()}</div>
           <div class="mhgm num">${!fg ? "" : `${tb.length ? `<div><small>Bekleyen</small> <b>${grTutar(tb)}</b></div>` : ""}${ks ? `<div class="note"><small>Kesilen</small> ${grTutar(tk)}</div>` : ""}`}</div>
         </div>
         ${ac ? `<div class="ledger mhled" role="table"><div class="lhead" role="row"><div></div><div>Sevk tarihi / irsaliye</div><div>Ürün</div><div>Miktar</div><div>Tutar</div><div>Durum</div></div>
-      ${g.L.map(r => `<div class="row${r.fat ? " mhok" : ""}" role="row" tabindex="0" data-mh="${esc(r.id)}" style="--stripe:${r.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}">
-        <div>${fatYetki && !r.fat ? `<input type="checkbox" data-mhs="${esc(r.id)}" aria-label="Seç"${MH.sec.has(r.id) ? " checked" : ""}>` : ""}</div>
-        <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}</div></div>
+      ${mhBirlestir(g.L).map(m => { const r = m.r0, cok = m.L.length > 1, nb = m.birim != null ? m.birim * (1 - m.isk / 100) : null, secili = m.ids.every(id => MH.sec.has(id));
+        return `<div class="row${m.fat ? " mhok" : ""}" role="row" tabindex="0" data-mh="${esc(r.id)}" style="--stripe:${m.fat ? "var(--k-fabrikada)" : "var(--k-gec)"}">
+        <div>${fatYetki && !m.fat ? `<input type="checkbox" data-mhs="${esc(m.ids.join(","))}" aria-label="Seç"${secili ? " checked" : ""}>` : ""}</div>
+        <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${cok ? `<span class="mhbir">${m.L.length} sevk birleşti</span>${m.L.map(z => `<button type="button" class="linkbtn mhsl" data-mhd="${esc(z.id)}">${fmtS(z.x.tarih).slice(0, 5)} · ${nf(z.y.miktar)}${z.x.irsaliye ? " · " + esc(z.x.irsaliye) : ""}</button>`).join("")}` : r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}</div></div>
         <div class="ska mhcpw">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${mhCp([r.k.ad, spVarAd(r.k)].filter(Boolean).join(" "), "Ürün adını kopyala")}${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}</div>
-        <div class="num mhcpw">${nf(r.y.miktar)} <small>${esc(r.k.birim || "Adet")}</small>${mhCp(mhSayi(r.y.miktar, 0), "Adedi kopyala")}${r.iade ? `<div class="svir">${nf(r.iade)} iade</div>` : ""}</div>
-        <div class="num mhcpw">${!fg ? "—" : r.net != null ? `<b>${money(r.net, r.pb)}</b>${mhCp(mhSayi(r.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(r.birim * (1 - r.isk / 100), r.pb)}${mhCp(mhSayi(r.birim * (1 - r.isk / 100)), "Birim fiyatı kopyala")}</div>` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
-        <div>${r.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${r.fat.faturaNo ? esc(r.fat.faturaNo) + " · " : ""}${fmtS(r.fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`).join("")}</div>
-        ${fatYetki && bk.length ? `<div class="mhgf"><button class="btn sm primary" type="button" data-mhgf="${esc(g.id)}">Bu siparişin ${bk.length} kalemine fatura kes</button></div>` : ""}` : ""}
+        <div class="num mhcpw"><b>${nf(m.miktar)}</b> <small>${esc(r.k.birim || "Adet")}</small>${mhCp(mhSayi(m.miktar, 0), "Adedi kopyala")}${m.iade ? `<div class="svir">${nf(m.iade)} iade</div>` : ""}</div>
+        <div class="num mhcpw">${!fg ? "—" : m.net != null ? `<b>${money(m.net, m.pb)}</b>${mhCp(mhSayi(m.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(nb, m.pb)}${mhCp(mhSayi(nb), "Birim fiyatı kopyala")}</div>` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
+        <div>${m.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${[...new Set(m.L.map(z => z.fat.faturaNo).filter(Boolean))].map(esc).join(", ")}${m.L[0].fat.faturaNo ? " · " : ""}${fmtS(m.L[0].fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`; }).join("")}</div>
+        ${(() => { const B = mhSevkBekleyen(g.id); return B.length ? `<div class="mhsb"><div class="mhsbh"><b>Henüz sevk edilmeyen kalemler</b> <span class="note">${B.length} kalem · faturaya girmez, bilgi içindir</span></div>
+          ${B.map(b => `<div class="mhsbr"><span class="spsn sm">${b.sira}</span><div class="ska">${b.k.kod ? `<span class="num skk">${esc(b.k.kod)}</span> ` : ""}<b>${esc(b.k.ad || "")}</b>${spVarAd(b.k) ? `<div class="desc">${esc(spVarAd(b.k))}</div>` : ""}</div>
+            <div class="num"><b>${nf(b.kalan)}</b> <small>${esc(b.k.birim || "Adet")}</small><div class="note">${nf(b.sevk)} / ${nf(b.k.miktar)} sevk edildi</div></div>
+            <div><span class="kst" style="--tc:${b.renk}">${esc(b.dur)}</span>${b.not ? `<div class="note">${b.not}</div>` : ""}</div></div>`).join("")}</div>` : ""; })()}
+        ${fatYetki && bk.length ? `<div class="mhgf"><button class="btn sm primary" type="button" data-mhgf="${esc(g.id)}">Bu siparişin ${mhBirlestir(bk).length} kalemine fatura kes</button></div>` : ""}` : ""}
         </section>`; }).join("")}</div>
       ${G.length > 200 ? `<p class="note">İlk 200 sipariş gösteriliyor; filtreyi daraltın.</p>` : ""}`
     : `<div class="empty"><h3>${F.d === "kesildi" ? "Faturası kesilmiş kalem yok" : F.d === "bekleyen" ? "Fatura bekleyen kalem yok" : "Sevk edilmiş kalem yok"}</h3><p>${F.t1 || F.t2 ? `Seçili tarih aralığında (${F.t1 ? fmtS(F.t1) : "…"} – ${F.t2 ? fmtS(F.t2) : "…"}) kayıt yok.${B.length ? ` Diğer tarihlerde ${B.length} kalem fatura bekliyor; “Tüm tarihler” ile görebilirsiniz.` : ""}` : "Sevkiyat modülünde sevk edilen ürünler burada listelenir."}</p></div>`}`;
@@ -9654,7 +9691,8 @@ function renderMH() {
   $("#mhT1").onchange = e => set("t1", e.target.value); $("#mhT2").onchange = e => set("t2", e.target.value);
   $("#mhQ").oninput = e => { MH.Fl.q = e.target.value; renderMH(); const j = $("#mhQ"); j.focus(); j.setSelectionRange(j.value.length, j.value.length); };
   const rs = $("#mhR"); if (rs) rs.onclick = () => { MH.Fl = { d: "bekleyen", c: "", sp: "", q: "", t1: MH.Fl.t1, t2: MH.Fl.t2 }; renderMH(); };
-  v.querySelectorAll("[data-mhs]").forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? MH.sec.add(c.dataset.mhs) : MH.sec.delete(c.dataset.mhs); renderMH(); }; });
+  v.querySelectorAll("[data-mhs]").forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.dataset.mhs.split(",").forEach(id => c.checked ? MH.sec.add(id) : MH.sec.delete(id)); renderMH(); }; });
+  v.querySelectorAll("[data-mhd]").forEach(b => b.onclick = e => { e.stopPropagation(); mhDetay(b.dataset.mhd); });
   const al = $("#mhAll"); if (al) al.onchange = () => { R.filter(r => !r.fat).forEach(r => al.checked ? MH.sec.add(r.id) : MH.sec.delete(r.id)); renderMH(); };
   v.querySelectorAll("[data-cp]").forEach(b => b.onclick = e => { e.stopPropagation(); kopyala(b.dataset.cp); b.classList.add("ok"); setTimeout(() => b.classList.remove("ok"), 1200); });
   v.querySelectorAll("[data-mhg]").forEach(el => { const tg = () => { const id = el.dataset.mhg, g = G.find(x => x.id === id); if (!g) return; acik(g) ? (MH.ac.delete(id), MH.kp.add(id)) : (MH.ac.add(id), MH.kp.delete(id)); renderMH(); }; el.onclick = e => { if (e.target.closest("input")) return; tg(); }; el.onkeydown = e => { if (e.target === el && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); tg(); } }; });

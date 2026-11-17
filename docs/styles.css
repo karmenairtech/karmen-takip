@@ -1619,3 +1619,12 @@ body.mesdev .toolbar{display:none}
 .mtbo{color:var(--ink)!important;font-weight:600!important}.mtie{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:var(--k-fabrikada,#2f9e44);color:#fff;font-size:11px;font-weight:700}
 .mtops>div.dg{opacity:.55}
 @media (max-width:800px){.mtk{grid-template-columns:1fr 1fr}}
+
+/* v69 — muhasebe birleştirme + sevk edilmeyenler */
+.mhbir{display:inline-block;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--brand) 12%,var(--surface));color:var(--brand);font-weight:700;font-size:11px;margin-bottom:3px}
+.mhsl{display:block;font-size:12px;text-align:left}
+.mhsb{border-top:2px dashed var(--line);background:color-mix(in srgb,var(--line) 22%,var(--surface));padding:10px 14px}
+.mhsbh{margin-bottom:6px}
+.mhsbr{display:grid;grid-template-columns:30px minmax(0,1.8fr) 150px minmax(200px,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);opacity:.92}
+.mhsbr:last-child{border-bottom:0}
+@media (max-width:760px){.mhsbr{grid-template-columns:28px 1fr}.mhsbr>div:nth-child(n+3){grid-column:2/-1}}
