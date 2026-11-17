@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "75";
+const APP_V = "76";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4400,7 +4400,7 @@ function plOpenIe(id) {
       <div class="field"><label for="iSip">Sipariş no</label><input id="iSip" maxlength="40" value="${esc(e.siparisNo || "")}" placeholder="Stoka üretimse boş"${dis}></div>
       <div class="field full"><label for="iMus">Müşteri</label><input id="iMus" maxlength="100" value="${esc(e.musteri || "")}"${dis}></div>
       <div class="field"><label>Ürün</label><input value="${esc(e.urunAd)}" disabled></div>
-      <div class="field"><label>İş akış şeması</label><input value="${esc(e.akisAd || "—")}" disabled></div>
+      <div class="field"><label for="iAk">İş akış şeması</label>${ieOk && plIeOpen(e) ? `<select id="iAk">${e.akisId && !PL.akis.some(a => a.id === e.akisId) ? `<option value="${esc(e.akisId)}" selected>${esc(e.akisAd || "—")} (silinmiş)</option>` : !e.akisId ? '<option value="" selected>—</option>' : ""}${PL.akis.map(a => opt(a.id, `${a.kod} · ${a.ad}`, e.akisId || "")).join("")}</select><small class="note">Değiştirince operasyonlar yeni şemadan yeniden oluşturulur</small>` : `<input value="${esc(e.akisAd || "—")}" disabled>`}</div>
       <div class="field"><label for="iMik">Miktar</label><input id="iMik" type="number" min="1" step="any" value="${esc(e.miktar)}"${dis}></div>
       <div class="field"><label for="iOnc">Öncelik</label><select id="iOnc"${dis}>${Object.entries(PL_ONC).map(([k, [l]]) => opt(k, l, e.oncelik || "normal")).join("")}</select></div>
       <div class="field"><label for="iBas">Planlanan başlangıç</label><input id="iBas" type="date" value="${esc(e.plBas || "")}"${dis}></div>
@@ -4408,11 +4408,12 @@ function plOpenIe(id) {
       <div class="field"><label for="iSor">Sorumlu</label><input id="iSor" list="iSorL" maxlength="80" value="${esc(e.sorumlu || "")}"${dis}><datalist id="iSorL">${sortTr([...Object.values(state.access || {}).map(m => m && m.name), ...PT.people.map(p => p.ad)]).map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
       <div class="field full"><label for="iNot">Not</label><textarea id="iNot" maxlength="1000"${dis}>${esc(e.not || "")}</textarea></div>
       <div class="field full"><label for="iTal">Personele not (tablette Başla'ya basınca gösterilir)</label><textarea id="iTal" maxlength="1000"${dis}>${esc(e.talimat || "")}</textarea></div>
-    </div><p class="note" style="margin:0">Oluşturan: ${esc(e.createdBy || "—")} · ${e.createdAt ? skTs(e.createdAt) : ""}. Operasyonlar iş emri açılırken iş akış şemasından kopyalanır; şema sonradan değişse de bu iş emri etkilenmez.</p>`; };
+    </div><p class="note" style="margin:0">Oluşturan: ${esc(e.createdBy || "—")} · ${e.createdAt ? skTs(e.createdAt) : ""}. Operasyonlar iş emri açılırken iş akış şemasından kopyalanır; şema sonradan değişse de bu iş emri etkilenmez. Bu iş emrinin şemasını yukarıdan değiştirebilirsiniz.</p>`; };
   const matHtml = e => `<div class="empty" style="margin:0"><h3>Ürün ağacı bağlanınca burada görünecek</h3><p>Ürün ağacı Stok modülünde mamul kartına tanımlandığında bu iş emri için gereken malzemeler (miktar × ağaç), stoktaki miktarlar ve eksikler burada listelenecek. İş emri başlarken malzeme ayrılacak, bittiğinde stoktan düşülüp mamul stoka girecek.</p></div>`;
   const logHtml = e => `<div class="loglist">${(e.log || []).slice().reverse().map(l => `<div class="logr"><span class="num note">${skTs(l.at)}</span><b>${esc(l.by || "")}</b><span>${esc(l.t)}</span></div>`).join("") || '<p class="note">Kayıt yok.</p>'}</div>`;
   function bindIe(e) {
     const save = async (patch, msg) => { try { await updateDoc(doc(fs, "isemri", e.id), { ...patch, updatedAt: Date.now(), updatedBy: ME.name, log: [...(e.log || []), { at: Date.now(), by: ME.name, t: msg }].slice(-80) }); toast(msg); } catch (x) { toast(writeErr(x)); } };
+    const ak = $("#iAk"); if (ak) ak.onchange = async () => { const ok = await plIeAkisDegis(e, ak.value); if (!ok) ak.value = e.akisId || ""; };
     $("#ieS").onclick = () => { const m = Number($("#iMik").value); if (!(m > 0)) { toast("Miktarı girin"); return; }
       save({ siparisNo: $("#iSip").value.trim(), musteri: $("#iMus").value.trim(), miktar: m, oncelik: $("#iOnc").value, plBas: $("#iBas").value, termin: $("#iTer").value, sorumlu: $("#iSor").value.trim(), not: $("#iNot").value.trim(), ...(($("#iTal").value.trim() !== (e.talimat || "")) ? { talimat: $("#iTal").value.trim(), talimatBy: ME.name, talimatAt: Date.now() } : {}) }, "İş emri bilgileri güncellendi"); };
     const h = $("#ieHold"); if (h) h.onclick = () => save({ durum: "bekle", oncekiDurum: e.durum }, "Beklemeye alındı");
@@ -8721,6 +8722,32 @@ async function plSipToIe(spId) {
   };
 }
 // Akış şemasından operasyonlar; boyasız yüzeyde boya adımı atlanır
+// Açılmış iş emrinin iş akış şemasını değiştirme: operasyonlar yeni şemadan kurulur,
+// aynı istasyon + aynı adımdaki ilerleme (tamamlanan, fire, çalışma süreleri) yeni operasyona taşınır
+async function plIeAkisDegis(e, akisId) {
+  if (!can("pl.ie") || !akisId || akisId === e.akisId) return false;
+  const a = PL.akis.find(x => x.id === akisId); if (!a) return false;
+  const e2 = PL.ie.find(x => x.id === e.id) || e, q = Number(e2.miktar) || 0;
+  const sk = (e2.spKalem || [])[0], s = sk && SP.list.find(z => z.id === sk.spId), k = (s && (s.kalemler || []).find(z => z.k === sk.k)) || { renk: e2.renk || null };
+  const yeni = plOpsFor(a, k, q), eski = (e2.ops || []).filter(o => !o.atlandi), kul = new Set();
+  let tasinan = 0;
+  yeni.forEach(o => { if (o.atlandi) return; const ad = araFold(o.ad || ""), j = eski.findIndex((x, i) => !kul.has(i) && x.ist === o.ist && araFold(x.ad || "") === ad);
+    if (j < 0) return; kul.add(j); const x = eski[j]; if (x.durum === "bekliyor" && !(Number(x.tamam) > 0)) return;
+    Object.assign(o, { durum: x.durum, tamam: x.tamam || 0, fire: x.fire || 0, calisma: x.calisma || [], ...(x.operator ? { operator: x.operator } : {}), ...(x.bitis ? { bitis: x.bitis } : {}) }); tasinan++; });
+  const kayip = eski.filter((x, i) => !kul.has(i) && (x.durum !== "bekliyor" || Number(x.tamam) > 0)).length;
+  const ok = await spEmin("İş akış şemasını değiştir", `<p><b>${esc(e2.no)}</b> · ${esc(e2.urunAd || "")}</p>
+    <p>Şema <b>${esc(e2.akisAd || "—")}</b> → <b>${esc(a.kod + " · " + a.ad)}</b> olacak. Operasyonlar yeni şemadan yeniden oluşturulur (${yeni.length} adım).</p>
+    ${tasinan ? `<p>Aynı istasyon ve adımda olan <b>${tasinan}</b> operasyonun ilerlemesi korunur.</p>` : ""}
+    ${kayip ? `<p style="color:#d92d20"><b>${kayip}</b> operasyonun ilerlemesi yeni şemada karşılığı olmadığı için silinecek (geçmişe yazılır).</p>` : ""}
+    ${(e2.ops || []).some(o => (o.calisma || []).some(c => !c.bit)) ? '<p style="color:#d92d20">Şu an çalışılan bir operasyon var; tabletteki iş durabilir.</p>' : ""}`, "Şemayı değiştir");
+  if (!ok) return false;
+  const all = yeni.every(o => o.durum === "bitti"), any = yeni.some(o => o.durum !== "bekliyor"), now = Date.now();
+  try {
+    await updateDoc(doc(fs, "isemri", e2.id), { akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, ops: yeni, durum: all ? "bitti" : e2.durum === "bekle" ? "bekle" : any ? "uretim" : "plan", updatedAt: now, updatedBy: ME.name,
+      log: [...(e2.log || []), { at: now, by: ME.name, t: `İş akış şeması değişti: ${e2.akisAd || "—"} → ${a.kod} · ${a.ad}${tasinan ? ` · ${tasinan} operasyonun ilerlemesi taşındı` : ""}${kayip ? ` · ${kayip} operasyonun ilerlemesi silindi` : ""}` }].slice(-80) });
+    toast(`${e2.no} iş akış şeması değişti · ${yeni.length} operasyon`); return true;
+  } catch (x) { toast(writeErr(x)); return false; }
+}
 function plOpsFor(a, k, q) {
   const boyasiz = k && k.renk && !spBoyali(k.renk);
   return (a.adimlar || []).map((st, i) => ({ no: plNo(st, i), onceki: Array.isArray(st.onceki) ? st.onceki : (i ? [plNo(a.adimlar[i - 1], i - 1)] : []), ad: st.ad || st.tanim || "", tanim: st.tanim || "", ist: st.ist, alt: st.alt || "", sure: Number(st.sure) || 0, hazirlik: Number(st.hazirlik) || 0, kk: st.kk || "", sop: st.sop || "",
