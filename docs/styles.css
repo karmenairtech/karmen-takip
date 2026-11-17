@@ -1657,3 +1657,10 @@ body.mesdev .toolbar{display:none}
 .iemb{margin-left:6px;padding:2px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--brand);font-size:12px;font-weight:700;cursor:pointer;vertical-align:middle}
 .iemb:hover{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,var(--surface))}
 .iemk{display:flex;flex-direction:column;gap:8px}.iemt{font-size:14px}.iemt b{font-size:18px;color:var(--brand)}
+
+/* v73 — sevkiyat düzeltme */
+.iemsp{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-weight:600}
+.iemsp input{width:20px;height:20px;margin-top:2px}.iemsp small{display:block;font-weight:400;margin-top:2px}
+.svdz{display:flex;flex-direction:column;gap:6px;max-height:44vh;overflow:auto}
+.svdzr{display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.svdzr.kil{grid-template-columns:1fr auto;opacity:.75}.svdzr input{font-size:17px;text-align:right}

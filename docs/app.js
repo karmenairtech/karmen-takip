@@ -19,7 +19,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b); b.comm
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "72";
+const APP_V = "73";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -70,7 +70,7 @@ const PERM_ACTS = {
   cv: [["cv.edit", "Aday kaydı ekleme, düzenleme ve CV dosyası"], ["cv.gorusme", "Görüşme notu, puan ve durum girme"], ["cv.delete", "Aday kaydı ve CV silme"]],
   cari: [["c.edit", "Cari kart ekleme ve düzenleme"], ["c.puan", "Tedarikçiye iletişim/hizmet puanı verme"], ["c.delete", "Cari kart silme"]],
   siparis: [["sp.teklif", "Teklif hazırlama, gönderme ve siparişe dönüştürme"], ["sp.edit", "Sipariş girme, onaylama ve düzenleme"], ["sp.fiyat", "Satış ve liste fiyatlarını görme ve girme"], ["sp.cfg", "Varyasyon, renk ve teklif ayarları"], ["sp.delete", "Teklif ve sipariş silme"]],
-  sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"]],
+  sevkiyat: [["sv.sevk", "Sevkiyat, irsaliye kaydı ve müşteriye gönderim"], ["sv.duzelt", "Yanlış girilen sevkiyat kaydını düzeltme / silme"]],
   pano: [["pano.menu", "Günün yemek menüsünü girme"]],
   urun: [["ut.edit", "Ürün kartlarını, çizimleri ve açıklamaları düzenleme"], ["ut.takip", "Personelin eğitim durumunu görme"]],
   muhasebe: [["mh.fatura", "FATURA KESİLMİŞTİR işaretleme ve geri alma"], ["mh.fiyat", "Sevk edilen ürünlerin fiyat ve tutarlarını görme"], ["mh.sevk", "Depoda girilmemiş sevkiyatı muhasebeden “sevk edildi” işaretleme"]]
@@ -4424,6 +4424,7 @@ function plIeMiktar(e) {
     <div class="note" style="margin:0">${esc(e.urunAd || "")}${e.siparisNo ? ` · <span class="num">${esc(e.siparisNo)}</span>` : ""}<br>Şu anki adet: <b>${nf(eski)} ${esc(e.birim || "Adet")}</b></div>
     ${cok ? `<div class="iemk">${SK.map((r, i) => `<div class="field"><label for="iemQ${i}">${esc(r.k ? (r.k.kod ? r.k.kod + " · " : "") + (r.k.ad || "") : "Sipariş kalemi")} <small class="note">${esc(r.s ? r.s.no : "")}</small></label><input id="iemQ${i}" data-iemq="${i}" type="number" min="0" step="any" value="${Number(r.miktar) || 0}"></div>`).join("")}<div class="iemt">Yeni toplam: <b id="iemT">${nf(eski)}</b></div></div>`
       : `<div class="field"><label for="iemQ">Doğru adet (${esc(e.birim || "Adet")})</label><input id="iemQ" type="number" min="1" step="any" value="${eski}"></div>`}
+    ${!cok && SK[0] && SK[0].k ? `<label class="chk iemsp"><input type="checkbox" id="iemSp"${Number(SK[0].k.miktar) === eski ? " checked" : ""}> <span>Siparişteki miktarı da yeni adede eşitle <small class="note">${esc(SK[0].s.no)} · siparişte şu an <b>${nf(SK[0].k.miktar)} ${esc(SK[0].k.birim || "")}</b>${Number(SK[0].k.sevk) ? ` · ${nf(SK[0].k.sevk)} sevk edildi` : ""}. İşaretlemezseniz sevkiyat ve muhasebe siparişteki miktarla devam eder.</small></span></label>` : ""}
     <div class="field"><label for="iemN">Düzeltme nedeni *</label><input id="iemN" maxlength="160" placeholder="Örn. siparişte 2 adet, yanlışlıkla 4 girilmiş"></div>
     <p class="note" style="margin:0">Biten operasyonların tamamlanan adedi yeni adede çekilir. Adet artarsa biten operasyonlar yeniden açılır (kalan adet üretilsin diye).${SK.length ? " Siparişteki planlanan miktar da güncellenir." : ""} Değişiklik iş emri geçmişine yazılır.</p>
     <div class="r"><button type="button" class="btn ghost" id="iemC">Vazgeç</button><button type="button" class="btn" id="iemO">Adedi düzelt</button></div>`, (h, done) => {
@@ -4452,7 +4453,9 @@ function plIeMiktar(e) {
         await updateDoc(doc(fs, "isemri", e.id), patch);
         let spHata = 0;
         for (const spId of [...new Set(SK.map(r => r.spId))]) { const s = SP.list.find(z => z.id === spId); if (!s) continue;
-          const NK = (s.kalemler || []).map(k => { const r = yeniSK.find(x => x.spId === spId && x.k === k.k); return r && (k.ie || []).some(x => x.id === e.id) ? { ...k, ie: k.ie.map(x => x.id === e.id ? { ...x, miktar: r.miktar } : x) } : k; });
+          const spEsit = !cok && h.querySelector("#iemSp") && h.querySelector("#iemSp").checked;
+          const NK = (s.kalemler || []).map(k => { const r = yeniSK.find(x => x.spId === spId && x.k === k.k); if (!(r && (k.ie || []).some(x => x.id === e.id))) return k;
+            const k2 = { ...k, ie: k.ie.map(x => x.id === e.id ? { ...x, miktar: r.miktar } : x) }; if (spEsit) { k2.miktar = Math.max(q, Number(k.sevk) || 0); k2.degisti = true; } return k2; });
           try { await updateDoc(doc(fs, "siparis", spId), { kalemler: NK, updatedAt: now, updatedBy: by, log: spLog(s, `${e.no} adet düzeltildi: ${nf(eski)} → ${nf(q)} · ${neden}`) }); } catch (x) { spHata++; console.warn(x); } }
         toast(`${e.no} adedi ${nf(eski)} → ${nf(q)} olarak düzeltildi${spHata ? " · sipariş bağlantısı güncellenemedi (yetki)" : ""}`); done(true);
       } catch (x) { b.disabled = false; toast(writeErr(x)); }
@@ -8492,7 +8495,7 @@ function svSevkDetay(spId, idx) {
       <div class="dh"><h2 id="sdT">Sevkiyat · ${fmtS(x.tarih)} · <span class="num skk">${esc(s.no)}</span> ${esc(s.cariAd || "")}</h2><button class="x" id="sdX" aria-label="Kapat">×</button></div>
       <div class="skhead"><div class="skbig" style="--tc:var(--k-fabrikada)"><b>${nf((x.satir || []).reduce((a, y) => a + (Number(y.miktar) || 0), 0))}</b><span>adet sevk edildi</span></div>
         <div class="skhm"><span>${x.irsaliye ? "İrsaliye " + esc(x.irsaliye) : "İrsaliye no yok"}${x.arac ? " · " + esc(x.arac) : ""}</span><span>${x.teslimAlan ? "Teslim alan: " + esc(x.teslimAlan) : ""}</span><span>${esc((s.proje && s.proje.adres) || "")}</span></div>
-        <div class="skhb"><button type="button" class="qb" data-sd="pdf">${pdfIcAc() ? "PDF görüntüle" : "PDF indir"}</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button>${svCan() ? '<button type="button" class="qb iade" id="sdIade">İade</button>' : ""}</div></div>
+        <div class="skhb"><button type="button" class="qb" data-sd="pdf">${pdfIcAc() ? "PDF görüntüle" : "PDF indir"}</button><button type="button" class="qb ok" data-sd="wa">WhatsApp gönder</button><button type="button" class="qb" data-sd="mail">Mail gönder</button>${svCan() ? '<button type="button" class="qb iade" id="sdIade">İade</button>' : ""}${can("sv.duzelt") ? '<button type="button" class="qb" id="sdDz">✎ Düzelt</button>' : ""}</div></div>
       <div class="db"><div class="ledger spkled nopr" role="table"><div class="lhead" role="row"><div>Ürün</div><div>Renk</div><div>Sevk</div><div>Toplam sevk</div><div>Sipariş</div></div>
         ${(x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return `<div class="row" role="row" style="cursor:default"><div class="ska">${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}<b>${esc(k.ad || "")}</b><div class="desc">${esc([spVarAd(k), k.mahal].filter(Boolean).join(" · "))}</div></div><div class="izs">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : "—"}</div><div class="num"><b>${nf(y.miktar)}</b>${svIadeQ(x, y.k) ? `<div class="svir">${nf(svIadeQ(x, y.k))} iade</div>` : ""}</div><div class="num">${nf(k.sevk || 0)}</div><div class="num">${nf(k.miktar || 0)} ${esc(k.birim || "")}</div></div>`; }).join("")}</div>
         ${(x.iadeler || []).length ? `<div class="izbal svib"><b>İadeler</b>${x.iadeler.slice().reverse().map(r => `<div class="svia"><div><b>${fmtS(r.tarih)}</b> · ${esc(r.satir.map(z => { const k = (s.kalemler || []).find(q => q.k === z.k) || {}; return `${nf(z.miktar)} ${k.birim || "adet"} ${k.kod || k.ad || ""}`; }).join(", "))}</div><div class="note">Sebep: ${esc(r.sebep)}</div><div class="note">${[r.stok ? "Stoğa eklendi" : "Stoğa eklenmedi", r.yeniden ? "yeniden sevk edilecek" : ""].filter(Boolean).join(" · ")} · ${esc(r.by)} · ${skTs(r.at)}</div></div>`).join("")}</div>` : ""}
@@ -8501,11 +8504,45 @@ function svSevkDetay(spId, idx) {
     $("#scrim").onclick = closeDrawer; $("#sdX").onclick = closeDrawer; $("#sdC").onclick = closeDrawer;
     document.querySelectorAll("[data-sd]").forEach(b => b.onclick = async () => { b.disabled = true; try { await svSend(s, idx, b.dataset.sd); } finally { b.disabled = false; } });
     const ib = $("#sdIade"); if (ib) ib.onclick = () => svIade(s, idx);
+    const dz = $("#sdDz"); if (dz) dz.onclick = () => svDuzelt(s.id, idx);
   };
   paint();
 }
 // İade: sevk edilen üründen geri gelenler. Stoğa giriş (stok hareketi) ve isteğe bağlı yeniden sevk listesine düşürme
 const svIadeQ = (x, k) => (x.iadeler || []).reduce((a, r) => a + (r.satir || []).filter(z => z.k === k).reduce((b, z) => b + (Number(z.miktar) || 0), 0), 0);
+// Yanlış girilen sevkiyatı düzeltme: satır miktarları değiştirilir ya da kayıt tamamen silinir; fatura kesilmiş satıra dokunulmaz
+function svDuzelt(spId, idx) {
+  const s = SP.list.find(z => z.id === spId), x = s && (s.sevkiyatlar || [])[idx]; if (!x || !can("sv.duzelt")) return;
+  const fatOf = y => typeof MH !== "undefined" && MH.F ? MH.F[mhId(s.id, x.at || idx, y.k)] : null;
+  const L = (x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}, q = Number(y.miktar) || 0, diger = (Number(k.sevk) || 0) - q;
+    return { y, k, q, max: Math.max(q, (Number(k.miktar) || 0) - diger), fat: fatOf(y), iade: svIadeQ(x, y.k) }; });
+  const kilit = L.some(r => r.fat);
+  spModal(`<label>Sevkiyatı düzelt · ${fmtS(x.tarih)}${x.irsaliye ? " · İrs. " + esc(x.irsaliye) : ""}</label>
+    <div class="note" style="margin:0"><span class="num">${esc(s.no)}</span> · ${esc(s.cariAd || "")} · kaydeden ${esc(x.by || "")} ${x.at ? skTs(x.at) : ""}</div>
+    <div class="svdz">${L.map((r, i) => `<div class="svdzr${r.fat ? " kil" : ""}"><div class="ska">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b><div class="note">Siparişte ${nf(r.k.miktar)} ${esc(r.k.birim || "")} · bu sevkte ${nf(r.q)} · en çok ${nf(r.max)}${r.iade ? ` · ${nf(r.iade)} iade` : ""}</div></div>
+      ${r.fat ? '<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi · değiştirilemez</span>' : `<input class="f num" type="number" min="0" max="${r.max}" step="any" value="${r.q}" data-svq="${i}" aria-label="Sevk miktarı">`}</div>`).join("")}</div>
+    <div class="field"><label for="sdzI">İrsaliye no</label><input id="sdzI" maxlength="40" value="${esc(x.irsaliye || "")}"></div>
+    <div class="field"><label for="sdzN">Düzeltme nedeni *</label><input id="sdzN" maxlength="160" placeholder="Örn. aynı sevk iki kez girilmiş"></div>
+    <p class="note" style="margin:0">Miktarı 0 yapılan satır sevkten çıkar. Siparişten fazla sevk girilemez; fazlası gerekiyorsa önce sipariş miktarını düzeltin. Stok hareketi değişmez.</p>
+    <div class="r">${kilit ? "" : '<button type="button" class="btn danger" id="sdzS">Sevkiyatı sil</button>'}<span style="flex:1"></span><button type="button" class="btn ghost" id="sdzC">Vazgeç</button><button type="button" class="btn" id="sdzO">Kaydet</button></div>`, (h, done) => {
+    h.querySelector("#sdzC").onclick = () => done(false);
+    const kaydet = async sil => {
+      const neden = h.querySelector("#sdzN").value.trim(); if (!neden) { h.querySelector("#sdzN").focus(); toast("Düzeltme nedenini yazın"); return; }
+      const s2 = SP.list.find(z => z.id === spId) || s, X = (s2.sevkiyatlar || []).slice(), x2 = X[idx]; if (!x2 || x2.at !== x.at) { toast("Sevkiyat değişmiş, pencereyi yeniden açın"); done(false); return; }
+      const yeni = L.map((r, i) => { const inp = h.querySelector(`[data-svq="${i}"]`); return { k: r.y.k, eski: r.q, q: sil ? 0 : r.fat || !inp ? r.q : Math.min(r.max, Math.max(0, Number(inp.value) || 0)) }; });
+      if (!sil && yeni.every(z => z.q === z.eski) && h.querySelector("#sdzI").value.trim() === (x.irsaliye || "")) { toast("Değişiklik yok"); return; }
+      const NK = (s2.kalemler || []).map(k => { const z = yeni.find(t => t.k === k.k); return z ? { ...k, sevk: Math.max(0, (Number(k.sevk) || 0) - z.eski + z.q) } : k; });
+      const satir = yeni.filter(z => z.q > 0).map(z => ({ k: z.k, miktar: z.q })), now = Date.now();
+      const ozet = yeni.filter(z => z.q !== z.eski).map(z => { const k = (s2.kalemler || []).find(t => t.k === z.k) || {}; return `${k.kod || k.ad || ""} ${nf(z.eski)}→${nf(z.q)}`; }).join(", ");
+      if (sil || !satir.length) X.splice(idx, 1); else X[idx] = { ...x2, satir, irsaliye: h.querySelector("#sdzI").value.trim(), duzeltme: [...(x2.duzeltme || []), { at: now, by: ME.name, neden, ozet }] };
+      try { await updateDoc(doc(fs, "siparis", spId), { kalemler: NK, sevkiyatlar: X, updatedAt: now, updatedBy: ME.name, log: spLog(s2, `Sevkiyat ${fmtS(x.tarih)} ${sil || !satir.length ? "silindi" : "düzeltildi"}${ozet ? ": " + ozet : ""} · ${neden}`) });
+        toast(sil || !satir.length ? "Sevkiyat kaydı silindi" : "Sevkiyat düzeltildi"); done(true); if (sil || !satir.length) closeDrawer();
+      } catch (e) { toast(writeErr(e)); }
+    };
+    h.querySelector("#sdzO").onclick = () => kaydet(false);
+    const sb = h.querySelector("#sdzS"); if (sb) { let a = false; sb.onclick = () => { if (!a) { a = true; sb.textContent = "Silinsin mi? Tekrar basın"; return; } kaydet(true); }; }
+  });
+}
 async function svIade(s, idx) {
   const x = (s.sevkiyatlar || [])[idx]; if (!x || !svCan()) return;
   const L = (x.satir || []).map(y => { const k = (s.kalemler || []).find(z => z.k === y.k) || {}; return { y, k, max: Math.max(0, (Number(y.miktar) || 0) - svIadeQ(x, y.k)) }; }).filter(r => r.max > 0);
