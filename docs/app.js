@@ -19,7 +19,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b); b.comm
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "71";
+const APP_V = "72";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -64,7 +64,7 @@ const PERM_ACTS = {
   proje: [["p.task", "İş ekleme, düzenleme ve silme"], ["p.progress.all", "Tüm işlerin tamamlanma oranını güncelleme"], ["p.progress.own", "Sorumlusu olduğu işin oranını güncelleme"], ["p.feedback", "Günlük geri bildirim yazma"]],
   disis: [["d.create", "Dış iş oluşturma"], ["d.inout", "Çıkış / giriş kaydetme"], ["d.edit.own", "Kendi açtığı işleri düzenleme"], ["d.edit.all", "Tüm işleri düzenleme"], ["d.cancel", "İş iptal etme"], ["d.delete", "İş silme"], ["d.cfg", "Araç ve personel listesini düzenleme"], ["d.report", "Günlük rapor (PDF) alma"]],
   stok: [["s.edit", "Stok kartı ekleme ve düzenleme"], ["s.move", "Stok giriş / çıkış hareketi"], ["s.count", "Sayım ve stok düzeltme"], ["s.price", "Alış fiyatlarını görme ve düzenleme"], ["s.delete", "Stok kartı silme"], ["s.cfg", "Grup ve depo listesini düzenleme"]],
-  planlama: [["pl.ie", "İş emri oluşturma ve düzenleme"], ["pl.op", "Operasyon başlatma / bitirme (üretim)"], ["pl.akis", "İş akış şemalarını düzenleme"], ["pl.ist", "İş istasyonlarını ve ayarları düzenleme"], ["pl.delete", "İş emri silme"]],
+  planlama: [["pl.ie", "İş emri oluşturma ve düzenleme"], ["pl.op", "Operasyon başlatma / bitirme (üretim)"], ["pl.akis", "İş akış şemalarını düzenleme"], ["pl.ist", "İş istasyonlarını ve ayarları düzenleme"], ["pl.delete", "İş emri silme"], ["pl.miktar", "İş emri adedini düzeltme (yanlış girilen miktar)"]],
   personel: [["k.yoklama", "Günlük yoklama girme (geldi, geç, gelmedi)"], ["k.izin", "İzin kaydı girme, düzenleme ve silme"], ["k.list", "Personel listesini ve ayarları düzenleme"], ["k.ozel", "Kişisel bilgileri görme (TC, adres, telefon)"]],
   satinalma: [["sa.talep", "Satın alma talebi açma"], ["sa.siparis", "Fiyat talebi ve sipariş oluşturma, gönderme"], ["sa.kabul", "Mal kabul ve tedarikçiye iade (stok girişi)"], ["sa.fatura", "e-Fatura yükleme ve stok eşleştirme"], ["sa.cfg", "Firma bilgileri, onay limiti ve onaycılar"], ["sa.delete", "Talep, sipariş ve fatura silme"]],
   cv: [["cv.edit", "Aday kaydı ekleme, düzenleme ve CV dosyası"], ["cv.gorusme", "Görüşme notu, puan ve durum girme"], ["cv.delete", "Aday kaydı ve CV silme"]],
@@ -4271,7 +4271,7 @@ function plIeView(v) {
       return `<div class="row" role="row" tabindex="0" data-ie="${esc(e.id)}" style="--stripe:${risk ? "var(--k-izinsiz)" : e.oncelik !== "normal" ? PL_ONC[e.oncelik][1] : "transparent"}">
         <div>${sn ? `<span class="ieln">${sn}</span>` : ""}<b class="num">${esc(e.no)}</b>${e.deneme ? '<div><span class="ttag" style="--tc:var(--warn)">DENEME</span></div>' : ""}${e.oncelik && e.oncelik !== "normal" ? `<div><span class="ttag" style="--tc:${PL_ONC[e.oncelik][1]}">${PL_ONC[e.oncelik][0].toLocaleUpperCase("tr")}</span></div>` : ""}</div>
         <div class="ska"><b>${esc(e.urunAd)}</b><div class="desc">${e.siparisNo ? `${esc(e.siparisNo)}${e.musteri ? " · " + esc(e.musteri) : ""}` : "Stoka üretim"}</div></div>
-        <div class="num">${nf(e.miktar)} <small class="note">${esc(e.birim || "Adet")}</small></div>
+        <div class="num">${nf(e.miktar)} <small class="note">${esc(e.birim || "Adet")}</small>${can("pl.miktar") && e.durum !== "iptal" ? `<button type="button" class="iemb" data-iem="${esc(e.id)}" title="Adedi düzelt" aria-label="Adedi düzelt">✎</button>` : ""}</div>
         <div><div class="prog"><div class="bar"><span style="width:${s.pct}%;--fill:${e.durum === "bitti" ? "var(--k-fabrikada)" : risk ? "var(--k-izinsiz)" : "var(--brand)"}"></span></div><span class="pct num">%${s.pct}</span></div>
           <div class="when">${s.nBitti}/${(e.ops || []).length} operasyon${s.cur && e.durum !== "bitti" ? " · " + esc(s.cur.ist) : ""}</div></div>
         <div class="num">${s.verim == null ? '<span class="date none">—</span>' : `<b style="color:${s.verim >= 90 ? "var(--k-fabrikada)" : s.verim < 75 ? "var(--k-izinsiz)" : "var(--k-gec)"}">%${s.verim}</b>`}</div>
@@ -4292,6 +4292,7 @@ function plIeView(v) {
     $("#ieList").querySelectorAll("[data-ieg]").forEach(el => { const go = () => { const k = el.dataset.ieg; PL.ac.has(k) ? PL.ac.delete(k) : PL.ac.add(k); draw(); }; el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
     $("#ieAll").onclick = () => { if (PL.ac.size) PL.ac.clear(); else G.forEach((_, k) => PL.ac.add(k)); draw(); };
     $("#ieList").querySelectorAll("[data-ie]").forEach(el => { const go = () => plOpenIe(el.dataset.ie); el.onclick = go; el.onkeydown = ev => { if (ev.key === "Enter") go(); }; });
+    $("#ieList").querySelectorAll("[data-iem]").forEach(b => b.onclick = ev => { ev.stopPropagation(); const e = PL.ie.find(x => x.id === b.dataset.iem); if (e) plIeMiktar(e); });
   };
   draw();
   $("#ieDur").onchange = e => { F.dur = e.target.value; draw(); $("#ieDur").classList.toggle("on", F.dur !== "aktif"); };
@@ -4343,7 +4344,7 @@ function plOpenIe(id) {
       <div class="iehead">
         <div class="iek"><span>Durum</span><b><span class="kst" style="--tc:${st[1]}">${st[0]}</span></b>${e.oncelik !== "normal" ? `<small style="color:${PL_ONC[e.oncelik][1]}">${PL_ONC[e.oncelik][0]}</small>` : ""}</div>
         <div class="iek"><span>İlerleme</span><b class="num">%${s.pct}</b><small>${s.nBitti}/${O.length} operasyon</small></div>
-        <div class="iek"><span>Miktar</span><b class="num">${nf(q)}</b><small>${esc(e.birim || "Adet")}</small></div>
+        <div class="iek"><span>Miktar${can("pl.miktar") && e.durum !== "iptal" ? ` <button type="button" class="iemb" data-iem="${esc(e.id)}" title="Adedi düzelt" aria-label="Adedi düzelt">✎ düzelt</button>` : ""}</span><b class="num">${nf(q)}</b><small>${esc(e.birim || "Adet")}</small></div>
         <div class="iek"><span>Verimlilik</span><b class="num" style="color:${s.verim == null ? "var(--ink-3)" : s.verim >= 90 ? "var(--k-fabrikada)" : s.verim < 75 ? "var(--k-izinsiz)" : "var(--k-gec)"}">${s.verim == null ? "—" : "%" + s.verim}</b><small>Plan ${plDk(s.done)} / gerçek ${plDk(s.act)}${s.fire ? ` · fire ${nf(s.fire)} (kalite %${nf(s.kalite, 1)})` : ""}</small></div>
         <div class="iek"><span>Termin</span><b class="num">${e.termin ? fmtS(e.termin) : "—"}</b><small>${e.siparisNo ? esc(e.siparisNo) : "Stoka üretim"}</small></div>
         <div class="iek${risk ? " bad" : ""}"><span>${e.durum === "bitti" ? "Bitiş" : "Tahmini bitiş"}</span><b class="num">${fmtS(s.etaDay)}</b><small>${e.durum === "bitti" ? "" : risk ? (s.over ? "Termin geçti" : `Termine ${dnum(s.etaDay) - dnum(e.termin)} gün geç`) : plIeOpen(e) ? "Kalan " + plDk(s.rem) : ""}</small></div>
@@ -4376,6 +4377,7 @@ function plOpenIe(id) {
     document.querySelectorAll("[data-it]").forEach(b => b.onclick = () => { T = b.dataset.it; paint(); });
     document.querySelectorAll("[data-fn]").forEach(el => el.onclick = () => { const r = $("#op" + el.dataset.fn); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1200); } });
     document.querySelectorAll("[data-op]").forEach(b => b.onclick = () => { b.disabled = true; plOpAction(e, Number(b.dataset.k), b.dataset.op); });
+    document.querySelectorAll("#drawerHost [data-iem]").forEach(b => b.onclick = () => plIeMiktar(PL.ie.find(x => x.id === e.id) || e));
     const tb = $("#opTB"); if (tb) tb.onclick = async () => { tb.disabled = true; await plOpToplu(e, "bas"); };
     const tf = $("#opTF"); if (tf) tf.onclick = async () => { const n = (e.ops || []).filter(o => o.durum !== "bitti" && !o.atlandi).length;
       if (!(await spEmin("Tüm aşamaları bitir", `<p><b>${esc(e.no)}</b> iş emrinin bitmemiş <b>${n}</b> aşaması ${nf(e.miktar)} ${esc(e.birim || "adet")} tamamlanmış olarak kapatılacak. İş emri tamamlanır.</p>`, "Tümünü bitir"))) return;
@@ -4413,6 +4415,50 @@ function plOpenIe(id) {
   paint();
 }
 // Operasyon işlemleri: başlat / duraklat / bitir / geri al / adet
+// Yanlış girilen iş emri adedini düzeltme (pl.miktar yetkisi): operasyonlar ve sipariş bağlantısı da yeni adede göre güncellenir
+function plIeMiktar(e) {
+  if (!can("pl.miktar") || !e) return;
+  const eski = Number(e.miktar) || 0, SK = (e.spKalem || []).map(r => { const s = SP.list.find(z => z.id === r.spId), k = s && (s.kalemler || []).find(z => z.k === r.k); return { ...r, s, k }; });
+  const cok = SK.length > 1;
+  spModal(`<label>İş emri adedini düzelt · <span class="num">${esc(e.no)}</span></label>
+    <div class="note" style="margin:0">${esc(e.urunAd || "")}${e.siparisNo ? ` · <span class="num">${esc(e.siparisNo)}</span>` : ""}<br>Şu anki adet: <b>${nf(eski)} ${esc(e.birim || "Adet")}</b></div>
+    ${cok ? `<div class="iemk">${SK.map((r, i) => `<div class="field"><label for="iemQ${i}">${esc(r.k ? (r.k.kod ? r.k.kod + " · " : "") + (r.k.ad || "") : "Sipariş kalemi")} <small class="note">${esc(r.s ? r.s.no : "")}</small></label><input id="iemQ${i}" data-iemq="${i}" type="number" min="0" step="any" value="${Number(r.miktar) || 0}"></div>`).join("")}<div class="iemt">Yeni toplam: <b id="iemT">${nf(eski)}</b></div></div>`
+      : `<div class="field"><label for="iemQ">Doğru adet (${esc(e.birim || "Adet")})</label><input id="iemQ" type="number" min="1" step="any" value="${eski}"></div>`}
+    <div class="field"><label for="iemN">Düzeltme nedeni *</label><input id="iemN" maxlength="160" placeholder="Örn. siparişte 2 adet, yanlışlıkla 4 girilmiş"></div>
+    <p class="note" style="margin:0">Biten operasyonların tamamlanan adedi yeni adede çekilir. Adet artarsa biten operasyonlar yeniden açılır (kalan adet üretilsin diye).${SK.length ? " Siparişteki planlanan miktar da güncellenir." : ""} Değişiklik iş emri geçmişine yazılır.</p>
+    <div class="r"><button type="button" class="btn ghost" id="iemC">Vazgeç</button><button type="button" class="btn" id="iemO">Adedi düzelt</button></div>`, (h, done) => {
+    const top = () => cok ? [...h.querySelectorAll("[data-iemq]")].reduce((t, x) => t + Math.max(0, Number(x.value) || 0), 0) : Math.max(0, Number(h.querySelector("#iemQ").value) || 0);
+    h.querySelectorAll("[data-iemq]").forEach(x => x.oninput = () => { h.querySelector("#iemT").textContent = nf(top()); });
+    h.querySelector("#iemC").onclick = () => done(false);
+    h.querySelector("#iemO").onclick = async () => {
+      const q = top(), neden = h.querySelector("#iemN").value.trim();
+      if (!(q > 0)) { toast("Adet sıfırdan büyük olmalı"); return; }
+      if (q === eski && !cok) { toast("Adet aynı"); return; }
+      if (!neden) { h.querySelector("#iemN").focus(); toast("Düzeltme nedenini yazın"); return; }
+      const b = h.querySelector("#iemO"); b.disabled = true;
+      const e2 = PL.ie.find(x => x.id === e.id) || e, now = Date.now();
+      const O = (e2.ops || []).map(o => { const x = { ...o }, t = Number(o.tamam) || 0;
+        if (o.atlandi) x.tamam = q;
+        else if (o.durum === "bitti") { if (q <= eski) x.tamam = q; else { x.tamam = Math.min(t || eski, q); x.durum = "durdu"; delete x.bitis; } }
+        else { x.tamam = Math.min(t, q); if (t > 0 && t >= q) { x.durum = "bitti"; x.bitis = now; x.calisma = (o.calisma || []).map(c => c.bit ? c : { ...c, bit: now }); } }   // yeni adede zaten ulaşmış işlem biter
+        return x; });
+      const all = O.every(x => x.durum === "bitti"), any = O.some(x => x.durum !== "bekliyor");
+      const durum = all ? "bitti" : e2.durum === "bekle" ? "bekle" : any ? "uretim" : "plan";
+      const yeniSK = cok ? SK.map((r, i) => ({ spId: r.spId, k: r.k && r.k.k || r.k, miktar: Math.max(0, Number(h.querySelector("#iemQ" + i).value) || 0) })) : SK.map(r => ({ spId: r.spId, k: r.k && r.k.k || r.k, miktar: q }));
+      const by = ME.name, patch = { miktar: q, ops: O, durum, updatedAt: now, updatedBy: by, log: [...(e2.log || []), { at: now, by, t: `Adet düzeltildi: ${nf(eski)} → ${nf(q)} · ${neden}` }].slice(-80) };
+      if (SK.length) patch.spKalem = (e2.spKalem || []).map((r, i) => ({ ...r, miktar: yeniSK[i].miktar }));
+      if (all && e2.durum !== "bitti") patch.bitis = now;
+      try {
+        await updateDoc(doc(fs, "isemri", e.id), patch);
+        let spHata = 0;
+        for (const spId of [...new Set(SK.map(r => r.spId))]) { const s = SP.list.find(z => z.id === spId); if (!s) continue;
+          const NK = (s.kalemler || []).map(k => { const r = yeniSK.find(x => x.spId === spId && x.k === k.k); return r && (k.ie || []).some(x => x.id === e.id) ? { ...k, ie: k.ie.map(x => x.id === e.id ? { ...x, miktar: r.miktar } : x) } : k; });
+          try { await updateDoc(doc(fs, "siparis", spId), { kalemler: NK, updatedAt: now, updatedBy: by, log: spLog(s, `${e.no} adet düzeltildi: ${nf(eski)} → ${nf(q)} · ${neden}`) }); } catch (x) { spHata++; console.warn(x); } }
+        toast(`${e.no} adedi ${nf(eski)} → ${nf(q)} olarak düzeltildi${spHata ? " · sipariş bağlantısı güncellenemedi (yetki)" : ""}`); done(true);
+      } catch (x) { b.disabled = false; toast(writeErr(x)); }
+    };
+  });
+}
 // İş emrindeki bitmemiş tüm aşamaları tek seferde başlatır ya da bitirir (tek kayıt)
 async function plOpToplu(e, act) {
   const now = Date.now(), q = Number(e.miktar) || 0, by = typeof mesBy === "function" ? mesBy() : ME.name;
