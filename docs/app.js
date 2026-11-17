@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "76";
+const APP_V = "77";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7553,6 +7553,7 @@ function spOpen(id) {
       <div class="df"><span>${can("sp.delete") && !(s.kalemler || []).some(k => (k.ie || []).length || k.sevk) ? '<button class="btn danger" id="spDel" type="button">Sil</button>' : ""}</span><div class="r">
         ${can("sp.edit") && ["sevk"].includes(d) ? '<button class="btn ghost" id="spFat" type="button">Faturalandı işaretle</button>' : ""}
         ${can("sp.edit") && ["sevk", "fatura", "kismi"].includes(d) ? '<button class="btn ghost" id="spKap" type="button">Siparişi kapat</button>' : ""}
+        ${can("sp.teklif") && (can("sp.delete") || can("sp.edit")) && spAcik(s) && !(s.kalemler || []).some(k => (k.ie || []).length || k.sevk) ? '<button class="btn ghost" id="spTkAl" type="button" title="Yanlışlıkla sipariş olarak girildiyse teklife çevirir">Teklife al</button>' : ""}
         ${can("sp.edit") && spAcik(s) && !(s.kalemler || []).some(k => k.sevk) ? '<button class="btn ghost dangerb" id="spIpt" type="button">İptal</button>' : ""}
         <button class="btn ghost" id="spC" type="button">Kapat</button></div></div>
     </aside>`;
@@ -7570,6 +7571,7 @@ function spOpen(id) {
     const fa = $("#spFat"); if (fa) fa.onclick = async () => { const n = await prompt2("Bilsoft fatura numarası"); if (n == null) return; up({ faturalar: [...(s.faturalar || []), { no: n, tarih: TODAY, by: ME.name }] }, "Faturalandı" + (n ? ": " + n : "")); };
     const kp = $("#spKap"); if (kp) { let a = false; kp.onclick = () => { if (!a) { a = true; kp.textContent = "Kapatılsın mı? Tekrar basın"; return; } up({ durum: "kapandi" }, "Sipariş kapatıldı"); }; }
     const ip = $("#spIpt"); if (ip) { let a = false; ip.onclick = async () => { if (!a) { a = true; ip.textContent = "İptal edilsin mi? Tekrar basın"; return; } const n = await prompt2("İptal nedeni"); if (n == null) return; up({ durum: "iptal" }, "Sipariş iptal edildi" + (n ? ": " + n : "") + ((s.kalemler || []).some(k => (k.ie || []).length) ? " · bağlı iş emirlerini Planlama'da iptal edin" : "")); }; }
+    const tka = $("#spTkAl"); if (tka) tka.onclick = () => spToTeklif(s);
     const dl = $("#spDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { for (const x of s.ekler || []) for (let k = 0; k < (x.parca || 0); k++) await deleteDoc(doc(fs, "sp_dosya", `${s.id}_${x.id}_${k}`)).catch(() => {}); await deleteDoc(doc(fs, "siparis_fiyat", s.id)).catch(() => {}); await deleteDoc(doc(fs, "siparis", s.id)); toast("Sipariş silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
   };
   paint();
@@ -8060,7 +8062,7 @@ function tkListView(v) {
 /* --- teklif formu --- */
 async function tkOpenForm(id, o = {}) {
   if (!can("sp.teklif")) return;
-  const cur = id ? TK.list.find(t => t.id === id) : null, src = o.kopya ? TK.list.find(t => t.id === o.kopya) : null, base = cur || src;
+  const cur = id ? TK.list.find(t => t.id === id) : null, src = o.kopya ? TK.list.find(t => t.id === o.kopya) : o.spKaynak || null, base = cur || src;
   const rev = cur && cur.durum !== "taslak";
   let K = base ? JSON.parse(JSON.stringify(base.kalemler || [])) : [], f = null, varsR = base ? base.renk || null : null;
   let pbOld = base ? base.pb || "USD" : "USD";
@@ -8077,7 +8079,7 @@ async function tkOpenForm(id, o = {}) {
     const yets = c ? (c.yetkililer || []).filter(y => y.ad) : [];
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="tfT" style="width:min(1100px,100%)">
-      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : o.spKaynak ? `Siparişten teklif <small class="note">(${esc(src.no)} siparişinden)</small>` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri</h3><div class="fgrid">
           <div class="field full"><label for="tCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="tCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), cid)).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="tNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.iskonto ? "müşteri iskontosu %" + c.iskonto : "müşteri iskontosu tanımlı değil", c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
@@ -8171,8 +8173,8 @@ async function tkOpenForm(id, o = {}) {
         await updateDoc(doc(fs, "teklif", cur.id), up); toast(rev ? `${cur.no} ${tkRevAd(up.rev)} kaydedildi` : "Teklif kaydedildi"); closeDrawer(); setTimeout(() => tkOpen(cur.id), 120);
       } else {
         const tkP = tkNextNo().slice(0, -3), ref = doc(collection(fs, "teklif")), no = tkP + String(await sayacAl("TK-" + tkP.slice(4, 10), Number(tkNextNo().slice(-3)) - 1)).padStart(3, "0");
-        await setDoc(ref, { ...data, no, rev: 1, revs: [], durum: "taslak", gonderim: [], hazirlayan: ME.name, createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: src ? `${src.no} teklifinden kopyalandı` : "Teklif hazırlandı" }] });
-        toast(no + " kaydedildi"); closeDrawer(); setTimeout(() => tkOpen(ref.id), 120);
+        await setDoc(ref, { ...data, no, rev: 1, revs: [], durum: "taslak", gonderim: [], hazirlayan: ME.name, createdAt: now, createdBy: ME.name, uid: ME.uid, log: [{ at: now, by: ME.name, t: o.spKaynak ? `${o.spKaynak.no} siparişinden teklife alındı` : src ? `${src.no} teklifinden kopyalandı` : "Teklif hazırlandı" }], ...(o.spKaynak ? { kaynakSiparisNo: o.spKaynak.no } : {}) });
+        toast(no + " kaydedildi"); closeDrawer(); if (o.onSaved) await o.onSaved(ref.id, no); setTimeout(() => tkOpen(ref.id), 120);
       }
     } catch (x) { console.error(x); b.disabled = false; toast(writeErr(x)); }
   }
@@ -8222,6 +8224,38 @@ function tkOpen(id) {
     const dl = $("#tkDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "teklif", t.id)); toast("Teklif silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
   };
   paint();
+}
+// Yanlışlıkla sipariş olarak girilen işi teklife çevirir: teklif formu sipariş bilgileriyle dolu açılır,
+// teklif kaydedilince sipariş silinir (ya da iptal edilip teklife bağlanır). Üretime / sevke girmiş siparişte kullanılamaz.
+async function spToTeklif(s) {
+  if (!can("sp.teklif") || !(can("sp.delete") || can("sp.edit"))) return;
+  if ((s.kalemler || []).some(k => (k.ie || []).length || k.sevk)) { toast("İş emri açılmış ya da sevk edilmiş sipariş teklife alınamaz"); return; }
+  const silYetki = can("sp.delete");
+  const ne = await new Promise(res => spModal(`<label>Siparişi teklife al · <span class="num">${esc(s.no)}</span></label>
+    <p class="note" style="margin:0">Teklif formu bu siparişin müşteri, proje ve kalem bilgileriyle (fiyat, iskonto, KDV, renk, açıklama) dolu açılır. Kontrol edip kaydedince teklif oluşur.</p>
+    <div class="spro">${silYetki ? `<label class="chk sproc"><input type="radio" name="tkSp" value="sil" checked><span><b>Siparişi sil</b><small>Sipariş listeden ve planlama havuzundan kalkar; numarası boşta kalır</small></span></label>` : ""}
+      ${can("sp.edit") ? `<label class="chk sproc"><input type="radio" name="tkSp" value="iptal"${silYetki ? "" : " checked"}><span><b>Siparişi iptal et, iz kalsın</b><small>Sipariş "İptal" olarak kalır, geçmişine teklif numarası yazılır</small></span></label>` : ""}</div>
+    <div class="r"><button type="button" class="btn ghost" id="tkaC">Vazgeç</button><button type="button" class="btn" id="tkaO">Teklif formunu aç</button></div>`, (h, done) => {
+    h.querySelector("#tkaC").onclick = () => { done(false); res(null); };
+    h.querySelector("#tkaO").onclick = () => { const v = (h.querySelector('input[name="tkSp"]:checked') || {}).value || "iptal"; done(true); res(v); };
+  }));
+  if (!ne) return;
+  const F = SP.fiyat[s.id] || {}, P = s.proje || {}, fk = k => (F.k || {})[k.k] || {};
+  const R = new Map(); (s.kalemler || []).forEach(k => { if (k.renk) R.set(spRenkKey(k.renk), { r: k.renk, n: (R.get(spRenkKey(k.renk)) || { n: 0 }).n + 1 }); });
+  const renk = [...R.values()].sort((a, b) => b.n - a.n)[0];
+  const kay = { no: s.no, cariId: s.cariId, cariAd: s.cariAd, yetkili: P.yetkili || "", tel: P.tel || "", eposta: "", adres: P.adres || "", santiye: P.ad || "", pb: F.pb || "USD", kur: F.kur || "", odeme: s.odeme || "", not: s.not || "", renk: renk ? renk.r : null, iskonto: null, dil: "TR",
+    kalemler: (s.kalemler || []).map(k => { const x = fk(k), [w, h, n] = String(k.olcu || "").split(/x/i); return { k: spNewK(), sid: k.sid || null, kod: k.kod || "", ad: k.ad, adEn: "", w: w || "", h: h || "", n: n || "", birim: k.birim || "Adet", miktar: Number(k.miktar) || 0, renk: k.renk || null, var: k.var || {}, ozel: k.aciklama || k.ozel || "", liste: x.fiyat ?? null, isk: Number(x.isk) || 0, kdv: Number(x.kdv ?? 20) }; }) };
+  if (F.toplu != null && F.toplu !== "") toast("Siparişte toplu fiyat vardı; teklifte kalem fiyatlarını girin");
+  closeDrawer();
+  setTimeout(() => tkOpenForm(null, { spKaynak: kay, onSaved: async (tkId, tkNo) => {
+    const s2 = SP.list.find(z => z.id === s.id); if (!s2) return;
+    if ((s2.kalemler || []).some(k => (k.ie || []).length || k.sevk)) { toast(`${tkNo} oluştu; sipariş bu arada üretime girdiği için silinmedi`); return; }
+    try {
+      if (ne === "sil") { for (const x of s2.ekler || []) for (let k = 0; k < (x.parca || 0); k++) await deleteDoc(doc(fs, "sp_dosya", `${s2.id}_${x.id}_${k}`)).catch(() => {});
+        await deleteDoc(doc(fs, "siparis_fiyat", s2.id)).catch(() => {}); await deleteDoc(doc(fs, "siparis", s2.id)); toast(`${tkNo} teklifi oluştu · ${s2.no} siparişi silindi`); }
+      else { const now = Date.now(); await updateDoc(doc(fs, "siparis", s2.id), { durum: "iptal", iptalNeden: `Teklife alındı: ${tkNo}`, teklifNo: tkNo, updatedAt: now, updatedBy: ME.name, log: spLog(s2, `Sipariş teklife alındı (${tkNo}) ve iptal edildi`) }); toast(`${tkNo} teklifi oluştu · ${s2.no} iptal edildi`); }
+    } catch (x) { toast(`Teklif oluştu ama sipariş güncellenemedi: ${writeErr(x)}`); }
+  } }), 150);
 }
 function tkToSiparis(t) {
   const R = new Map(); (t.kalemler || []).forEach(k => { if (k.renk) R.set(spRenkKey(k.renk), { r: k.renk, n: (R.get(spRenkKey(k.renk)) || { n: 0 }).n + 1 }); });
