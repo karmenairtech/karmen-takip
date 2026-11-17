@@ -1631,3 +1631,24 @@ body.mesdev .toolbar{display:none}
 .mhsvb{background:var(--k-fabrikada,#2f9e44)!important;border-color:var(--k-fabrikada,#2f9e44)!important;color:#fff!important;font-weight:700;white-space:nowrap}
 .mhgt .mhcp{width:26px;height:26px}
 .mhmuh{display:inline-block;margin-top:3px;padding:0 7px;border-radius:999px;background:color-mix(in srgb,var(--k-gec) 16%,var(--surface));color:var(--k-gec);font-size:11px;font-weight:700}
+
+/* v71 — kullanım takibi */
+#ytKul{margin:18px 0}
+.lkvkk{font-size:11.5px;margin:8px 0 0;opacity:.75}
+.kulh{display:flex;align-items:center;justify-content:space-between}
+.kulsum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.kulsum>div{padding:10px 14px;border-radius:12px;background:color-mix(in srgb,var(--line) 30%,var(--surface));border-left:4px solid var(--brand)}
+.kulsum span{display:block;font-size:12px;color:var(--ink-3)}.kulsum b{font-size:22px}
+.kull{display:flex;flex-direction:column;gap:6px}
+.kulr{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}.kulr.yok{opacity:.6}
+.kulb{all:unset;box-sizing:border-box;width:100%;display:grid;grid-template-columns:16px minmax(160px,1.2fr) minmax(80px,1fr) 130px minmax(0,1.6fr);gap:12px;align-items:center;padding:10px 14px;cursor:pointer}
+.kulb:hover{background:color-mix(in srgb,var(--brand) 5%,var(--surface))}.kulb:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.kulc{color:var(--ink-3)}.kula small,.kuls small{display:block;font-size:12px;color:var(--ink-3);font-weight:400}
+.kulbar{height:10px;border-radius:99px;background:color-mix(in srgb,var(--line) 50%,var(--surface));overflow:hidden}.kulbar i{display:block;height:100%;background:var(--brand);border-radius:99px}
+.kuls{text-align:right}.kulm{display:flex;gap:6px;flex-wrap:wrap}.kulm em{font-style:normal;font-size:12px;padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--brand) 9%,var(--surface))}
+.kuld{border-top:1px solid var(--line);padding:12px 14px 14px 42px}.kuld h4{margin:4px 0 8px;font-size:13px}
+.kuldg{display:grid;grid-template-columns:1.4fr 1fr;gap:24px}
+.kulmr{display:grid;grid-template-columns:minmax(110px,1fr) 1.4fr 80px;gap:10px;align-items:center;font-size:13px;padding:3px 0}
+.kulmr i{height:8px;border-radius:99px;background:linear-gradient(90deg,var(--brand) var(--w),color-mix(in srgb,var(--line) 50%,var(--surface)) var(--w))}.kulmr b{text-align:right}
+.kulgun{display:flex;flex-direction:column}.kulgun>div{display:grid;grid-template-columns:110px 130px 90px 1fr;gap:10px;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+@media (max-width:800px){.kulb{grid-template-columns:16px 1fr auto}.kulbar,.kulm{grid-column:2/-1}.kuldg{grid-template-columns:1fr}.kuld{padding-left:14px}.kulsum{grid-template-columns:1fr 1fr}}

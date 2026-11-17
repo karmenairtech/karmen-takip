@@ -7,13 +7,19 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, addDoc, writeBatch, query, where, getDoc, getDocs, increment, orderBy, limit, getCountFromServer, runTransaction
+  collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, orderBy, limit, getCountFromServer, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
+// Kullanım takibi için kullanıcının yaptığı kayıtlar sayılır (veri yazma işlevleri aynen çalışır)
+let KUL_KAYIT = 0;
+const kulSay = r => { const p = String((r && (r.path || r.c)) || ""); if (!/^(reads|kullanim)\b/.test(p)) KUL_KAYIT++; };   // okundu işaretleri sayılmaz
+const setDoc = (...a) => { kulSay(a[0]); return _setDoc(...a); }, updateDoc = (...a) => { kulSay(a[0]); return _updateDoc(...a); };
+const deleteDoc = (...a) => { kulSay(a[0]); return _deleteDoc(...a); }, addDoc = (...a) => { kulSay(a[0]); return _addDoc(...a); };
+const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b); b.commit = () => { KUL_KAYIT++; return c(); }; return b; };
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "70";
+const APP_V = "71";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -131,6 +137,7 @@ function loginScreen(mode = "login", msg = "") {
       <div class="field"><label for="lPass">Şifre</label><input id="lPass" type="password" autocomplete="${reg ? "new-password" : "current-password"}" minlength="6" required></div>
       <label class="chk lhat"><input type="checkbox" id="lHat"${hatirla().on ? " checked" : ""}> Beni hatırla <small class="note">e-posta kayıtlı kalır, oturum kapanmaz</small></label>
       <button class="btn" type="submit" id="lSub">${reg ? "Hesap oluştur" : "Giriş yap"}</button>
+      <p class="note lkvkk">Bilgilendirme: Programın kullanım süresi ve yapılan işlemler, iş takibi amacıyla kullanıcı bazında kaydedilir.</p>
     </form>
     <div class="gate-row">
       <button class="linkbtn" id="fgt" type="button">Şifremi unuttum</button>
@@ -233,6 +240,7 @@ function enter(user) {
 let dataUnsubs = [];
 function stopDataSubs() { dataUnsubs.forEach(u => { try { u(); } catch (e) {} }); dataUnsubs = []; }
 function startData() {
+  kulBasla();
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
@@ -2047,7 +2055,7 @@ function ytSetLevel(r, m, L) {
 function ytMark() { YT.dirty = true; const b = $("#ytSave"); if (b) b.disabled = false; const s = $("#ytState"); if (s) s.textContent = "Kaydedilmemiş değişiklik var"; }
 function renderYetki() {
   if (!isAdmin() || $("#modYetki").hidden) return;
-  renderYedek();
+  renderYedek(); renderKullanim();
   const R = YT.rows;
   const adminN = R.filter(r => r.role === "admin").length;
   $("#ytSum").innerHTML = `<span><b>${R.length}</b> kişi</span><span><b>${adminN}</b> yönetici</span><span><b>${R.length - adminN}</b> kullanıcı</span>`;
@@ -10005,4 +10013,85 @@ function mesTamamlanan() {
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#mtXx").onclick = closeDrawer; $("#mtKp").onclick = closeDrawer;
   ciz();
+}
+
+
+/* ================= KULLANIM TAKİBİ =================
+   Program görünür ve son 2 dakikada dokunulmuş/klavye/fare kullanılmışsa aktif süre sayılır.
+   Süre modül bazında biriktirilir, 5 dakikada bir (ve sekme gizlenince) kullanim/{uid}_{gün} belgesine toplu yazılır.
+   Yalnızca yönetici okur. MES tabletlerinde süre cihaz hesabına yazılır. */
+const KUL = { on: false, son: Date.now(), tamp: {}, cihaz: {}, kayit0: 0, ilk: 0 };
+const kulCihaz = () => (typeof mesMyDev === "function" && mesMyDev()) ? "MES tableti" : matchMedia("(pointer:coarse)").matches ? "Tablet / telefon" : "Bilgisayar";
+const kulMod = () => { const r = ROUTE || "home"; return r === "home" ? "Ana ekran" : ((MODULES.find(m => m.id === r) || {}).name || r); };
+function kulBasla() {
+  if (KUL.on || !ME || !ME.uid) return; KUL.on = true;
+  const dokun = () => { KUL.son = Date.now(); };
+  ["pointerdown", "keydown", "wheel", "touchstart", "mousemove"].forEach(ev => addEventListener(ev, dokun, { passive: true, capture: true }));
+  setInterval(() => {   // 15 sn'de bir aktiflik kontrolü
+    if (!ME || document.visibilityState !== "visible" || Date.now() - KUL.son > 120000) return;
+    const m = kulMod(), c = kulCihaz(); KUL.tamp[m] = (KUL.tamp[m] || 0) + 0.25; KUL.cihaz[c] = (KUL.cihaz[c] || 0) + 0.25; if (!KUL.ilk) KUL.ilk = Date.now();
+  }, 15000);
+  setInterval(kulYaz, 300000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") kulYaz(); });
+  addEventListener("pagehide", kulYaz);
+}
+async function kulYaz() {
+  if (!ME || !ME.uid) return;
+  const dk = Object.values(KUL.tamp).reduce((a, b) => a + b, 0), kayit = KUL_KAYIT - KUL.kayit0;
+  if (!dk && !kayit) return;
+  const T = KUL.tamp, C = KUL.cihaz, ilk = KUL.ilk; KUL.tamp = {}; KUL.cihaz = {}; KUL.ilk = 0; KUL.kayit0 = KUL_KAYIT;
+  const d = { uid: ME.uid, ad: ME.name || "", eposta: ME.email || "", gun: TODAY, son: Date.now(), dk: increment(dk), kayit: increment(kayit), mod: {}, cihaz: {} };
+  Object.entries(T).forEach(([k, v]) => { d.mod[k] = increment(v); }); Object.entries(C).forEach(([k, v]) => { d.cihaz[k] = increment(v); });
+  try {
+    const ref = doc(fs, "kullanim", `${ME.uid}_${TODAY}`);
+    if (ilk && !KUL.gunIlk) { KUL.gunIlk = TODAY; const sn = await getDoc(ref).catch(() => null); if (!sn || !sn.exists() || !sn.data().ilkAday) d.ilkAday = ilk; }
+    await _setDoc(ref, d, { merge: true });
+  } catch (e) { Object.entries(T).forEach(([k, v]) => { KUL.tamp[k] = (KUL.tamp[k] || 0) + v; }); Object.entries(C).forEach(([k, v]) => { KUL.cihaz[k] = (KUL.cihaz[k] || 0) + v; }); KUL.kayit0 -= kayit; console.warn("kullanım yazılamadı", e && e.message); }
+}
+// ---- Yönetici ekranı (Yetkilendirme altında)
+const KULV = { per: "bugun", L: null, yuk: false, ac: new Set(), at: 0, hata: "" };
+async function kulYukle(zorla) {
+  if (KULV.yuk || (!zorla && KULV.L && Date.now() - KULV.at < 120000)) return;
+  KULV.yuk = true;
+  try { const bas = new Date(Date.now() - 62 * 864e5).toISOString().slice(0, 10);
+    KULV.L = (await getDocs(query(collection(fs, "kullanim"), where("gun", ">=", bas)))).docs.map(d => d.data()); KULV.at = Date.now(); KULV.hata = ""; }
+  catch (e) { KULV.L = KULV.L || []; KULV.at = Date.now(); KULV.hata = (e && e.message) || String(e); }
+  KULV.yuk = false; if (ROUTE === "yetki") renderKullanim();
+}
+const kulSure = dk => { dk = Math.round(dk || 0); if (dk < 60) return dk + " dk"; const h = Math.floor(dk / 60), m = dk % 60; return h + " sa" + (m ? " " + m + " dk" : ""); };
+const kulSaat = ts => ts ? new Date(ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—";
+function renderKullanim() {
+  const h = $("#ytKul"); if (!h || !isAdmin()) return;
+  if (!KULV.L) { h.innerHTML = `<div class="ph-box"><h3>Kullanım takibi</h3><p class="note">Yükleniyor…</p></div>`; kulYukle(); return; }
+  kulYukle();
+  const d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
+  const [a, b] = { bugun: [TODAY, TODAY], dun: [gs(1), gs(1)], hafta: [gs(wd), TODAY], ay: [TODAY.slice(0, 8) + "01", TODAY], "30": [gs(29), TODAY] }[KULV.per];
+  const R = KULV.L.filter(x => x.gun >= a && x.gun <= b), U = new Map(), lw = x => String(x || "").toLowerCase();
+  R.forEach(x => { let u = U.get(x.uid); if (!u) U.set(x.uid, u = { uid: x.uid, ad: x.ad, eposta: x.eposta, dk: 0, kayit: 0, gun: new Set(), mod: {}, cihaz: {}, son: 0, G: [] });
+    u.ad = x.ad || u.ad; u.dk += Number(x.dk) || 0; u.kayit += Number(x.kayit) || 0; if ((Number(x.dk) || 0) >= 1) u.gun.add(x.gun); u.son = Math.max(u.son, Number(x.son) || 0); u.G.push(x);
+    Object.entries(x.mod || {}).forEach(([k, v]) => { u.mod[k] = (u.mod[k] || 0) + (Number(v) || 0); }); Object.entries(x.cihaz || {}).forEach(([k, v]) => { u.cihaz[k] = (u.cihaz[k] || 0) + (Number(v) || 0); }); });
+  // dönemde hiç kullanmayan kayıtlı kullanıcılar da listede görünsün
+  Object.entries(state.access || {}).forEach(([em, m]) => { if (!m || [...U.values()].some(u => lw(u.eposta) === lw(em))) return;
+    U.set("e:" + em, { uid: "e:" + em, ad: m.name || em, eposta: em, dk: 0, kayit: 0, gun: new Set(), mod: {}, cihaz: {}, son: Math.max(0, ...KULV.L.filter(x => lw(x.eposta) === lw(em)).map(x => Number(x.son) || 0)), G: [] }); });
+  const L = [...U.values()].sort((x, y) => y.dk - x.dk || y.son - x.son), mx = Math.max(1, ...L.map(u => u.dk)), top = L.reduce((t, u) => t + u.dk, 0);
+  const sonTxt = ts => { if (!ts) return "Takip başladığından beri girmedi"; const g = Math.floor((Date.now() - ts) / 60000); return g < 6 ? '<b style="color:var(--k-fabrikada)">● Şu an kullanıyor</b>' : g < 60 ? `Son görülme ${g} dk önce` : "Son görülme " + skTs(ts); };
+  const bar = (k, v, t) => `<div class="kulmr"><span>${esc(k)}</span><i style="--w:${Math.round(v / Math.max(1, t) * 100)}%"></i><b class="num">${kulSure(v)}</b></div>`;
+  h.innerHTML = `<div class="ph-box kulbox"><div class="kulh"><h3>Kullanım takibi</h3><button type="button" class="btn ghost sm" id="kulR">Yenile</button></div>
+    <p class="note" style="margin:0 0 10px">Program açık ve kullanılırken geçen aktif süre; 2 dakika hareketsiz kalınan süre sayılmaz. Takip bu sürümle başladı, öncesi yoktur. MES tabletlerinde süre cihaz hesabına yazılır. Veriler 5 dakikada bir güncellenir.</p>
+    <div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["30", "Son 30 gün"]].map(([k, l]) => `<button type="button" data-kp="${k}" aria-pressed="${KULV.per === k}">${l}</button>`).join("")}</div>
+    ${KULV.hata ? `<p class="note" style="color:#d92d20">Okunamadı: ${esc(KULV.hata)} — Firestore kurallarının yayınlandığından emin olun.</p>` : ""}
+    <div class="kulsum"><div><span>Toplam aktif süre</span><b>${kulSure(top)}</b></div><div><span>Kullanan kişi / cihaz</span><b>${L.filter(u => u.dk >= 1).length}</b></div><div><span>Yapılan kayıt</span><b>${nf(L.reduce((t, u) => t + u.kayit, 0))}</b></div></div>
+    <div class="kull">${L.map(u => { const ac = KULV.ac.has(u.uid), M = Object.entries(u.mod).sort((x, y) => y[1] - x[1]), C = Object.entries(u.cihaz).sort((x, y) => y[1] - x[1]);
+      return `<div class="kulr${ac ? " on" : ""}${u.dk < 1 ? " yok" : ""}"><button type="button" class="kulb" data-ku="${esc(u.uid)}" aria-expanded="${ac}">
+        <span class="kulc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
+        <span class="kula"><b>${esc(u.ad || u.eposta || "—")}</b><small>${sonTxt(u.son)}</small></span>
+        <span class="kulbar"><i style="width:${Math.round(u.dk / mx * 100)}%"></i></span>
+        <span class="kuls num"><b>${kulSure(u.dk)}</b><small>${KULV.per === "bugun" || KULV.per === "dun" ? "" : u.gun.size + " gün · "}${nf(u.kayit)} kayıt</small></span>
+        <span class="kulm">${M.slice(0, 3).map(([k, v]) => `<em>${esc(k)} <b>${kulSure(v)}</b></em>`).join("")}</span></button>
+        ${ac ? `<div class="kuld"><div class="kuldg"><div><h4>Modüller</h4>${M.length ? M.map(([k, v]) => bar(k, v, u.dk)).join("") : '<p class="note">Kayıt yok</p>'}</div>
+          <div><h4>Cihaz</h4>${C.length ? C.map(([k, v]) => bar(k, v, u.dk)).join("") : '<p class="note">Kayıt yok</p>'}</div></div>
+          ${u.G.length ? `<h4>Günler</h4><div class="kulgun">${u.G.slice().sort((x, y) => y.gun.localeCompare(x.gun)).map(g => `<div><b class="num">${fmtS(g.gun)}</b><span class="num">${kulSaat(g.ilkAday)} – ${kulSaat(g.son)}</span><b class="num">${kulSure(g.dk)}</b><span class="note">${nf(g.kayit || 0)} kayıt</span></div>`).join("")}</div>` : ""}</div>` : ""}</div>`; }).join("")}</div></div>`;
+  h.querySelectorAll("[data-kp]").forEach(x => x.onclick = () => { KULV.per = x.dataset.kp; renderKullanim(); });
+  h.querySelectorAll("[data-ku]").forEach(x => x.onclick = () => { const id = x.dataset.ku; KULV.ac.has(id) ? KULV.ac.delete(id) : KULV.ac.add(id); renderKullanim(); });
+  $("#kulR").onclick = async () => { await kulYaz(); kulYukle(true); };
 }
