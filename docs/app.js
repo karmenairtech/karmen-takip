@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "77";
+const APP_V = "78";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7298,7 +7298,7 @@ async function spOpenForm(id, pre) {
             return `<div class="spkr${k.renk && varsR && spRenkKey(k.renk) !== spRenkKey(varsR) ? " fark" : ""}">
               <div class="spk1"><span class="spsn" title="Sıra no">${i + 1}</span><span class="num skk">${esc(k.kod || "Serbest")}</span> <b>${esc(k.ad)}</b>${plan ? ` <span class="kst" style="--tc:var(--brand)">${nf(plan)} planlandı</span>` : ""}
                 <input class="kin num" id="qM${i}" type="number" min="0" step="any" value="${esc(k.miktar)}" aria-label="Miktar"><select class="kin" id="qB${i}" aria-label="Birim">${[...new Set([...ST_BIRIM, k.birim].filter(Boolean))].map(b => opt(b, b, k.birim || "Adet")).join("")}</select>
-                <button type="button" class="btn ghost sm" data-qrm="${i}" aria-label="Kalemi kaldır"${plan ? " disabled title=\"İş emrine çevrilmiş kalem silinemez\"" : ""}>×</button></div>
+                <button type="button" class="btn ghost sm" data-qrm="${i}" aria-label="Kalemi kaldır"${Number(k.sevk) > 0 ? " disabled title=\"Sevk edilmiş kalem silinemez\"" : (k.ie || []).length ? " title=\"İş emri açılmış kalem: kaydederken iş emrine yansıtmayı seçersiniz\"" : ""}>×</button></div>
               <div class="spk2"><button type="button" class="btn ghost sm sprb" data-qr="${i}">${k.renk ? spSw(k.renk) + " " + esc(spRenkAd(k.renk)) : '<span class="late">Renk seç</span>'}</button>
                 ${vl.map(x => spVarHtml(i, x, k)).join("")}
                 <input class="kin" data-qo="${i}" maxlength="120" value="${esc(k.ozel || "")}" placeholder="Özel istek / varyasyon" style="flex:1 1 160px">
@@ -7375,11 +7375,13 @@ async function spOpenForm(id, pre) {
           const fark = spFark(cur, data); if (!fark.length && cur.verilenTermin === data.verilenTermin) { toast("Değişiklik yok"); b.disabled = false; return; }
           if (cur.verilenTermin && data.verilenTermin !== cur.verilenTermin) { const n = await prompt2(`Termin ${fmtS(cur.verilenTermin)} → ${fmtS(data.verilenTermin)}. Değişiklik nedeni?`); if (n == null) { b.disabled = false; return; } data.terminLog = [...(cur.terminLog || []), { at: now, by: ME.name, eski: cur.verilenTermin, yeni: data.verilenTermin, neden: n }]; }
           data.rev = (cur.rev || 0) + 1; data.revLog = [...(cur.revLog || []), { rev: data.rev, at: now, by: ME.name, fark }]; msg = `Revizyon ${data.rev} kaydedildi`;
+          var ieD = spIeFark(cur, kal), ieSec = ieD.length ? await spIeSor(ieD) : new Set(); if (ieSec === null) { b.disabled = false; return; }
           kal.forEach(k => { const o = (cur.kalemler || []).find(x => x.k === k.k); if (o && (o.ie || []).length && (o.miktar !== k.miktar || spRenkKey(o.renk) !== spRenkKey(k.renk) || JSON.stringify(o.var || {}) !== JSON.stringify(k.var || {}) || (o.ozel || "") !== (k.ozel || ""))) k.degisti = { rev: data.rev, at: now }; });
         }
         if (onay && cur.durum === "taslak") { data.durum = "onaylandi"; data.onay = { by: ME.name, at: now }; data.renkOnay = { by: ME.name, at: now }; }
         else if (onayli) data.renkOnay = { by: ME.name, at: now };
-        data.log = spLog(cur, msg); await updateDoc(ref, data); toast(msg);
+        let ieY = null; if (onayli && typeof ieD !== "undefined" && ieD.length && ieSec.size) { ieY = await spIeYansit(cur, ieD, ieSec, kal, data.rev); if (ieY.out.length) msg += ` · ${ieY.out.length} iş emri güncellendi`; }
+        data.log = spLog(cur, msg); await updateDoc(ref, data); toast(msg + (ieY && ieY.hata ? ` · ${ieY.hata} iş emri güncellenemedi (yetki)` : ""));
       } else {
         ref = doc(collection(fs, "siparis"));
         no = `KRM-${TODAY.slice(0, 4)}-${String(await sayacAl("KRM-" + TODAY.slice(0, 4), spNoSon(SP.list.map(x => x.no)))).padStart(4, "0")}`; data.no = no;   // numara kayıt anında sunucu sayacından kesinleşir
@@ -10362,4 +10364,88 @@ function renderKT() {
   $("#ktG").onchange = e => { F.gecmis = e.target.checked; re(); };
   $("#ktR").onclick = async () => { await logYaz(); ktLogYukle(true); };
   const t1 = $("#ktT1"); if (t1) { t1.onchange = () => { F.t1 = t1.value; re(); }; $("#ktT2").onchange = e => { F.t2 = e.target.value; re(); }; }
+}
+
+
+/* ================= Sipariş revizyonunu iş emirlerine yansıtma =================
+   Onaylı siparişte iş emri açılmış kalem silinir ya da değiştirilirse (miktar, renk, varyasyon, açıklama),
+   kaydederken her kalem için "iş emrine de yansıt" seçilir. Yeni eklenen kalemler planlama havuzuna düşer;
+   oradan açılan iş emri aynı sipariş numarası altında listelenir. */
+// Adet değişince operasyonların tamamlanan adedini yeni adede göre ayarlar
+function plOpsMiktar(ops, eski, q, now) {
+  return (ops || []).map(o => { const x = { ...o }, t = Number(o.tamam) || 0;
+    if (o.atlandi) x.tamam = q;
+    else if (o.durum === "bitti") { if (q <= eski) x.tamam = q; else { x.tamam = Math.min(t || eski, q); x.durum = "durdu"; delete x.bitis; } }
+    else { x.tamam = Math.min(t, q); if (t > 0 && t >= q) { x.durum = "bitti"; x.bitis = now; x.calisma = (o.calisma || []).map(c => c.bit ? c : { ...c, bit: now }); } }
+    return x; });
+}
+// Yeni operasyon listesine eski listedeki aynı istasyon + aynı adımın ilerlemesini taşır
+function plOpsTasi(yeni, eski) {
+  const E = (eski || []).filter(o => !o.atlandi), kul = new Set(); let tasinan = 0;
+  yeni.forEach(o => { if (o.atlandi) return; const ad = araFold(o.ad || ""), j = E.findIndex((x, i) => !kul.has(i) && x.ist === o.ist && araFold(x.ad || "") === ad);
+    if (j < 0) return; kul.add(j); const x = E[j]; if (x.durum === "bekliyor" && !(Number(x.tamam) > 0)) return;
+    Object.assign(o, { durum: x.durum, tamam: x.tamam || 0, fire: x.fire || 0, calisma: x.calisma || [], ...(x.operator ? { operator: x.operator } : {}), ...(x.bitis ? { bitis: x.bitis } : {}) }); tasinan++; });
+  return { ops: yeni, tasinan, kayip: E.filter((x, i) => !kul.has(i) && (x.durum !== "bekliyor" || Number(x.tamam) > 0)).length };
+}
+const ieDurumOf = (O, d0) => O.every(o => o.durum === "bitti" || o.atlandi) ? "bitti" : d0 === "bekle" ? "bekle" : O.some(o => o.durum !== "bekliyor") ? "uretim" : "plan";
+// Kaydetmeden önce: etkilenen kalemleri bul, kullanıcıya sor
+function spIeFark(cur, kal) {
+  const D = [], ieOf = id => PL.ie.find(e => e.id === id), acik = e => !e || (e.durum !== "iptal" && e.durum !== "bitti");   // planlama verisi yüklü değilse kayıt anında okunur
+  (cur.kalemler || []).forEach(o => { if (!(o.ie || []).length) return; const k = kal.find(x => x.k === o.k), ies = o.ie.map(x => ({ x, e: ieOf(x.id) }));
+    if (!k) { D.push({ tur: "sil", o, k: null, ies, ozet: "Kalem siparişten silindi" }); return; }
+    const p = []; if (Number(o.miktar) !== Number(k.miktar)) p.push(`Miktar ${nf(o.miktar)} → ${nf(k.miktar)}`);
+    if (spRenkKey(o.renk) !== spRenkKey(k.renk)) p.push(`Renk ${o.renk ? spRenkAd(o.renk) : "—"} → ${k.renk ? spRenkAd(k.renk) : "—"}`);
+    if (JSON.stringify(o.var || {}) !== JSON.stringify(k.var || {}) || (o.ozel || "") !== (k.ozel || "")) p.push(`Varyasyon ${spVarAd(o) || "—"} → ${spVarAd(k) || "—"}`);
+    if ((o.aciklama || "") !== (k.aciklama || "")) p.push("Açıklama değişti");
+    if (p.length) D.push({ tur: "deg", o, k, ies, ozet: p.join(" · ") }); });
+  D.forEach(d => { d.acik = d.ies.filter(z => acik(z.e)); d.kapali = d.ies.filter(z => !acik(z.e)); });
+  return D;
+}
+function spIeSor(D) {
+  return new Promise(res => spModal(`<label>İş emri açılmış kalemler değişti</label>
+    <p class="note" style="margin:0">İşaretli kalemlerin değişikliği bağlı iş emirlerine de yazılır. İşaretlemezseniz iş emri olduğu gibi kalır, kalem "değişti" uyarısıyla planlamaya bildirilir.</p>
+    <div class="spied">${D.map((d, i) => `<label class="chk spiedr${d.acik.length ? "" : " kap"}"><input type="checkbox" data-sie2="${i}"${d.acik.length ? " checked" : " disabled"}>
+      <span><b>${esc(d.o.kod ? d.o.kod + " · " : "")}${esc(d.o.ad || "")}</b><small class="${d.tur === "sil" ? "late" : ""}">${esc(d.ozet)}</small>
+      <small>${d.ies.map(z => `<span class="num">${esc(z.x.no)}</span> ${z.e ? esc((PL_EDUR[z.e.durum] || [z.e.durum])[0]) : ""}`).join(" · ")}</small>
+      <small class="note">${!d.acik.length ? "İş emri tamamlanmış / iptal: değişiklik yansıtılamaz" : d.tur === "sil" ? "İş emri iptal edilir (birden çok kalemi karşılıyorsa yalnızca bu kalemin adedi düşülür)" : "İş emrinin adedi, rengi ve açıklaması güncellenir; ilerleme korunur"}${d.ies.some(z => z.e && (z.e.ops || []).some(op => (op.calisma || []).some(c => !c.bit))) ? ' · <span class="late">şu an üzerinde çalışılıyor</span>' : ""}</small></span></label>`).join("")}</div>
+    <div class="r"><button type="button" class="btn ghost" id="sieC">Vazgeç</button><button type="button" class="btn" id="sieO">Kaydet</button></div>`, (h, done) => {
+    h.querySelector("#sieC").onclick = () => { done(false); res(null); };
+    h.querySelector("#sieO").onclick = () => { const S = new Set([...h.querySelectorAll("[data-sie2]:checked")].map(x => Number(x.dataset.sie2))); done(true); res(S); };
+  }));
+}
+// Seçilen değişiklikleri iş emirlerine uygular; kal (yeni kalemler) içindeki ie[].miktar da güncellenir
+async function spIeYansit(s, D, sec, kal, rev) {
+  const now = Date.now(), by = ME.name, out = []; let hata = 0;
+  for (let i = 0; i < D.length; i++) { if (!sec.has(i)) continue; const d = D[i];
+    const k = d.k, hedef = k ? Math.max(0, (Number(k.miktar) || 0) - (Number(k.stok) || 0)) : 0, planli = d.ies.reduce((t, z) => t + (Number(z.x.miktar) || 0), 0);
+    let delta = k ? hedef - planli : 0;   // miktar farkı en son açık iş emrine yazılır
+    const sira = d.acik.slice().reverse();
+    for (const z of sira) { let e = PL.ie.find(x => x.id === z.x.id) || z.e;
+      if (!e) { try { const sn = await getDoc(doc(fs, "isemri", z.x.id)); if (sn.exists()) e = { id: sn.id, ...sn.data() }; } catch (x) { } }
+      if (!e || e.durum === "iptal" || e.durum === "bitti") continue;
+      const SK = (e.spKalem || []), bu = SK.find(r => r.spId === s.id && r.k === d.o.k), bunun = Number((bu || {}).miktar ?? z.x.miktar) || 0, eski = Number(e.miktar) || 0;
+      const p = { updatedAt: now, updatedBy: by }; let t = "";
+      if (d.tur === "sil") {
+        const kalan = SK.filter(r => !(r.spId === s.id && r.k === d.o.k));
+        if (kalan.length) { const q = Math.max(0, eski - bunun); Object.assign(p, { spKalem: kalan, miktar: q, ops: plOpsMiktar(e.ops, eski, q, now) }); p.durum = ieDurumOf(p.ops, e.durum); t = `${s.no} revizyon ${rev}: kalem silindi, adet ${nf(eski)} → ${nf(q)}`; }
+        else { p.durum = "iptal"; t = `${s.no} revizyon ${rev}: kalem siparişten silindi, iş emri iptal edildi`; }
+      } else {
+        let yeniBu = bunun; if (delta) { yeniBu = Math.max(0, bunun + delta); delta -= (yeniBu - bunun); }
+        const q = Math.max(0, eski - bunun + yeniBu), deg = [];
+        if (q !== eski) { p.miktar = q; p.ops = plOpsMiktar(e.ops, eski, q, now); deg.push(`adet ${nf(eski)} → ${nf(q)}`); if (bu) p.spKalem = SK.map(r => r === bu ? { ...r, miktar: yeniBu } : r); }
+        if (spRenkKey(d.o.renk) !== spRenkKey(k.renk)) { p.renk = k.renk || null; p.renkAd = k.renk ? spRenkAd(k.renk) : ""; deg.push(`renk ${p.renkAd || "—"}`);
+          if (spBoyali(d.o.renk || {}) !== spBoyali(k.renk || {})) { const a = PL.akis.find(x => x.id === e.akisId); if (a) { const r = plOpsTasi(plOpsFor(a, k, q), p.ops || e.ops); p.ops = r.ops; deg.push("boya adımı " + (spBoyali(k.renk || {}) ? "eklendi" : "atlandı")); } } }
+        p.urunAd = `${k.kod ? k.kod + " · " : ""}${k.ad}`; p.varyasyon = spVarAd(k);
+        p.not = [k.renk ? "Renk: " + spRenkAd(k.renk) : "", spVarAd(k), k.aciklama || ""].filter(Boolean).join(" · ");
+        if (p.ops) p.durum = ieDurumOf(p.ops, e.durum);
+        if (p.durum === "bitti" && e.durum !== "bitti") p.bitis = now;
+        t = `${s.no} revizyon ${rev}: ${d.ozet}${deg.length ? " → iş emrine yansıtıldı (" + deg.join(", ") + ")" : ""}`;
+        const kk = kal.find(x => x.k === k.k); if (kk) kk.ie = (kk.ie || []).map(x => x.id === e.id ? { ...x, miktar: yeniBu } : x);
+      }
+      p.log = [...(e.log || []), { at: now, by, t }].slice(-80);
+      try { await updateDoc(doc(fs, "isemri", e.id), p); out.push(e.no); } catch (x) { hata++; console.warn(x); }
+    }
+    if (k) { const kk = kal.find(x => x.k === k.k); if (kk) delete kk.degisti; }
+  }
+  return { out, hata };
 }
