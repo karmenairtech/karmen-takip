@@ -7,7 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, orderBy, limit, getCountFromServer, runTransaction
+  collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, arrayUnion, orderBy, limit, getCountFromServer, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
 // Kullanım takibi için kullanıcının yaptığı kayıtlar sayılır (veri yazma işlevleri aynen çalışır)
@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "78";
+const APP_V = "81";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3650,7 +3650,8 @@ function skOpenCard(id, tab) {
       data.seviye = skSeviye(cur ? cur.miktar : numOr(g("cMik"), 0), data.minStok, data.maxStok); data.kelimeler = skWords({ ...data, olcu: cur ? cur.olcu : "" });
       sv.disabled = true;
       try {
-        if (cur) await updateDoc(doc(fs, "stok", sid), data);
+        if (cur) { await updateDoc(doc(fs, "stok", sid), data);
+          if (cur.ad !== data.ad || cur.kod !== data.kod) stokAdYay(sid, data.kod, data.ad).then(r => { if (r.ie || r.sp) toast(`Yeni ad ${r.ie} açık iş emrine${r.sp ? ` ve ${r.sp} siparişe` : ""} yansıtıldı`); }); }
         else {
           const ac = numOr(g("cMik"), 0), b = writeBatch(fs);
           b.set(doc(fs, "stok", sid), { ...data, miktar: ac, createdAt: Date.now(), createdBy: ME.name, sonHareket: ac ? Date.now() : null });
@@ -4173,7 +4174,7 @@ function startPlan() {
   const done = () => { PL.ready = a && b && c; plChanged(); };
   dataUnsubs.push(onSnapshot(collection(fs, "istasyon"), s => { PL.ist = s.docs.map(d => ({ id: d.id, ...d.data() })); a = true; done(); }, e => { a = true; done(); toast("İş istasyonları okunamadı: " + (e.code || e.message)); }));
   dataUnsubs.push(onSnapshot(collection(fs, "akis"), s => { PL.akis = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((x, y) => String(x.kod).localeCompare(String(y.kod), "tr")); b = true; done(); }, e => { b = true; done(); toast("İş akışları okunamadı: " + (e.code || e.message)); }));
-  dataUnsubs.push(onSnapshot(collection(fs, "isemri"), s => { PL.ie = s.docs.map(d => ({ id: d.id, ...d.data() })); c = true; done(); }, e => { c = true; done(); toast("İş emirleri okunamadı: " + (e.code || e.message)); }));
+  dataUnsubs.push(onSnapshot(collection(fs, "isemri"), s => { PL.ie = s.docs.map(d => ({ id: d.id, ...d.data() })); c = true; done(); if (!IE_METRAJ_OK) setTimeout(() => stokAdSync().finally(ieMetrajGoc), 4000); }, e => { c = true; done(); toast("İş emirleri okunamadı: " + (e.code || e.message)); }));
   dataUnsubs.push(onSnapshot(doc(fs, "config", "planlama"), s => { const d = s.exists() ? s.data() : {}; PL.cfg = { mesaiBas: d.mesaiBas || "08:00", gunlukDk: Number(d.gunlukDk) || 540, cumartesi: d.cumartesi !== false }; plChanged(); }, () => {}));
 }
 let plDrawerRefresh = null;
@@ -7069,6 +7070,10 @@ const spVarHtml = (i, x, k) => x.serbest
   ? `<label class="spvm">${esc(x.ad)} <input class="kin num" type="number" min="0" step="0.01" inputmode="decimal" data-qv="${i}" data-va="${esc(x.ad)}" data-vb="${esc(x.birim)}" value="${esc(parseFloat(String((k.var || {})[x.ad] || "").replace(",", ".")) || "")}" placeholder="0,00" aria-label="${esc(x.ad)}">${x.birim ? ` <span>${esc(x.birim)}</span>` : ""}</label>`
   : `<select class="kin spv" data-qv="${i}" data-va="${esc(x.ad)}" aria-label="${esc(x.ad)}"><option value="">${esc(x.ad)}: —</option>${x.sec.map(o => opt(o, x.ad + ": " + o, (k.var || {})[x.ad] || "")).join("")}</select>`;
 const spVarBind = K => document.querySelectorAll("[data-qv]").forEach(s => { const f = () => { const k = K[Number(s.dataset.qv)]; if (!k) return; const v = s.dataset.vb !== undefined ? (s.value !== "" && Number(s.value) > 0 ? `${String(Number(s.value)).replace(".", ",")} ${s.dataset.vb}`.trim() : "") : s.value; k.var = { ...(k.var || {}), [s.dataset.va]: v }; }; s.onchange = f; if (s.tagName === "INPUT") s.oninput = f; });
+// Metraj varyasyonu ürün adının sonuna yazılır: "LİNEER SLOT DİFÜZÖR - 2Lİ - 4 Metre" (personel notu atlamasın diye)
+const metrajOf = x => { const v = x && typeof x === "object" ? Object.entries(x.var || {}).find(([a]) => /metraj/i.test(a)) : null, t = v ? String(v[1]) : (String(x || "").match(/Metraj:\s*([^·|]+)/i) || [])[1];
+  if (!t || !String(t).trim()) return ""; const m = String(t).trim().match(/^([\d.,]+)\s*(m|mt|metre)?$/i); return m ? `${m[1]} Metre` : String(t).trim(); };
+const adMetraj = (ad, x) => { const m = metrajOf(x); return m && !String(ad || "").includes("- " + m) ? `${ad || ""} - ${m}` : (ad || ""); };
 const spVarAd = k => [...Object.entries(k.var || {}).filter(([, v]) => v).map(([a, v]) => `${a}: ${v}`), k.ozel ? "Özel: " + k.ozel : ""].filter(Boolean).join(" · ");
 const spUrunKey = k => [k.sid || k.ad, spRenkKey(k.renk), JSON.stringify(k.var || {}), k.ozel || "", k.aciklama || ""].join("#");
 const spIeOf = id => (typeof PL !== "undefined" ? PL.ie.find(e => e.id === id) : null) || null;
@@ -7675,7 +7680,7 @@ async function spPdf(s, mod, o = {}) {
   const head = () => { x.fillStyle = C.ink; x.fillRect(M, Y, CW, 36); font(600, 14); x.fillStyle = "#fff"; let cx = M; cols.forEach(([t, w, a]) => { x.textAlign = a === "r" ? "right" : a === "c" ? "center" : "left"; x.fillText(t, a === "r" ? cx + w - 10 : a === "c" ? cx + w / 2 : cx + 10, Y + 11); cx += w; }); x.textAlign = "left"; Y += 36; };
   head();
   rows.forEach((k, i) => {
-    const pw = cols[2][1] - 20; font(600, 16); const L1 = wrap(k.ad || "", pw); font(400, 14); const L2 = [...wrap([spVarAd(k), k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "), pw), ...String(k.aciklama || "").split("\n").flatMap(t => wrap(t, pw))].filter(Boolean);
+    const pw = cols[2][1] - 20; font(600, 16); const L1 = wrap(adMetraj(k.ad || "", k), pw); font(400, 14); const L2 = [...wrap([spVarAd(k), k.termin && "Termin " + fmtS(k.termin)].filter(Boolean).join(" · "), pw), ...String(k.aciklama || "").split("\n").flatMap(t => wrap(t, pw))].filter(Boolean);
     font(500, 14); const LR = wrap(k.renk ? spRenkAd(k.renk) : "—", cols[4][1] - 52);
     const h = Math.max(46, 14 + L1.length * 22 + L2.length * 19 + 6, 14 + LR.length * 19 + 8); if (ensure(h + 4)) head();
     if (i % 2) { x.fillStyle = "#f7f9fc"; x.fillRect(M, Y, CW, h); } x.strokeStyle = C.line; x.beginPath(); x.moveTo(M, Y + h); x.lineTo(M + CW, Y + h); x.stroke();
@@ -7769,7 +7774,7 @@ async function plHavuzIe(g) {
       const bySp = new Map(); dag.forEach(x => { if (!bySp.has(x.s.id)) bySp.set(x.s.id, []); bySp.get(x.s.id).push(x); });
       const bt = writeBatch(fs), nos = [];
       bySp.forEach((D, spId) => { const s0 = D[0].s, q0 = D.reduce((t, x) => t + x.m, 0), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no);
-        bt.set(ref, { no, tur: "sip", siparisNo: s0.no, siparisIds: [spId], spKalem: D.map(x => ({ spId, k: x.k.k, miktar: x.m })), musteri: s0.cariAd || "", proje: (s0.proje && s0.proje.ad) || "", urunId: g.k.sid || "", urunAd: `${g.k.kod ? g.k.kod + " · " : ""}${g.k.ad}`, renk: g.k.renk || null, renkAd: g.k.renk ? spRenkAd(g.k.renk) : "", varyasyon: spVarAd(g.k),
+        bt.set(ref, { no, tur: "sip", siparisNo: s0.no, siparisIds: [spId], spKalem: D.map(x => ({ spId, k: x.k.k, miktar: x.m })), musteri: s0.cariAd || "", proje: (s0.proje && s0.proje.ad) || "", urunId: g.k.sid || "", urunAd: `${g.k.kod ? g.k.kod + " · " : ""}${adMetraj(g.k.ad, g.k)}`, renk: g.k.renk || null, renkAd: g.k.renk ? spRenkAd(g.k.renk) : "", varyasyon: spVarAd(g.k),
           akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: q0, birim: g.k.birim || "Adet", plBas: $("#hiBas").value, termin: $("#hiTer").value, oncelik: $("#hiOnc").value, sorumlu: $("#hiSor").value.trim(), not: [g.k.renk ? "Renk: " + spRenkAd(g.k.renk) : "", spVarAd(g.k), g.k.aciklama || ""].filter(Boolean).join(" · "), durum: "plan",
           ops: plOpsFor(a, g.k, q0), log: [{ at: now, by: ME.name, t: `İş emri ${s0.no} siparişinden (ürün havuzu) açıldı` }], createdAt: now, createdBy: ME.name, createdByUid: ME.uid, updatedAt: now, updatedBy: ME.name });
         const sp = SP.list.find(z => z.id === spId); const NK = (sp.kalemler || []).map(k => { const d0 = D.filter(x => x.k.k === k.k); return d0.length ? { ...k, ie: [...(k.ie || []), { id: ref.id, no, miktar: d0.reduce((t, x) => t + x.m, 0) }] } : k; });
@@ -8748,7 +8753,7 @@ async function plSipToIe(spId) {
       const y = TODAY.slice(0, 4); let n = (await ieNoAl(S.length)) - 1;
       const bt = writeBatch(fs), NK = (s.kalemler || []).map(k => ({ ...k })), nos = [];
       S.forEach(x => { const a = PL.akis.find(z => z.id === x.ak), ref = doc(collection(fs, "isemri")), no = `İE-${y}-${String(++n).padStart(4, "0")}`; nos.push(no); const k = x.k;
-        bt.set(ref, { no, tur: "sip", siparisNo: s.no, siparisIds: [s.id], spKalem: [{ spId: s.id, k: k.k, miktar: x.q }], musteri: s.cariAd || "", proje: (s.proje && s.proje.ad) || "", urunId: k.sid || "", urunAd: `${k.kod ? k.kod + " · " : ""}${k.ad}`, renk: k.renk || null, renkAd: k.renk ? spRenkAd(k.renk) : "", varyasyon: spVarAd(k),
+        bt.set(ref, { no, tur: "sip", siparisNo: s.no, siparisIds: [s.id], spKalem: [{ spId: s.id, k: k.k, miktar: x.q }], musteri: s.cariAd || "", proje: (s.proje && s.proje.ad) || "", urunId: k.sid || "", urunAd: `${k.kod ? k.kod + " · " : ""}${adMetraj(k.ad, k)}`, renk: k.renk || null, renkAd: k.renk ? spRenkAd(k.renk) : "", varyasyon: spVarAd(k),
           akisId: a.id, akisAd: `${a.kod} · ${a.ad}`, miktar: x.q, birim: k.birim || "Adet", plBas: bas, termin: k.termin || s.verilenTermin || "", oncelik: s.oncelik === "acil" ? "acil" : "normal", sorumlu: sor, not: [k.renk ? "Renk: " + spRenkAd(k.renk) : "", spVarAd(k), k.mahal ? "Mahal: " + k.mahal : "", k.aciklama || ""].filter(Boolean).join(" · "), durum: "plan",
           ops: plOpsFor(a, k, x.q), log: [{ at: now, by: ME.name, t: `İş emri ${s.no} siparişinden açıldı` }], createdAt: now, createdBy: ME.name, createdByUid: ME.uid, updatedAt: now, updatedBy: ME.name });
         const z = NK.find(q => q.k === k.k); z.ie = [...(z.ie || []), { id: ref.id, no, miktar: x.q }]; });
@@ -9787,7 +9792,7 @@ function mhSevkEt(spId, kk) {
   });
 }
 // Faturaya yazılacak ürün adı: "ÜRÜN ADI (varyasyon) - BOYA" — boyasızda yalnızca ad
-const mhUrunAd = k => { const ad = [k.ad, spVarAd(k)].filter(Boolean).join(" "), r = k.renk, rk = r && (spBoyali(r) || /eloksal/i.test(r.yuzey || "")) ? spRenkAd(r).replace(/ · /g, " ") : ""; return rk ? `${ad} - ${rk}` : ad; };
+const mhUrunAd = k => { const ad = [adMetraj(k.ad, k), Object.keys(k.var || {}).filter(a => !/metraj/i.test(a)).length || k.ozel ? spVarAd({ ...k, var: Object.fromEntries(Object.entries(k.var || {}).filter(([a]) => !/metraj/i.test(a))) }) : ""].filter(Boolean).join(" "), r = k.renk, rk = r && (spBoyali(r) || /eloksal/i.test(r.yuzey || "")) ? spRenkAd(r).replace(/ · /g, " ") : ""; return rk ? `${ad} - ${rk}` : ad; };
 function mhSatirlar() {
   const L = [];
   SP.list.forEach(s => (s.sevkiyatlar || []).forEach((x, si) => (x.satir || []).forEach(y => {
@@ -10207,10 +10212,11 @@ async function kulYaz() {
 // ---- Yönetici ekranı (Yetkilendirme altında)
 const KULV = { per: "bugun", L: null, yuk: false, ac: new Set(), at: 0, hata: "" };
 async function kulYukle(zorla) {
-  if (KULV.yuk || (!zorla && KULV.L && Date.now() - KULV.at < 120000)) return;
+  const d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
+  const [a, b] = { bugun: [TODAY, TODAY], dun: [gs(1), gs(1)], hafta: [gs(wd), TODAY], ay: [TODAY.slice(0, 8) + "01", TODAY], "30": [gs(29), TODAY] }[KULV.per], key = a + "|" + b;
+  if (KULV.yuk || (!zorla && KULV.L && KULV.key === key && Date.now() - KULV.at < 300000)) return;
   KULV.yuk = true;
-  try { const bas = new Date(Date.now() - 62 * 864e5).toISOString().slice(0, 10);
-    KULV.L = (await getDocs(query(collection(fs, "kullanim"), where("gun", ">=", bas)))).docs.map(d => d.data()); KULV.at = Date.now(); KULV.hata = ""; }
+  try { KULV.L = (await getDocs(query(collection(fs, "kullanim"), where("gun", ">=", a), where("gun", "<=", b)))).docs.map(d => d.data()); KULV.key = key; KULV.at = Date.now(); KULV.hata = ""; }
   catch (e) { KULV.L = KULV.L || []; KULV.at = Date.now(); KULV.hata = (e && e.message) || String(e); }
   KULV.yuk = false; if (ROUTE === "kullanici") renderKT();
 }
@@ -10282,19 +10288,20 @@ function logKaydet(op, ref, data) {
     if (col === "config") t = `${id} ayarları` + (t ? " · " + t : "");
     if (col === "muhasebe_fatura") t = op === "sil" ? "Fatura işareti geri alındı" : `FATURA KESİLMİŞTİR${data && data.faturaNo ? " · No " + data.faturaNo : ""}`;
     LOG.T.push({ at: Date.now(), op, col, id: id || "", t: t.slice(0, 220), b: logEtiket(col, id).slice(0, 140), m: kulMod() });
-    if (LOG.T.length > 40) logYaz();
+    if (LOG.T.length > 150) logYaz();
   } catch (e) { }
 }
 function logBasla() {
   if (LOG.on) return; LOG.on = true;
-  setInterval(logYaz, 60000);
+  setInterval(logYaz, 300000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") logYaz(); });
   addEventListener("pagehide", logYaz);
 }
 async function logYaz() {
   if (!ME || !ME.uid || !LOG.T.length) return;
   const L = LOG.T.splice(0, LOG.T.length);
-  try { await _addDoc(collection(fs, "islem_log"), { uid: ME.uid, ad: ME.name || "", eposta: ME.email || "", gun: TODAY, at: Date.now(), cihaz: kulCihaz(), L }); }
+  // okumayı düşük tutmak için kullanıcı başına 4 saatlik tek belgeye eklenir (günde en çok 6 belge / kişi)
+  try { await _setDoc(doc(fs, "islem_log", `${ME.uid}_${TODAY}_${Math.floor(new Date().getHours() / 4)}`), { uid: ME.uid, ad: ME.name || "", eposta: ME.email || "", gun: TODAY, at: Date.now(), cihaz: kulCihaz(), L: arrayUnion(...L) }, { merge: true }); }
   catch (e) { LOG.T.unshift(...L.slice(-200)); console.warn("işlem kaydı yazılamadı", e && e.message); }
 }
 
@@ -10305,11 +10312,14 @@ function ktTile() {
     <div class="t-top"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.4 3.6 5.2"/></svg></span><span class="st">YÖNETİCİ</span></div>
     <div><div class="nm">KULLANICI TAKİP</div><div class="ds">Kim ne kadar kullandı, kim hangi kaydı yaptı · kullanım süresi ve işlem kayıtları</div><div class="stats"><span>Yalnızca yönetici</span></div></div></a>`;
 }
+// yalnızca seçili dönemin kayıtları okunur (önbellek: aynı dönem 5 dk)
+const ktAralik = () => { const F = KT.F, d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
+  return F.per === "ozel" ? [F.t1 || gs(30), F.t2 || TODAY] : { bugun: [TODAY, TODAY], dun: [gs(1), gs(1)], hafta: [gs(wd), TODAY], ay: [TODAY.slice(0, 8) + "01", TODAY], "90": [gs(89), TODAY] }[F.per]; };
 async function ktLogYukle(zorla) {
-  if (KT.yuk || (!zorla && KT.L && Date.now() - KT.at < 90000)) return;
+  const [a, b] = ktAralik(), key = a + "|" + b;
+  if (KT.yuk || (!zorla && KT.L && KT.key === key && Date.now() - KT.at < 300000)) return;
   KT.yuk = true;
-  try { const bas = new Date(Date.now() - 92 * 864e5).toISOString().slice(0, 10);
-    KT.L = (await getDocs(query(collection(fs, "islem_log"), where("gun", ">=", bas)))).docs.map(d => d.data()); KT.at = Date.now(); KT.hata = ""; }
+  try { KT.L = (await getDocs(query(collection(fs, "islem_log"), where("gun", ">=", a), where("gun", "<=", b)))).docs.map(d => d.data()); KT.key = key; KT.at = Date.now(); KT.hata = ""; }
   catch (e) { KT.L = KT.L || []; KT.at = Date.now(); KT.hata = (e && e.message) || String(e); }
   KT.yuk = false; if (ROUTE === "kullanici") renderKT();
 }
@@ -10320,7 +10330,7 @@ function renderKT() {
   if (KT.tab === "kul") { renderKullanim(); return; }
   const h = $("#ktLog");
   if (!KT.L) { h.innerHTML = '<div class="ph-box"><p class="note">İşlem kayıtları yükleniyor…</p></div>'; ktLogYukle(); return; }
-  ktLogYukle();
+  ktLogYukle();   // dönem değiştiyse arka planda yeniden okunur
   const F = KT.F, d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, gs = n => new Date(d0 - n * 864e5).toISOString().slice(0, 10);
   const [a, b] = F.per === "ozel" ? [F.t1 || "0000", F.t2 || "9999"] : { bugun: [TODAY, TODAY], dun: [gs(1), gs(1)], hafta: [gs(wd), TODAY], ay: [TODAY.slice(0, 8) + "01", TODAY], "90": [gs(89), TODAY] }[F.per];
   const gunOf = ts => new Date(ts + 3 * 36e5).toISOString().slice(0, 10);
@@ -10435,7 +10445,7 @@ async function spIeYansit(s, D, sec, kal, rev) {
         if (q !== eski) { p.miktar = q; p.ops = plOpsMiktar(e.ops, eski, q, now); deg.push(`adet ${nf(eski)} → ${nf(q)}`); if (bu) p.spKalem = SK.map(r => r === bu ? { ...r, miktar: yeniBu } : r); }
         if (spRenkKey(d.o.renk) !== spRenkKey(k.renk)) { p.renk = k.renk || null; p.renkAd = k.renk ? spRenkAd(k.renk) : ""; deg.push(`renk ${p.renkAd || "—"}`);
           if (spBoyali(d.o.renk || {}) !== spBoyali(k.renk || {})) { const a = PL.akis.find(x => x.id === e.akisId); if (a) { const r = plOpsTasi(plOpsFor(a, k, q), p.ops || e.ops); p.ops = r.ops; deg.push("boya adımı " + (spBoyali(k.renk || {}) ? "eklendi" : "atlandı")); } } }
-        p.urunAd = `${k.kod ? k.kod + " · " : ""}${k.ad}`; p.varyasyon = spVarAd(k);
+        p.urunAd = `${k.kod ? k.kod + " · " : ""}${adMetraj(k.ad, k)}`; p.varyasyon = spVarAd(k);
         p.not = [k.renk ? "Renk: " + spRenkAd(k.renk) : "", spVarAd(k), k.aciklama || ""].filter(Boolean).join(" · ");
         if (p.ops) p.durum = ieDurumOf(p.ops, e.durum);
         if (p.durum === "bitti" && e.durum !== "bitti") p.bitis = now;
@@ -10448,4 +10458,44 @@ async function spIeYansit(s, D, sec, kal, rev) {
     if (k) { const kk = kal.find(x => x.k === k.k); if (kk) delete kk.degisti; }
   }
   return { out, hata };
+}
+
+
+// Açık iş emirlerinde metrajı ürün adına bir kez işler (v80 öncesi açılanlar için; yalnızca yönetici / iş emri yetkilisi)
+let IE_METRAJ_OK = false;
+async function ieMetrajGoc() {
+  if (IE_METRAJ_OK || !PL.ready || !can("pl.ie")) return; IE_METRAJ_OK = true;
+  const L = PL.ie.filter(e => e.durum !== "bitti" && e.durum !== "iptal" && metrajOf(e.varyasyon || "") && e.urunAd && !e.urunAd.includes("- " + metrajOf(e.varyasyon)));
+  if (!L.length) return;
+  try { for (let i = 0; i < L.length; i += 400) { const b = _writeBatch(fs); L.slice(i, i + 400).forEach(e => b.update(doc(fs, "isemri", e.id), { urunAd: adMetraj(e.urunAd, e.varyasyon) })); await b.commit(); }
+    console.info(`metraj: ${L.length} iş emrinin adı güncellendi`); } catch (x) { console.warn("metraj güncellenemedi", x && x.message); }
+}
+
+/* ================= Stok kodu / adı değişince açık iş emirlerine ve siparişlere yansıt ================= */
+const spAdAcik = s => !["iptal", "kapandi", "sevk", "fatura"].includes(spDurum(s));
+async function stokAdYay(sid, kod, ad) {
+  if (!sid) return { ie: 0, sp: 0 };
+  const now = Date.now(); let nIe = 0, nSp = 0;
+  // açık iş emirleri
+  let IE = (PL.ie || []).filter(e => e.urunId === sid);
+  if (!PL.ie || !PL.ie.length) { try { IE = (await getDocs(query(collection(fs, "isemri"), where("urunId", "==", sid)))).docs.map(d => ({ id: d.id, ...d.data() })); } catch (x) { IE = []; } }
+  const ieL = IE.filter(e => e.durum !== "bitti" && e.durum !== "iptal").map(e => ({ e, yeni: `${kod ? kod + " · " : ""}${adMetraj(ad, e.varyasyon || "")}` })).filter(x => x.yeni !== x.e.urunAd);
+  for (let i = 0; i < ieL.length; i += 400) { const b = _writeBatch(fs); ieL.slice(i, i + 400).forEach(x => b.update(doc(fs, "isemri", x.e.id), { urunAd: x.yeni, updatedAt: now, updatedBy: ME.name }));
+    try { await b.commit(); nIe += Math.min(400, ieL.length - i); } catch (x) { console.warn("iş emri adı güncellenemedi", x && x.message); } }
+  // açık siparişlerin kalemleri (sonraki revizyonda eski ad geri gelmesin)
+  for (const s of (SP.list || []).filter(z => spAdAcik(z) && (z.kalemler || []).some(k => k.sid === sid && (k.ad !== ad || k.kod !== kod)))) {
+    const NK = s.kalemler.map(k => k.sid === sid ? { ...k, kod, ad } : k);
+    try { await _updateDoc(doc(fs, "siparis", s.id), { kalemler: NK, updatedAt: now, updatedBy: ME.name }); nSp++; } catch (x) { console.warn("sipariş kalemi güncellenemedi", x && x.message); }
+  }
+  return { ie: nIe, sp: nSp };
+}
+// v81: daha önce değiştirilmiş stok adlarını açık iş emirleriyle bir kez eşitler
+let STOK_SYNC = false;
+async function stokAdSync() {
+  const k = "karmen.stokAdSync.v81"; try { if (localStorage.getItem(k)) return; } catch (x) { }
+  if (STOK_SYNC || !can("pl.ie") || !PL.ready) return; STOK_SYNC = true;
+  const ids = [...new Set(PL.ie.filter(e => e.urunId && e.durum !== "bitti" && e.durum !== "iptal").map(e => e.urunId))]; let n = 0;
+  for (const id of ids) { try { const sn = await getDoc(doc(fs, "stok", id)); if (!sn.exists()) continue; const st = sn.data(), r = await stokAdYay(id, st.kod, st.ad); n += r.ie; } catch (x) { } }
+  try { localStorage.setItem(k, String(Date.now())); } catch (x) { }
+  if (n) toast(`${n} açık iş emrinin ürün adı stok kartıyla eşitlendi`);
 }
