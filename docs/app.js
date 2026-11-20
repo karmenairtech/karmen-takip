@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "88";
+const APP_V = "89";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7391,7 +7391,7 @@ async function spOpenForm(id, pre) {
         ref = doc(fs, "siparis", cur.id);
         let msg = onay && cur.durum === "taslak" ? "Sipariş onaylandı · kalemler planlama havuzunda" : "Sipariş güncellendi";
         if (onayli) {
-          const fark = spFark(cur, data); if (!fark.length && cur.verilenTermin === data.verilenTermin) { toast("Değişiklik yok"); b.disabled = false; return; }
+          const fark = [...spFark(cur, data), ...(pr ? spFiyatFark(cur, f, L, kal) : [])]; if (!fark.length && cur.verilenTermin === data.verilenTermin) { toast("Değişiklik yok"); b.disabled = false; return; }
           if (cur.verilenTermin && data.verilenTermin !== cur.verilenTermin) { const n = await prompt2(`Termin ${fmtS(cur.verilenTermin)} → ${fmtS(data.verilenTermin)}. Değişiklik nedeni?`); if (n == null) { b.disabled = false; return; } data.terminLog = [...(cur.terminLog || []), { at: now, by: ME.name, eski: cur.verilenTermin, yeni: data.verilenTermin, neden: n }]; }
           data.rev = (cur.rev || 0) + 1; data.revLog = [...(cur.revLog || []), { rev: data.rev, at: now, by: ME.name, fark }]; msg = `Revizyon ${data.rev} kaydedildi`;
           var ieD = spIeFark(cur, kal), ieSec = ieD.length ? await spIeSor(ieD) : new Set(); if (ieSec === null) { b.disabled = false; return; }
@@ -7414,6 +7414,21 @@ async function spOpenForm(id, pre) {
     } catch (x) { console.error(x); b.disabled = false; toast(writeErr(x)); }
   }
   paint();
+}
+// Fiyat değişikliği (para birimi, kur, birim fiyat, iskonto, KDV, toplu fiyat) da revizyon sayılır; muhasebe tutarları buradan hesaplandığı için kayıtla birlikte oraya da yansır
+function spFiyatFark(cur, f, L, kal) {
+  const F = SP.fiyat[cur.id] || {}, D = [], n = v => v == null || v === "" ? null : Number(v), pb0 = F.pb || "TRY", pb1 = f.fPb || pb0;
+  if (pb0 !== pb1) D.push(`Para birimi ${pb0} → ${pb1}`);
+  if (pb1 !== "TRY" && n(F.kur) !== n(f.fKur)) D.push(`Kur ${F.kur ?? "—"} → ${f.fKur || "—"}`);
+  const t0 = n(F.toplu), t1 = f.fTop !== "" && f.fTop != null && Number(f.fTop) >= 0 ? Number(f.fTop) : null;
+  if (t0 !== t1) D.push(`Toplu fiyat ${t0 == null ? "—" : money(t0, pb0)} → ${t1 == null ? "—" : money(t1, pb1)}`);
+  L.forEach((k, i) => { const o = (F.k || {})[kal[i].k]; if (!o) return; const ad = kal[i].kod || kal[i].ad, p = [];
+    if (n(o.fiyat) !== n(k.fiyat)) p.push(`birim fiyat ${o.fiyat == null ? "—" : money(o.fiyat, pb0)} → ${k.fiyat == null ? "—" : money(k.fiyat, pb1)}`);
+    if ((Number(o.isk) || 0) !== (Number(k.isk) || 0)) p.push(`iskonto %${Number(o.isk) || 0} → %${Number(k.isk) || 0}`);
+    if (Number(o.kdv ?? 20) !== Number(k.kdv ?? 20)) p.push(`KDV %${o.kdv ?? 20} → %${k.kdv ?? 20}`);
+    if (p.length) D.push(`${ad}: ${p.join(", ")}`); });
+  if (D.length) { const fat = mhSatirlar().filter(r => r.s.id === cur.id && r.fat).length; if (fat) D.push(`Not: faturası kesilmiş ${fat} sevk satırının tutarı da yeni fiyatla görünür`); }
+  return D;
 }
 function spFark(o, n) {
   const F = [], OK = o.kalemler || [], NK = n.kalemler || [];
