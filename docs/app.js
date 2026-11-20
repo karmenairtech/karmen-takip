@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "82";
+const APP_V = "86";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -2359,6 +2359,7 @@ function openMsgs(peer) {
 }
 function closeMsgs() { if (REC.mr) recStop(true); $("#msgPanel").hidden = true; document.body.classList.remove("noscroll"); }
 on("#msgBtn", () => { if (msgOpen()) closeMsgs(); else openMsgs(); });
+on("#calcBtn", () => hesapMakinesi());
 on("#msgClose", closeMsgs);
 $("#msgPanel").addEventListener("click", e => { if (e.target.id === "msgPanel") closeMsgs(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !e.defaultPrevented && msgOpen() && !$("#drawerHost").innerHTML && !document.querySelector(".viewer")) closeMsgs(); });
@@ -7057,14 +7058,26 @@ function startSP() {
   if (lvl("satinalma") === "none") dataUnsubs.push(onSnapshot(doc(fs, "config", "satinalma"), s => { const d = s.exists() ? s.data() : {}; SA.cfg = { ...SA.cfg, firma: { ...SA.cfg.firma, ...(d.firma || {}) } }; }, () => {}));
 }
 function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "muhasebe") renderMH(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
-const SP_VAR_DEF = "M-01, M-02, M-03, M-14 | Montaj tipi: Vidalı, Klipsli, Gizli vidalı\nM-11, M-15 | Motor yönü: Sağ, Sol\nM-04, M-05, M-16, M-17 | Sineklik: Var, Yok\n* | Ambalaj: Standart koli, Ahşap kasa, Streç";
+const SP_VAR_DEF = "M-01, M-02, M-03, M-14 | Montaj tipi: Vidalı, Klipsli, Gizli vidalı\nM-11, M-15 | Motor yönü: Sağ, Sol\nM-05, M-17 | Sineklik: Var, Yok\n* | Ambalaj: Standart koli, Ahşap kasa, Streç";
 // Varyasyon satırı: "önekler | Ad: seçenek, seçenek". Önek "~kelime" ürün adında arar; seçenek "#birim" serbest sayı girişidir (örn. Metraj: #m)
 const SP_VAR_SABIT = "~slot | Metraj: #m";   // tüm lineer ve gizli slot difüzörler
+// Hazır gelen varyasyonlar (19.11.2026 listesi). Ayarlardaki aynı adlı varyasyon, o ürün için bunun yerine geçer.
+const SP_VAR_HAZIR = [
+  "M-01, M-02, M-03, M-04, M-06, M-09, M-12, M-13, M-14, M-16 | Montaj deliği: Var, Yok",
+  "M-01, M-02, M-03, M-04, M-09, M-12, M-13, M-14, M-16 | Filtre: Var, Yok",
+  "M-04, M-16 | Arka tel: Sineklik, Kare tel, Yok",
+  "M-06 | Yönlendirici: Var, Yok",
+  "M-18, M-19, M-20, M-22, M-24 | Flanş montaj tipi: Vidalı, Puntalı",
+  "M-18, M-19, M-20, M-22, M-24 | Metraj: #m"];
 function spVarList(kod, ad) {
   const txt = String(SP.cfg.varyasyon || ""), L = txt.split("\n"); if (!/\|\s*metraj\s*:/i.test(txt)) L.push(SP_VAR_SABIT);
+  L.push(...SP_VAR_HAZIR);
+  const gor = new Set();   // aynı adlı varyasyon bir ürüne bir kez gelir (önce ayarlardaki)
   return L.map(l => { const m = l.match(/^\s*([^|]+)\|\s*([^:]+):\s*(.+)$/); if (!m) return null; const t = m[3].trim();
     return { onek: m[1].split(",").map(x => x.trim()).filter(Boolean), ad: m[2].trim(), serbest: t[0] === "#", birim: t[0] === "#" ? t.slice(1).trim() : "", sec: t[0] === "#" ? [] : t.split(",").map(x => x.trim()).filter(Boolean) }; })
-    .filter(Boolean).filter(v => v.onek.includes("*") || v.onek.some(o => o[0] === "~" ? trFold(ad).includes(trFold(o.slice(1))) : String(kod || "").startsWith(o)));
+    .filter(Boolean).filter(v => v.onek.includes("*") || v.onek.some(o => o[0] === "~" ? trFold(ad).includes(trFold(o.slice(1))) : String(kod || "").startsWith(o)))
+    .filter(v => { const k = trFold(v.ad); if (gor.has(k)) return false; gor.add(k); return true; })
+    .filter((v, i, A) => !(trFold(v.ad) === trFold("Sineklik") && A.some(x => trFold(x.ad) === trFold("Arka tel"))));   // Arka tel seçeneği sinekliği kapsar
 }
 const spVarHtml = (i, x, k) => x.serbest
   ? `<label class="spvm">${esc(x.ad)} <input class="kin num" type="number" min="0" step="0.01" inputmode="decimal" data-qv="${i}" data-va="${esc(x.ad)}" data-vb="${esc(x.birim)}" value="${esc(parseFloat(String((k.var || {})[x.ad] || "").replace(",", ".")) || "")}" placeholder="0,00" aria-label="${esc(x.ad)}">${x.birim ? ` <span>${esc(x.birim)}</span>` : ""}</label>`
@@ -7627,6 +7640,7 @@ function spOpenCfg() {
   <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="scT2" style="width:min(640px,100%)">
     <div class="dh"><h2 id="scT2">Sipariş takip ve teklif ayarları</h2><button class="x" id="scX2" aria-label="Kapat">×</button></div>
     <div class="db">
+      <div class="field"><label>Programda hazır gelen varyasyonlar <small class="note">aşağıya aynı adla yazdığınız varyasyon, o ürünlerde bunun yerine geçer</small></label><pre class="cfgpre">${esc(SP_VAR_HAZIR.join("\n"))}</pre></div>
       <div class="field"><label for="cgV">Varyasyonlar</label><textarea id="cgV" class="cfgta" style="min-height:200px;font-family:var(--mono);font-size:12.5px">${esc(SP.cfg.varyasyon)}</textarea>
         <p class="note" style="margin:4px 0 0">Her satıra bir varyasyon: <b>stok kodu önekleri | Varyasyon adı: seçenek, seçenek…</b>. Önek M-01 tüm TSK kodlarına, * tüm ürünlere uygulanır. Örnek: <span class="num">M-11, M-15 | Motor yönü: Sağ, Sol</span>. Liste dışı istekler için her kalemde "Özel istek" alanı vardır.</p></div>
       <div class="field"><label for="cgR">Sık kullanılan RAL renkleri</label><input id="cgR" value="${esc(SP.cfg.sikRenkler.join(", "))}" style="font-family:var(--mono)"><p class="note" style="margin:4px 0 0">Renk seçicide en üstte görünür.</p></div>
@@ -8971,7 +8985,16 @@ function plMesView(v) {
   if (cdev) MES.ist = "d:" + cdev.id;
   if (!MES.ist || (MES.ist.startsWith("d:") && !D.some(d => "d:" + d.id === MES.ist))) MES.ist = D.length ? "d:" + D[0].id : ((istler.find(i => /^TST/.test(i.kod)) || istler[0] || {}).kod || "");
   const S = mesStations(), mod = mesModu(), devObj = MES.ist.startsWith("d:") ? D.find(d => "d:" + d.id === MES.ist) : null;
-  const J = mod === "basit" ? mesIslerBasit(S) : mesIsler(S);
+  const J0 = mod === "basit" ? mesIslerBasit(S) : mesIsler(S);
+  // müşteri / proje / arama filtresi (hızlı iş bulma)
+  const MF = MES.F || (MES.F = { cari: "", proje: "", q: "" });
+  const cariler = [...new Set(J0.map(j => j.e.musteri).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr"));
+  if (MF.cari && !cariler.includes(MF.cari)) MF.cari = "";
+  const projeler = [...new Set(J0.filter(j => !MF.cari || j.e.musteri === MF.cari).map(j => mesProje(j.e)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr"));
+  if (MF.proje && !projeler.includes(MF.proje)) MF.proje = "";
+  const mq = araFold(MF.q || "");
+  const J = J0.filter(j => (!MF.cari || j.e.musteri === MF.cari) && (!MF.proje || mesProje(j.e) === MF.proje)
+    && (!mq || araFold([j.e.no, j.e.urunAd, j.e.siparisNo, j.e.musteri, mesProje(j.e), j.e.renkAd, j.e.varyasyon].join(" ")).includes(mq)));
   const bugun = PL.ie.reduce((a, e) => a + (e.ops || []).filter(o => S.has(o.ist) && o.durum === "bitti" && o.bitis && dayOf(o.bitis) === TODAY && !o.atlandi).length, 0);
   const gk = { tip: j => j.tip, renk: j => j.renk, sip: j => j.sip, asama: j => j.stage ? MES_ASM[j.stage][0] : (j.o && MES_LP(j.o.ist) ? "LAZER / PLAZMA" : "ÖN İŞLEMLER"), yok: () => "" }[MES.grup] || (() => "");
   const G = new Map(); J.forEach(j => { const k = gk(j); if (!G.has(k)) G.set(k, []); G.get(k).push(j); });
@@ -8983,10 +9006,14 @@ function plMesView(v) {
       <div class="mesact">${window.__CALL_DEMO && can("pl.ie") ? '<button type="button" class="btn ghost sm" id="mesSeed">20 deneme işi oluştur</button>' : ""}<button type="button" class="btn ${fs0 ? "" : "ghost "}sm" id="mesFs">${fs0 ? "Tablet modundan çık" : "Tablet modu (tam ekran)"}</button></div></div>`}
     <div class="meshead"><div><div class="mesnm">${esc(devObj ? devObj.ad : MES.ist.startsWith("b:") ? PL_BC[MES.ist.slice(2)].l : MES.ist)}</div><div class="note">${mod === "basit" ? "Basit mod · üretim, boyahane, depo aşamaları · lazer/plazma ayrı" : "Detaylı mod · tüm işlemler"} · ${S.size} istasyon</div></div>
       ${ops.length ? `<div class="mesopsel"><label for="mesOp">İşi yapan</label><select id="mesOp"><option value="">${esc(ME.name)} (hesap)</option>${ops.map(p => opt(p, p, MES.op)).join("")}</select></div>` : ""}
-      <div class="meskpi">${[["Çalışılıyor", J.filter(j => j.st === "devam").length, "#60a5fa"], ["Hazır", J.filter(j => j.st === "hazir" || j.st === "kismi").length, "#4ade80"], ["Bekliyor", J.filter(j => j.st === "bekle").length, "#94a3b8"], ["Bugün biten", bugun, "#c4b5fd"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div>
+      <div class="meskpi">${[["Çalışılıyor", J0.filter(j => j.st === "devam").length, "#60a5fa"], ["Hazır", J0.filter(j => j.st === "hazir" || j.st === "kismi").length, "#4ade80"], ["Bekliyor", J0.filter(j => j.st === "bekle").length, "#94a3b8"], ["Bugün biten", bugun, "#c4b5fd"]].map(([k, n, c]) => `<div><b style="color:${c}">${n}</b><span>${k}</span></div>`).join("")}</div>
       ${dev ? '<button type="button" class="btn ghost sm mesout" id="mesOut">Çıkış</button>' : ""}</div>
     <div class="mesgr2"><div class="mesgr seg" role="group" aria-label="Gruplama">${[["tip", "Ürün tipi"], ["renk", "Renk"], ["sip", "Sipariş"], ...(mod === "basit" ? [["asama", "Aşama"]] : []), ["yok", "Yok"]].map(([k, l]) => `<button type="button" data-mg="${k}" aria-pressed="${MES.grup === k}">${l}</button>`).join("")}</div>
       <button type="button" class="btn sm mestmb" id="mesTam">✓ Tamamlanan iş emirleri</button>
+      <div class="mesflt"><select class="f" id="mesFc" aria-label="Müşteri"><option value="">Tüm müşteriler</option>${cariler.map(c => opt(c, c, MF.cari)).join("")}</select>
+        <select class="f" id="mesFp" aria-label="Proje"><option value="">Tüm projeler</option>${projeler.map(c => opt(c, c, MF.proje)).join("")}</select>
+        <input type="search" class="f" id="mesFq" placeholder="Ara: ürün, iş emri, sipariş…" value="${esc(MF.q)}" aria-label="Ara">
+        ${MF.cari || MF.proje || MF.q ? `<button type="button" class="btn ghost sm" id="mesFx">Temizle · ${J.length}/${J0.length}</button>` : ""}</div>
       ${[...G.keys()].some(Boolean) ? `<div class="mesgall"><button type="button" class="btn ghost sm" data-gall="1">Tümünü aç</button><button type="button" class="btn ghost sm" data-gall="0">Tümünü kapat</button></div>` : ""}
       ${MES.sec.size ? `<div class="messel"><b>${MES.sec.size} seçili</b>${can("pl.op") ? '<button type="button" class="mbtn bas" data-ms="bas">Başlat</button><button type="button" class="mbtn dur" data-ms="dur">Duraklat</button><button type="button" class="mbtn bit" data-ms="bit">Bitir</button>' : ""}<button type="button" class="mbtn" data-ms="temizle">Temizle</button></div>` : ""}</div>
     ${J.length ? [...G.entries()].map(([k, L]) => { const hz = L.filter(j => j.st !== "bekle"), keys = hz.map(j => j.key), all = keys.length && keys.every(x => MES.sec.has(x));
@@ -9002,6 +9029,10 @@ function plMesView(v) {
   const opS = $("#mesOp"); if (opS) opS.onchange = e => { MES.op = e.target.value; try { localStorage.setItem("mesOp", MES.op); } catch (x) {} };
   const out = $("#mesOut"); if (out) out.onclick = () => signOut(auth);
   $("#mesTam").onclick = () => mesTamamlanan();
+  $("#mesFc").onchange = e => { MF.cari = e.target.value; MF.proje = ""; plMesView(v); };
+  $("#mesFp").onchange = e => { MF.proje = e.target.value; plMesView(v); };
+  { const q = $("#mesFq"); q.oninput = () => { MF.q = q.value; clearTimeout(q._t); q._t = setTimeout(() => { plMesView(v); const n = $("#mesFq"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 300); }; }
+  { const x = $("#mesFx"); if (x) x.onclick = () => { MF.cari = ""; MF.proje = ""; MF.q = ""; plMesView(v); }; }
   const sd = $("#mesSeed"); if (sd) sd.onclick = () => plMesSeed([...S].find(x => /^TST/.test(x)) || [...S][0] || "TST-1");
   const byKey = new Map(J.map(j => [j.key, j]));
   // sipariş detay penceresi de aynı başlat / beklet / bitir mantığını kullanır
@@ -10498,4 +10529,41 @@ async function stokAdSync() {
   for (const id of ids) { try { const sn = await getDoc(doc(fs, "stok", id)); if (!sn.exists()) continue; const st = sn.data(), r = await stokAdYay(id, st.kod, st.ad); n += r.ie; } catch (x) { } }
   try { localStorage.setItem(k, String(Date.now())); } catch (x) { }
   if (n) toast(`${n} açık iş emrinin ürün adı stok kartıyla eşitlendi`);
+}
+
+
+/* ================= HESAP MAKİNESİ (üst çubuk, tablette büyük tuşlar) ================= */
+const HM = { ifade: "", gecmis: [] };
+function hmHesapla(t) {   // eval kullanmadan: sayı, + - × ÷ %, parantez
+  const T = String(t).replace(/×/g, "*").replace(/÷/g, "/").replace(/,/g, ".").match(/\d*\.?\d+|[-+*/()%]/g) || []; let i = 0;
+  const sayi = () => { const x = T[i]; if (x === "-") { i++; return -sayi(); } if (x === "(") { i++; const v = top(); if (T[i] === ")") i++; return v; } i++; const n = parseFloat(x); if (T[i] === "%") { i++; return n / 100; } return n; };
+  const carp = () => { let v = sayi(); while (T[i] === "*" || T[i] === "/") { const o = T[i++], b = sayi(); v = o === "*" ? v * b : v / b; } return v; };
+  const top = () => { let v = carp(); while (T[i] === "+" || T[i] === "-") { const o = T[i++], b = carp(); v = o === "+" ? v + b : v - b; } return v; };
+  const v = top(); return Number.isFinite(v) ? Math.round(v * 1e9) / 1e9 : NaN;
+}
+const hmYaz = n => Number.isNaN(n) ? "Hata" : n.toLocaleString("tr-TR", { maximumFractionDigits: 6 });
+function hesapMakinesi() {
+  const T = [["C", "fn"], ["⌫", "fn"], ["%", "op"], ["÷", "op"], ["7"], ["8"], ["9"], ["×", "op"], ["4"], ["5"], ["6"], ["-", "op"], ["1"], ["2"], ["3"], ["+", "op"], ["(", "fn"], ["0"], [",", ""], ["=", "eq"], [")", "fn"]];
+  spModal(`<div class="hm"><div class="hmh"><b>Hesap makinesi</b><button type="button" class="x" id="hmX" aria-label="Kapat">×</button></div>
+    <div class="hmd" aria-live="polite"><div class="hmi" id="hmI">${esc(HM.ifade) || "&nbsp;"}</div><div class="hms num" id="hmS">0</div></div>
+    <div class="hmk">${T.map(([k, c]) => `<button type="button" class="hmb ${c || ""}" data-hm="${esc(k)}">${esc(k)}</button>`).join("")}</div>
+    <div class="hmg" id="hmG"></div></div>`, (h, done) => {
+    const I = h.querySelector("#hmI"), S = h.querySelector("#hmS"), G = h.querySelector("#hmG");
+    const ciz = () => { I.textContent = HM.ifade || " "; const v = HM.ifade ? hmHesapla(HM.ifade) : 0; S.textContent = HM.ifade && /[\d)]$|%$/.test(HM.ifade) ? hmYaz(v) : S.textContent;
+      G.innerHTML = HM.gecmis.slice(0, 5).map(g => `<button type="button" class="hmgr" data-hmg="${esc(g.s)}"><span>${esc(g.i)}</span><b class="num">= ${esc(g.s)}</b></button>`).join(""); 
+      G.querySelectorAll("[data-hmg]").forEach(b => b.onclick = () => { HM.ifade = b.dataset.hmg.replace(/\./g, ""); ciz(); }); };
+    const bas = k => {
+      if (k === "C") { HM.ifade = ""; S.textContent = "0"; }
+      else if (k === "⌫") HM.ifade = HM.ifade.slice(0, -1);
+      else if (k === "=") { if (!HM.ifade) return; const v = hmHesapla(HM.ifade), s = hmYaz(v); HM.gecmis.unshift({ i: HM.ifade, s }); HM.gecmis = HM.gecmis.slice(0, 8); S.textContent = s; HM.ifade = Number.isNaN(v) ? "" : String(v).replace(".", ","); }
+      else { const op = "+-×÷%".includes(k); if (HM.son && !op) HM.ifade = ""; if (op && !HM.ifade && k !== "-") return; if (op && /[+\-×÷]$/.test(HM.ifade) && k !== "%") HM.ifade = HM.ifade.slice(0, -1); HM.ifade += k; }
+      HM.son = k === "="; ciz(); };
+    h.querySelectorAll("[data-hm]").forEach(b => b.onclick = () => bas(b.dataset.hm));
+    const kb = e => { if (!h.isConnected) { document.removeEventListener("keydown", kb, true); return; } const m = { "*": "×", "/": "÷", ".": ",", Enter: "=", "=": "=", Backspace: "⌫", Escape: "", Delete: "C" }, k = e.key in m ? m[e.key] : e.key;
+      if (e.key === "Escape") { kapat(); return; } if (/^[\d+\-×÷%(),=⌫C]$/.test(k)) { e.preventDefault(); bas(k); } };
+    const kapat = () => { document.removeEventListener("keydown", kb, true); done(false); };
+    document.addEventListener("keydown", kb, true);
+    h.querySelector("#hmX").onclick = kapat;
+    ciz();
+  });
 }
