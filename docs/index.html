@@ -6,7 +6,7 @@
 <title>Kar-Men Proje Takip</title>
 <meta name="description" content="KARMEN MRP-ERP Dönüşüm Projesi iş takip ekranı">
 <meta name="theme-color" content="#0d1118">
-<meta name="app-version" content="87">
+<meta name="app-version" content="88">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/favicon.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Kar-Men Takip">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=87">
+<link rel="stylesheet" href="styles.css?v=88">
 </head>
 <body>
 <div class="offline" id="offline" hidden>Bağlantı yok · değişiklikler bağlantı gelince kaydedilecek</div>
@@ -37,6 +37,7 @@
     <a class="tb-logo" href="#home" aria-label="Ana ekran"><img src="logo.jpg" alt="Kar-Men Airtech" width="900" height="318"></a>
     <nav class="crumb" id="crumb" aria-label="Konum"></nav>
     <div class="tb-r">
+      <button class="bandbtn rpbtn" id="rpBtn" type="button" hidden>RAPORLAR</button>
       <button class="bell" id="calcBtn" type="button" aria-label="Hesap makinesi" title="Hesap makinesi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 6.5h7"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h.01M15.5 18h.01"/></svg></button>
       <button class="bell" id="msgBtn" type="button" aria-label="Mesajlar" title="Mesajlar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 01-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1121 12z"/><path d="M8.5 11h7M8.5 14.5h4.5"/></svg><span class="mbadge num" id="mBadge" hidden></span></button>
       <button class="bell" id="bellBtn" type="button" aria-label="Bildirimler"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg><span class="mbadge num" id="bellBadge" hidden></span></button>
@@ -555,6 +556,6 @@
 </div>
 <div id="drawerHost"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=87"></script>
+<script type="module" src="app.js?v=88"></script>
 </body>
 </html>

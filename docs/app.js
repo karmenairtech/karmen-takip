@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "87";
+const APP_V = "88";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -246,7 +246,7 @@ function enter(user) {
 let dataUnsubs = [];
 function stopDataSubs() { dataUnsubs.forEach(u => { try { u(); } catch (e) {} }); dataUnsubs = []; }
 function startData() {
-  kulBasla(); logBasla();
+  kulBasla(); logBasla(); { const rb = $("#rpBtn"); if (rb) rb.hidden = !isAdmin(); }
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
@@ -2360,6 +2360,7 @@ function openMsgs(peer) {
 function closeMsgs() { if (REC.mr) recStop(true); $("#msgPanel").hidden = true; document.body.classList.remove("noscroll"); }
 on("#msgBtn", () => { if (msgOpen()) closeMsgs(); else openMsgs(); });
 on("#calcBtn", () => hesapMakinesi());
+on("#rpBtn", () => rpAc());
 on("#msgClose", closeMsgs);
 $("#msgPanel").addEventListener("click", e => { if (e.target.id === "msgPanel") closeMsgs(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !e.defaultPrevented && msgOpen() && !$("#drawerHost").innerHTML && !document.querySelector(".viewer")) closeMsgs(); });
@@ -10569,4 +10570,265 @@ function hesapMakinesi() {
     h.querySelector("#hmGT").onclick = () => { HM.gecmis = []; ciz(); };
     ciz();
   });
+}
+
+
+/* ================= RAPORLAR (yalnızca tam yetkili / yönetici) =================
+   Üst çubuktaki RAPORLAR düğmesi. Modül seçilir → tarih aralığı → rapor (özet kutuları + önceki dönem kıyası,
+   çubuk grafikler, tablolar). Yazdır / PDF ve Excel (CSV) çıktısı. Veriler programda zaten yüklü olanlardan
+   hesaplanır; yalnızca personel yoklamasında seçilen ayların kaydı bir kez okunur. */
+const RP_MOD = [
+  { id: "plan", ad: "PLANLAMA / ÜRETİM TAKİP", ds: "İş emirleri, üretilen adet, fire, istasyon ve personel çalışma süreleri, termin uyumu" },
+  { id: "mh", ad: "MUHASEBE", ds: "Faturalanan ve fatura bekleyen tutarlar, müşteri bazında, sevkten faturaya geçen süre" },
+  { id: "sp", ad: "SİPARİŞ TAKİP", ds: "Sipariş ve teklif adet/tutar, en çok sipariş veren ve teklif verilen müşteriler, en çok satılan ürünler, dönüşüm oranı" },
+  { id: "sv", ad: "SEVKİYAT TAKİP", ds: "Sevk sayısı ve adet, müşteri ve ürün bazında, iade, irsaliyesiz sevk, siparişten sevke süre" },
+  { id: "sa", ad: "SATINALMA", ds: "Talep, teklif ve sipariş sayıları, tedarikçi bazında harcama, en çok alınan ürünler, teslim uyumu" },
+  { id: "di", ad: "DIŞ İŞ TAKİP", ds: "Dışarı çıkışlar, kişi ve araç bazında, masraflar, kilometre, dışarıda geçen süre" },
+  { id: "pt", ad: "PERSONEL TAKİP", ds: "Devam, geç kalma, izinsiz gün, izin, rapor ve fazla mesai; kişi ve departman bazında" }];
+const RP = { son: null };
+const rpIso = d => new Date(d).toISOString().slice(0, 10);
+function rpAralik(per, t1, t2) {
+  const d0 = new Date(TODAY + "T00:00:00Z"), wd = (d0.getUTCDay() + 6) % 7, y = d0.getUTCFullYear(), m = d0.getUTCMonth(), gs = n => rpIso(d0 - n * 864e5);
+  if (per === "bugun") return [TODAY, TODAY];
+  if (per === "hafta") return [gs(wd), TODAY];
+  if (per === "ay") return [TODAY.slice(0, 8) + "01", TODAY];
+  if (per === "gecenay") return [rpIso(Date.UTC(y, m - 1, 1)), rpIso(Date.UTC(y, m, 0))];
+  if (per === "ceyrek") return [rpIso(Date.UTC(y, Math.floor(m / 3) * 3, 1)), TODAY];
+  if (per === "yil") return [`${y}-01-01`, TODAY];
+  if (per === "son30") return [gs(29), TODAY];
+  return [t1 || TODAY, t2 || TODAY];
+}
+const rpOnceki = (a, b) => { const L = Math.round((dnum(b) - dnum(a))) + 1; return [rpIso(Date.UTC(...a.split("-").map((x, i) => i === 1 ? x - 1 : +x)) - L * 864e5), rpIso(Date.UTC(...a.split("-").map((x, i) => i === 1 ? x - 1 : +x)) - 864e5)]; };
+const rpIn = (iso, a, b) => !!iso && iso >= a && iso <= b;
+const rpTs = ts => ts ? dayOf(ts) : "";
+const rpTL = (n, pb, kur) => saTRY(n, pb || "TRY", kur);
+const rpPara = n => n == null ? "—" : money(n, "TRY");
+const rpGrp = (L, key, val = () => 1) => { const M = new Map(); L.forEach(x => { const k = key(x); if (k == null || k === "") return; M.set(k, (M.get(k) || 0) + (Number(val(x)) || 0)); }); return [...M.entries()].map(([ad, v]) => ({ ad, v })).sort((p, q) => q.v - p.v); };
+const rpPct = (a, b) => b ? Math.round(a / b * 1000) / 10 : null;
+
+// ---- modül hesapları: { kpi:[{l, v, o, f}], bol:[{t, tip:"bar"|"tab", ...}] }  (o = önceki dönem değeri)
+function rpPlan(a, b, oa, ob) {
+  const E = PL.ie || [], acik = e => e.durum !== "bitti" && e.durum !== "iptal";
+  const acilan = (x, y) => E.filter(e => rpIn(rpTs(e.createdAt), x, y)), biten = (x, y) => E.filter(e => e.durum === "bitti" && rpIn(rpTs(e.bitis || e.updatedAt), x, y));
+  const opsIn = (x, y) => E.flatMap(e => (e.ops || []).filter(o => !o.atlandi && o.durum === "bitti" && rpIn(rpTs(o.bitis), x, y)).map(o => ({ o, e })));
+  const calIn = (x, y) => E.flatMap(e => (e.ops || []).flatMap(o => (o.calisma || []).filter(c => c.bas && c.bit && rpIn(rpTs(c.bas), x, y)).map(c => ({ c, o, e, dk: (c.bit - c.bas) / 60000 }))));
+  const B = biten(a, b), Bo = biten(oa, ob), O = opsIn(a, b), Oo = opsIn(oa, ob), C = calIn(a, b), Co = calIn(oa, ob);
+  const fireOf = L => { const f = L.reduce((t, x) => t + (Number(x.o.fire) || 0), 0), t = L.reduce((s, x) => s + (Number(x.o.tamam) || 0), 0); return rpPct(f, f + t); };
+  const zam = L => { const T = L.filter(e => e.termin); return rpPct(T.filter(e => rpTs(e.bitis || e.updatedAt) <= e.termin).length, T.length); };
+  const ort = L => { const T = L.filter(e => e.createdAt && e.bitis); return T.length ? Math.round(T.reduce((s, e) => s + (e.bitis - e.createdAt) / 864e5, 0) / T.length * 10) / 10 : null; };
+  const gec = E.filter(e => acik(e) && e.termin && e.termin < TODAY).sort((p, q) => p.termin.localeCompare(q.termin));
+  return {
+    kpi: [{ l: "Açılan iş emri", v: acilan(a, b).length, o: acilan(oa, ob).length }, { l: "Tamamlanan iş emri", v: B.length, o: Bo.length },
+      { l: "Üretilen adet", v: B.reduce((s, e) => s + (Number(e.miktar) || 0), 0), o: Bo.reduce((s, e) => s + (Number(e.miktar) || 0), 0) },
+      { l: "Biten operasyon", v: O.length, o: Oo.length }, { l: "Fire oranı", v: fireOf(O), o: fireOf(Oo), f: "%", ters: true },
+      { l: "Zamanında tamamlanan", v: zam(B), o: zam(Bo), f: "%" }, { l: "Ort. tamamlanma süresi", v: ort(B), o: ort(Bo), f: "gün", ters: true },
+      { l: "Toplam çalışma süresi", v: Math.round(C.reduce((s, x) => s + x.dk, 0)), o: Math.round(Co.reduce((s, x) => s + x.dk, 0)), f: "dk" },
+      { l: "Şu an açık iş emri", v: E.filter(acik).length }, { l: "Termini geçmiş açık iş emri", v: gec.length, ters: true }],
+    bol: [
+      { t: "İstasyon bazında çalışma süresi", tip: "bar", f: "dk", L: rpGrp(C, x => x.o.ist, x => x.dk) },
+      { t: "İstasyon bazında biten operasyon", tip: "bar", L: rpGrp(O, x => x.o.ist) },
+      { t: "Personel bazında çalışma süresi (MES)", tip: "bar", f: "dk", L: rpGrp(C, x => x.c.by || x.o.operator, x => x.dk) },
+      { t: "Personel bazında biten operasyon", tip: "bar", L: rpGrp(O, x => x.o.operator || ((x.o.calisma || []).slice(-1)[0] || {}).by) },
+      { t: "Ürün tipi (iş akışı) bazında tamamlanan adet", tip: "bar", L: rpGrp(B, e => e.akisAd || "—", e => e.miktar) },
+      { t: "Müşteri bazında tamamlanan adet", tip: "bar", L: rpGrp(B, e => e.musteri || "Stoka üretim", e => e.miktar) },
+      { t: "Fire verilen operasyonlar", tip: "bar", L: rpGrp(O.filter(x => Number(x.o.fire) > 0), x => `${x.o.ad || ""} · ${x.o.ist || ""}`, x => x.o.fire) },
+      { t: "Termini geçmiş açık iş emirleri", tip: "tab", H: ["İş emri", "Ürün", "Müşteri", "Termin", "Gecikme"], R: gec.slice(0, 60).map(e => [e.no, e.urunAd || "", e.musteri || "", fmtS(e.termin), `${Math.round(dnum(TODAY) - dnum(e.termin))} gün`]) }] };
+}
+async function rpMH(a, b, oa, ob) {
+  if (typeof MH !== "undefined" && !MH.ready) { try { startMH(); } catch (e) { } for (let i = 0; i < 30 && !MH.ready; i++) await new Promise(r => setTimeout(r, 200)); }
+  const R = mhSatirlar(), tl = r => r.net == null ? null : rpTL(r.net, r.pb, r.kur);
+  const sevk = (x, y) => R.filter(r => rpIn(r.x.tarih, x, y)), fat = (x, y) => R.filter(r => r.fat && rpIn(r.fat.tarih, x, y));
+  const S = sevk(a, b), F = fat(a, b), So = sevk(oa, ob), Fo = fat(oa, ob), sum = L => L.reduce((s, r) => s + (tl(r) || 0), 0);
+  const bek = R.filter(r => !r.fat), ortG = L => { const T = L.filter(r => r.x.tarih && r.fat.tarih); return T.length ? Math.round(T.reduce((s, r) => s + Math.max(0, dnum(r.fat.tarih) - dnum(r.x.tarih)), 0) / T.length * 10) / 10 : null; };
+  const fiyatsiz = S.filter(r => r.net == null).length;
+  return {
+    not: fiyatsiz ? `${fiyatsiz} sevk satırında kalem fiyatı yok (toplu fiyat ya da fiyat girilmemiş); bu satırlar tutar toplamlarına girmedi. Döviz tutarları kayıtlı kurla TL'ye çevrildi.` : "Döviz tutarları kayıtlı kurla TL'ye çevrildi.",
+    kpi: [{ l: "Faturalanan tutar (KDV hariç)", v: sum(F), o: sum(Fo), f: "tl" }, { l: "Faturalanan satır", v: F.length, o: Fo.length },
+      { l: "Sevk edilen tutar", v: sum(S), o: sum(So), f: "tl" }, { l: "Sevk edilen satır", v: S.length, o: So.length },
+      { l: "Dönemde sevk edilip faturası bekleyen", v: sum(S.filter(r => !r.fat)), f: "tl", ters: true },
+      { l: "Ort. sevkten faturaya süre", v: ortG(F), o: ortG(Fo), f: "gün", ters: true },
+      { l: "Şu an fatura bekleyen (tüm zamanlar)", v: sum(bek), f: "tl" }, { l: "Şu an fatura bekleyen satır", v: bek.length }],
+    bol: [
+      { t: "Müşteri bazında faturalanan (TL)", tip: "bar", f: "tl", L: rpGrp(F, r => r.s.cariAd, tl) },
+      { t: "Müşteri bazında fatura bekleyen (TL, tüm zamanlar)", tip: "bar", f: "tl", L: rpGrp(bek, r => r.s.cariAd, tl) },
+      { t: "En eski fatura bekleyen sevkler", tip: "tab", H: ["Sevk tarihi", "Sipariş", "Müşteri", "Ürün", "Miktar", "Tutar"], R: bek.slice().sort((p, q) => String(p.x.tarih).localeCompare(String(q.x.tarih))).slice(0, 60).map(r => [fmtS(r.x.tarih), r.s.no, r.s.cariAd || "", mhUrunAd(r.k), `${nf(r.y.miktar)} ${r.k.birim || ""}`, r.net == null ? "fiyat yok" : money(r.net, r.pb)]) }] };
+}
+function rpSP(a, b, oa, ob) {
+  const S = (x, y) => SP.list.filter(s => s.durum !== "taslak" && rpIn(s.tarih, x, y)), T = (x, y) => TK.list.filter(t => rpIn(t.tarih, x, y));
+  const tlS = s => { const t = spTotals(s.id); return t ? rpTL(t.net, t.pb, (SP.fiyat[s.id] || {}).kur) : null; }, tlT = t => rpTL(tkTot(t.kalemler).net, t.pb, t.kur);
+  const L = S(a, b), Lo = S(oa, ob), K = T(a, b), Ko = T(oa, ob), sum = (A, f) => A.reduce((s, x) => s + (f(x) || 0), 0);
+  const don = A => { const g = A.filter(t => t.durum !== "taslak"); return rpPct(g.filter(t => t.durum === "siparis" || t.siparisNo).length, g.length); };
+  const sonSevk = s => (s.sevkiyatlar || []).reduce((m, x) => x.tarih > m ? x.tarih : m, "");
+  const tes = SP.list.filter(s => (s.kalemler || []).length && s.termin && (s.kalemler || []).every(k => spSevkKalan(k) <= 0) && rpIn(sonSevk(s), a, b));
+  const kalem = L.flatMap(s => (s.kalemler || []).map(k => ({ s, k })));
+  return {
+    not: "Tutarlar KDV hariç; döviz tutarları kayıtlı kurla TL'ye çevrildi. Taslak siparişler sayılmadı.",
+    kpi: [{ l: "Sipariş adedi", v: L.length, o: Lo.length }, { l: "Sipariş tutarı", v: sum(L, tlS), o: sum(Lo, tlS), f: "tl" },
+      { l: "Ortalama sipariş tutarı", v: L.length ? sum(L, tlS) / L.length : null, o: Lo.length ? sum(Lo, tlS) / Lo.length : null, f: "tl" },
+      { l: "Verilen teklif", v: K.length, o: Ko.length }, { l: "Teklif tutarı", v: sum(K, tlT), o: sum(Ko, tlT), f: "tl" },
+      { l: "Tekliften siparişe dönüşüm", v: don(K), o: don(Ko), f: "%" }, { l: "Kaybedilen teklif", v: K.filter(t => t.durum === "kaybedildi").length, o: Ko.filter(t => t.durum === "kaybedildi").length, ters: true },
+      { l: "Zamanında teslim (dönemde tamamlanan)", v: rpPct(tes.filter(s => sonSevk(s) <= s.termin).length, tes.length), f: "%" },
+      { l: "İptal edilen sipariş", v: SP.list.filter(s => s.durum === "iptal" && rpIn(rpTs(s.updatedAt), a, b)).length, ters: true },
+      { l: "Şu an açık sipariş", v: SP.list.filter(spAcik).length }],
+    bol: [
+      { t: "En çok sipariş veren müşteriler (TL)", tip: "bar", f: "tl", L: rpGrp(L, s => s.cariAd, tlS) },
+      { t: "En çok sipariş veren müşteriler (adet)", tip: "bar", L: rpGrp(L, s => s.cariAd) },
+      { t: "En çok teklif verilen müşteriler (adet)", tip: "bar", L: rpGrp(K, t => t.cariAd) },
+      { t: "En çok teklif verilen müşteriler (TL)", tip: "bar", f: "tl", L: rpGrp(K, t => t.cariAd, tlT) },
+      { t: "En çok sipariş edilen ürünler (miktar)", tip: "bar", L: rpGrp(kalem, x => `${x.k.kod ? x.k.kod + " · " : ""}${x.k.ad || ""}`, x => x.k.miktar) },
+      { t: "Teklif durumları", tip: "bar", L: rpGrp(K, t => (TK_DUR[tkDurum(t)] || [tkDurum(t)])[0]) },
+      { t: "Dönemin siparişleri", tip: "tab", H: ["Sipariş", "Tarih", "Müşteri", "Kalem", "Tutar (TL)", "Durum"], R: L.slice().sort((p, q) => String(q.tarih).localeCompare(String(p.tarih))).slice(0, 150).map(s => [s.no, fmtS(s.tarih), s.cariAd || "", (s.kalemler || []).length, rpPara(tlS(s)), spDurum(s)]) }] };
+}
+function rpSV(a, b, oa, ob) {
+  const X = (x, y) => SP.list.flatMap(s => (s.sevkiyatlar || []).filter(v => rpIn(v.tarih, x, y)).map(v => ({ s, v })));
+  const L = X(a, b), Lo = X(oa, ob), adet = A => A.reduce((t, z) => t + (z.v.satir || []).reduce((u, y) => u + (Number(y.miktar) || 0), 0), 0);
+  const sat = L.flatMap(z => (z.v.satir || []).map(y => ({ ...z, y, k: (z.s.kalemler || []).find(k => k.k === y.k) || {} })));
+  const iade = A => A.reduce((t, z) => t + (z.v.iadeler || []).reduce((u, i) => u + (i.satir || []).reduce((w, y) => w + (Number(y.miktar) || 0), 0), 0), 0);
+  const ilk = SP.list.filter(s => (s.sevkiyatlar || []).length && s.tarih).map(s => ({ s, t: (s.sevkiyatlar || []).reduce((m, v) => !m || v.tarih < m ? v.tarih : m, "") })).filter(z => rpIn(z.t, a, b));
+  const ort = ilk.length ? Math.round(ilk.reduce((t, z) => t + Math.max(0, dnum(z.t) - dnum(z.s.tarih)), 0) / ilk.length * 10) / 10 : null;
+  return {
+    kpi: [{ l: "Sevkiyat sayısı", v: L.length, o: Lo.length }, { l: "Sevk edilen toplam miktar", v: adet(L), o: adet(Lo) },
+      { l: "Sevk edilen sipariş", v: new Set(L.map(z => z.s.id)).size, o: new Set(Lo.map(z => z.s.id)).size },
+      { l: "Müşteri sayısı", v: new Set(L.map(z => z.s.cariAd)).size }, { l: "İade edilen miktar", v: iade(L), o: iade(Lo), ters: true },
+      { l: "İrsaliye no girilmeyen sevk", v: L.filter(z => !z.v.irsaliye).length, ters: true }, { l: "Muhasebenin işaretlediği sevk", v: L.filter(z => z.v.muhasebe).length },
+      { l: "Ort. siparişten ilk sevke", v: ort, f: "gün", ters: true },
+      { l: "Şu an sevk bekleyen sipariş", v: SP.list.filter(s => spAcik(s) && (s.kalemler || []).some(k => spSevkKalan(k) > 0)).length }],
+    bol: [
+      { t: "Müşteri bazında sevk edilen miktar", tip: "bar", L: rpGrp(sat, z => z.s.cariAd, z => z.y.miktar) },
+      { t: "Müşteri bazında sevkiyat sayısı", tip: "bar", L: rpGrp(L, z => z.s.cariAd) },
+      { t: "En çok sevk edilen ürünler", tip: "bar", L: rpGrp(sat, z => `${z.k.kod ? z.k.kod + " · " : ""}${adMetraj(z.k.ad || "", z.k)}`, z => z.y.miktar) },
+      { t: "Sevki kaydeden kişi", tip: "bar", L: rpGrp(L, z => z.v.by) },
+      { t: "Dönemin sevkiyatları", tip: "tab", H: ["Tarih", "Sipariş", "Müşteri", "İrsaliye", "Kalem", "Miktar", "Kaydeden"], R: L.slice().sort((p, q) => String(q.v.tarih).localeCompare(String(p.v.tarih))).slice(0, 150).map(z => [fmtS(z.v.tarih), z.s.no, z.s.cariAd || "", z.v.irsaliye || "—", (z.v.satir || []).length, nf((z.v.satir || []).reduce((u, y) => u + (Number(y.miktar) || 0), 0)), z.v.by || ""]) }] };
+}
+function rpSA(a, b, oa, ob) {
+  const tar = x => x.tarih || rpTs(x.createdAt), P = (x, y) => SA.siparis.filter(p => p.durum !== "iptal" && rpIn(tar(p), x, y));
+  const tl = p => rpTL((p.toplam || saTotals(p.kalemler)).net, p.pb, p.kur), L = P(a, b), Lo = P(oa, ob), sum = A => A.reduce((s, p) => s + (tl(p) || 0), 0);
+  const kab = (x, y) => SA.siparis.flatMap(p => (p.kabuller || []).filter(k => rpIn(rpTs(k.at), x, y)).map(k => ({ p, k })));
+  const K = kab(a, b), Ko = kab(oa, ob), zam = A => rpPct(A.filter(z => !z.k.gec).length, A.length);
+  const acik = SA.siparis.filter(p => !["tamam", "iptal", "kapandi"].includes(p.durum) && (p.kalemler || []).some(k => saKalan(k) > 0));
+  const gec = acik.filter(p => p.termin && p.termin < TODAY);
+  const kal = L.flatMap(p => (p.kalemler || []).map(k => ({ p, k })));
+  return {
+    not: "Tutarlar KDV hariç; döviz tutarları kayıtlı kurla TL'ye çevrildi.",
+    kpi: [{ l: "Satınalma talebi", v: SA.talep.filter(t => rpIn(tar(t), a, b)).length, o: SA.talep.filter(t => rpIn(tar(t), oa, ob)).length },
+      { l: "Fiyat talebi (teklif)", v: SA.teklif.filter(t => rpIn(tar(t), a, b)).length, o: SA.teklif.filter(t => rpIn(tar(t), oa, ob)).length },
+      { l: "Satınalma siparişi", v: L.length, o: Lo.length }, { l: "Sipariş tutarı", v: sum(L), o: sum(Lo), f: "tl", ters: true },
+      { l: "Teslim alma (kabul)", v: K.length, o: Ko.length }, { l: "Zamanında teslim oranı", v: zam(K), o: zam(Ko), f: "%" },
+      { l: "Şu an açık satınalma siparişi", v: acik.length }, { l: "Termini geçmiş açık sipariş", v: gec.length, ters: true }],
+    bol: [
+      { t: "Tedarikçi bazında harcama (TL)", tip: "bar", f: "tl", L: rpGrp(L, p => p.cariAd, tl) },
+      { t: "Tedarikçi bazında sipariş sayısı", tip: "bar", L: rpGrp(L, p => p.cariAd) },
+      { t: "En çok alınan ürünler (miktar)", tip: "bar", L: rpGrp(kal, x => `${x.k.kod ? x.k.kod + " · " : ""}${x.k.ad || ""}`, x => x.k.miktar) },
+      { t: "Geç teslim eden tedarikçiler (teslim sayısı)", tip: "bar", L: rpGrp(K.filter(z => z.k.gec), z => z.p.cariAd) },
+      { t: "Termini geçmiş açık satınalma siparişleri", tip: "tab", H: ["Sipariş", "Tedarikçi", "Termin", "Gecikme", "Kalan kalem"], R: gec.slice(0, 60).map(p => [p.no, p.cariAd || "", fmtS(p.termin), `${Math.round(dnum(TODAY) - dnum(p.termin))} gün`, (p.kalemler || []).filter(k => saKalan(k) > 0).length]) }] };
+}
+function rpDI(a, b, oa, ob) {
+  const J = (x, y) => (DT.jobs || []).filter(j => !j.iptal && j.cikis && rpIn(rpTs(j.cikis), x, y)), L = J(a, b), Lo = J(oa, ob);
+  const km = j => Math.max(0, (Number(j.kmDonus) || 0) - (Number(j.kmCikis) || 0)), sure = j => j.giris && j.cikis ? (j.giris - j.cikis) / 60000 : 0;
+  const mas = A => A.reduce((s, j) => s + diCost(j), 0), G = L.flatMap(j => diGorev(j).map(g => ({ j, g })));
+  return {
+    kpi: [{ l: "Dışarı çıkış", v: L.length, o: Lo.length }, { l: "Tamamlanan (dönen)", v: L.filter(j => j.giris).length, o: Lo.filter(j => j.giris).length },
+      { l: "Toplam masraf", v: mas(L), o: mas(Lo), f: "tl", ters: true }, { l: "Toplam kilometre", v: L.reduce((s, j) => s + km(j), 0), o: Lo.reduce((s, j) => s + km(j), 0), f: "km" },
+      { l: "Dışarıda geçen toplam süre", v: Math.round(L.reduce((s, j) => s + sure(j), 0)), o: Math.round(Lo.reduce((s, j) => s + sure(j), 0)), f: "dk" },
+      { l: "Geç dönüş", v: L.filter(j => { const p = diPlanTs(j); return p && j.giris && j.giris > p; }).length, ters: true },
+      { l: "Şu an dışarıda", v: (DT.jobs || []).filter(diIsOut).length }],
+    bol: [
+      { t: "Kişi bazında çıkış sayısı", tip: "bar", L: rpGrp(L, j => j.personel) },
+      { t: "Kişi bazında dışarıda geçen süre", tip: "bar", f: "dk", L: rpGrp(L, j => j.personel, sure) },
+      { t: "Kişi bazında masraf", tip: "bar", f: "tl", L: rpGrp(L, j => j.personel, diCost) },
+      { t: "Araç bazında kilometre", tip: "bar", f: "km", L: rpGrp(L, j => j.arac || "Araçsız", km) },
+      { t: "İş türü bazında", tip: "bar", L: rpGrp(G, z => z.g.tur || "—") },
+      { t: "En çok gidilen yerler", tip: "bar", L: rpGrp(G, z => z.g.yer || "") },
+      { t: "Dönemin çıkışları", tip: "tab", H: ["Tarih", "Kişi", "Araç", "Yer / iş", "Süre", "Km", "Masraf"], R: L.slice().sort((p, q) => q.cikis - p.cikis).slice(0, 150).map(j => [skTs(j.cikis), j.personel || "", j.arac || "—", diGorev(j).map(g => [g.tur, g.yer].filter(Boolean).join(" ")).join(" · "), j.giris ? plDur(sure(j)) : "dışarıda", nf(km(j)), money(diCost(j), "TRY")]) }] };
+}
+async function rpPT(a, b, oa, ob) {
+  // gereken ayların yoklaması bir kez okunur (önbelleğe eklenir)
+  const aylar = new Set(); for (let d = dnum(oa); d <= dnum(b); d += 28) aylar.add(rpIso(d * 864e5).slice(0, 7)); aylar.add(b.slice(0, 7)); aylar.add(oa.slice(0, 7));
+  const eksik = [...aylar].filter(ay => !Object.keys(PT.yok).some(k => k.startsWith(ay)) && !(PT.subs || {})[ay]);
+  for (let i = 0; i < eksik.length; i += 10) { try { const sn = await getDocs(query(collection(fs, "yoklama"), where("ay", "in", eksik.slice(i, i + 10)))); sn.docs.forEach(d => { const k = (d.data() || {}).k || {}; PT.yok[d.id] = Object.fromEntries(Object.entries(k).filter(([, v]) => v && v.d)); }); } catch (e) { } }
+  const ist = (p, x, y) => { const r = { geldi: 0, gec: 0, gecDk: 0, izinsiz: 0, izin: 0, rapor: 0, isgunu: 0, mesai: 0 };
+    for (let d = dnum(x); d <= dnum(y); d++) { const iso = rpIso(d * 864e5); if (iso > TODAY || !pkActiveOn(p, iso)) continue; const e = pkEff(p, iso); if (e.d !== "tatil") r.isgunu++;
+      if (e.d === "fabrikada" || e.d === "gec") r.geldi++; if (e.d === "gec") { r.gec++; r.gecDk += Math.max(0, pkLateMin(e.saat) || 0); }
+      if (e.d === "izinsiz") r.izinsiz++; if (e.d === "gunluk" || e.d === "yillik" || e.d === "ucretsiz") r.izin++; if (e.d === "rapor") r.rapor++; if (Number(e.mesai) > 0) r.mesai += Number(e.mesai); }
+    return r; };
+  const P = (PT.people || []).filter(p => p.aktif !== false || (p.ayrilis && p.ayrilis >= a));
+  const S = P.map(p => ({ p, r: ist(p, a, b) })), So = P.map(p => ({ p, r: ist(p, oa, ob) })), top = (A, k) => A.reduce((s, z) => s + z.r[k], 0);
+  const devam = A => rpPct(top(A, "geldi"), top(A, "isgunu") - top(A, "izin") - top(A, "rapor"));
+  return {
+    not: "Hafta tatilleri iş gününe sayılmaz. Devam oranı = gelinen gün / (iş günü − izin − rapor).",
+    kpi: [{ l: "Personel sayısı", v: P.length }, { l: "Devam oranı", v: devam(S), o: devam(So), f: "%" },
+      { l: "Geç kalma (gün)", v: top(S, "gec"), o: top(So, "gec"), ters: true }, { l: "Toplam geç kalma süresi", v: top(S, "gecDk"), o: top(So, "gecDk"), f: "dk", ters: true },
+      { l: "İzinsiz gün", v: top(S, "izinsiz"), o: top(So, "izinsiz"), ters: true }, { l: "İzin günü", v: top(S, "izin"), o: top(So, "izin") },
+      { l: "Rapor günü", v: top(S, "rapor"), o: top(So, "rapor") }, { l: "Fazla mesai (saat)", v: Math.round(top(S, "mesai") * 10) / 10, o: Math.round(top(So, "mesai") * 10) / 10 }],
+    bol: [
+      { t: "En çok geç kalanlar (gün)", tip: "bar", L: S.filter(z => z.r.gec).map(z => ({ ad: z.p.ad, v: z.r.gec })).sort((p, q) => q.v - p.v) },
+      { t: "İzinsiz gelmeyenler (gün)", tip: "bar", L: S.filter(z => z.r.izinsiz).map(z => ({ ad: z.p.ad, v: z.r.izinsiz })).sort((p, q) => q.v - p.v) },
+      { t: "Fazla mesai (saat)", tip: "bar", L: S.filter(z => z.r.mesai).map(z => ({ ad: z.p.ad, v: Math.round(z.r.mesai * 10) / 10 })).sort((p, q) => q.v - p.v) },
+      { t: "Departman bazında geç kalma (gün)", tip: "bar", L: rpGrp(S, z => z.p.departman || "—", z => z.r.gec) },
+      { t: "Kişi bazında devam özeti", tip: "tab", H: ["Personel", "Departman", "İş günü", "Geldi", "Geç", "Geç (dk)", "İzinsiz", "İzin", "Rapor", "Mesai (sa)"], R: S.slice().sort((p, q) => String(p.p.ad).localeCompare(String(q.p.ad), "tr")).map(z => [z.p.ad, z.p.departman || "", z.r.isgunu, z.r.geldi, z.r.gec, z.r.gecDk, z.r.izinsiz, z.r.izin, z.r.rapor, Math.round(z.r.mesai * 10) / 10]) }] };
+}
+
+// ---- görünüm
+const rpFmt = (v, f) => v == null || Number.isNaN(v) ? "—" : f === "tl" ? money(v, "TRY") : f === "%" ? "%" + String(v).replace(".", ",") : f === "dk" ? plDur(v) : f === "gün" ? String(v).replace(".", ",") + " gün" : f === "km" ? nf(v) + " km" : nf(v);
+function rpDelta(k) {
+  if (k.o == null || k.v == null) return ""; if (k.o === 0 && k.v === 0) return '<small class="rpd">önceki dönem: aynı</small>';
+  const d = k.o ? Math.round((k.v - k.o) / Math.abs(k.o) * 100) : null, iyi = k.ters ? k.v < k.o : k.v > k.o, esit = k.v === k.o;
+  return `<small class="rpd ${esit ? "" : iyi ? "up" : "down"}">${esit ? "=" : k.v > k.o ? "▲" : "▼"} ${d == null ? "" : "%" + Math.abs(d)} <span>önceki: ${rpFmt(k.o, k.f)}</span></small>`;
+}
+function rpBolHtml(x) {
+  if (x.tip === "tab") return `<section class="rpsec rpw"><h3>${esc(x.t)}</h3>${x.R.length ? `<div class="rptw"><table class="rptab"><thead><tr>${x.H.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${x.R.map(r => `<tr>${r.map(c => `<td>${esc(String(c))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : '<p class="note">Kayıt yok</p>'}</section>`;
+  const L = x.L.filter(r => r.v > 0).slice(0, 12), mx = Math.max(1, ...L.map(r => r.v)), top = x.L.reduce((s, r) => s + r.v, 0);
+  return `<section class="rpsec"><h3>${esc(x.t)}</h3>${L.length ? L.map((r, i) => `<div class="rpbar"><span class="rpbn"><b>${i + 1}.</b> ${esc(String(r.ad))}</span><span class="rpbt"><i style="width:${Math.max(2, Math.round(r.v / mx * 100))}%"></i></span><b class="num rpbv">${rpFmt(Math.round(r.v * 100) / 100, x.f)}${top ? ` <small>%${Math.round(r.v / top * 100)}</small>` : ""}</b></div>`).join("") + (x.L.length > 12 ? `<p class="note">+ ${x.L.length - 12} kayıt daha (Excel çıktısında hepsi var)</p>` : "") : '<p class="note">Bu dönemde kayıt yok</p>'}</section>`;
+}
+function rpCSV(R) {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, L = [[R.m.ad + " RAPORU"], [`Dönem: ${fmtS(R.a)} - ${fmtS(R.b)}`, `Önceki dönem: ${fmtS(R.oa)} - ${fmtS(R.ob)}`], [], ["Özet", "Değer", "Önceki dönem"]];
+  R.r.kpi.forEach(k => L.push([k.l, rpFmt(k.v, k.f), k.o == null ? "" : rpFmt(k.o, k.f)]));
+  R.r.bol.forEach(x => { L.push([], [x.t]); if (x.tip === "tab") { L.push(x.H); x.R.forEach(r => L.push(r)); } else x.L.forEach(r => L.push([r.ad, Math.round(r.v * 100) / 100])); });
+  const blob = new Blob(["﻿" + L.map(r => r.map(q).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+  saveFile(blob, `rapor-${R.m.id}-${R.a}-${R.b}.csv`);
+}
+function rpAc() {
+  if (!isAdmin()) return;
+  let h = document.getElementById("rpHost"); if (!h) { h = document.createElement("div"); h.id = "rpHost"; document.body.appendChild(h); }
+  h.className = "rpv"; document.body.classList.add("rpacik");
+  h.innerHTML = `<div class="rpb"><div class="rph"><div><div class="eyebrow">YÖNETİM</div><h2>Raporlar</h2></div><button type="button" class="x" id="rpX" aria-label="Kapat">×</button></div>
+    <div class="rpl">${RP_MOD.map(m => `<div class="rplr"><div><b>${esc(m.ad)}</b><div class="note">${esc(m.ds)}</div></div><button type="button" class="btn" data-rpm="${m.id}">Rapor oluştur</button></div>`).join("")}</div>
+    <p class="note" style="margin:14px 0 0">Raporlar yalnızca tam yetkili kullanıcılara görünür. Tutarlar KDV hariçtir.</p></div>`;
+  h.querySelector("#rpX").onclick = rpKapat;
+  h.querySelectorAll("[data-rpm]").forEach(b => b.onclick = () => rpSor(RP_MOD.find(m => m.id === b.dataset.rpm)));
+}
+function rpKapat() { const h = document.getElementById("rpHost"); if (h) h.remove(); document.body.classList.remove("rpacik", "rpprint"); }
+function rpSor(m) {
+  const P = [["bugun", "Bugün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["gecenay", "Geçen ay"], ["son30", "Son 30 gün"], ["ceyrek", "Bu çeyrek"], ["yil", "Bu yıl"], ["ozel", "Tarih aralığı"]];
+  let per = (RP.son || {}).per || "ay";
+  spModal(`<label>${esc(m.ad)} · rapor oluştur</label>
+    <div class="seg rpper" role="group" aria-label="Dönem">${P.map(([k, l]) => `<button type="button" data-rpp="${k}" aria-pressed="${per === k}">${l}</button>`).join("")}</div>
+    <div class="rpoz"${per === "ozel" ? "" : " hidden"}><div class="field"><label for="rpT1">Başlangıç</label><input type="date" id="rpT1" value="${esc((RP.son || {}).t1 || TODAY.slice(0, 8) + "01")}"></div><div class="field"><label for="rpT2">Bitiş</label><input type="date" id="rpT2" value="${esc((RP.son || {}).t2 || TODAY)}"></div></div>
+    <p class="note" id="rpAr" style="margin:0"></p>
+    <div class="r"><button type="button" class="btn ghost" id="rpC">Vazgeç</button><button type="button" class="btn" id="rpO">Raporu hazırla</button></div>`, (h, done) => {
+    const ar = () => { const [a, b] = rpAralik(per, h.querySelector("#rpT1").value, h.querySelector("#rpT2").value), [oa, ob] = rpOnceki(a, b); h.querySelector("#rpAr").textContent = `Dönem: ${fmtS(a)} – ${fmtS(b)} · kıyas: ${fmtS(oa)} – ${fmtS(ob)}`; };
+    h.querySelectorAll("[data-rpp]").forEach(b => b.onclick = () => { per = b.dataset.rpp; h.querySelectorAll("[data-rpp]").forEach(x => x.setAttribute("aria-pressed", x === b)); h.querySelector(".rpoz").hidden = per !== "ozel"; ar(); });
+    ["#rpT1", "#rpT2"].forEach(id => h.querySelector(id).onchange = ar); ar();
+    h.querySelector("#rpC").onclick = () => done(false);
+    h.querySelector("#rpO").onclick = () => { const t1 = h.querySelector("#rpT1").value, t2 = h.querySelector("#rpT2").value; let [a, b] = rpAralik(per, t1, t2); if (a > b) [a, b] = [b, a];
+      RP.son = { per, t1, t2 }; done(true); rpHazirla(m, a, b); };
+  });
+}
+async function rpHazirla(m, a, b) {
+  const h = document.getElementById("rpHost"); if (!h) return;
+  const [oa, ob] = rpOnceki(a, b);
+  h.innerHTML = `<div class="rpb"><p class="note">${esc(m.ad)} raporu hazırlanıyor…</p></div>`;
+  let r; try { r = await ({ plan: rpPlan, mh: rpMH, sp: rpSP, sv: rpSV, sa: rpSA, di: rpDI, pt: rpPT }[m.id])(a, b, oa, ob); }
+  catch (e) { console.error(e); h.innerHTML = `<div class="rpb"><p class="note">Rapor hazırlanamadı: ${esc(e && e.message || e)}</p><button type="button" class="btn" id="rpG">← Raporlar</button></div>`; h.querySelector("#rpG").onclick = rpAc; return; }
+  const R = RP.cur = { m, a, b, oa, ob, r };
+  h.innerHTML = `<div class="rpb rprep"><div class="rph"><div><div class="eyebrow">KAR-MEN AIRTECH · RAPOR</div><h2>${esc(m.ad)}</h2>
+      <div class="note">Dönem: <b>${fmtS(a)} – ${fmtS(b)}</b> · kıyas: ${fmtS(oa)} – ${fmtS(ob)} · hazırlayan ${esc(ME.name)} · ${skTs(Date.now())}</div></div>
+      <div class="r rpno"><button type="button" class="btn ghost" id="rpG">← Raporlar</button><button type="button" class="btn ghost" id="rpD">Dönemi değiştir</button><button type="button" class="btn ghost" id="rpE">Excel'e aktar</button><button type="button" class="btn" id="rpP">Yazdır / PDF</button><button type="button" class="x" id="rpX" aria-label="Kapat">×</button></div></div>
+    ${r.not ? `<p class="note rpnot">${esc(r.not)}</p>` : ""}
+    <div class="rpk">${r.kpi.map(k => `<div><span>${esc(k.l)}</span><b class="num">${rpFmt(k.v, k.f)}</b>${rpDelta(k)}</div>`).join("")}</div>
+    <div class="rpg">${r.bol.map(rpBolHtml).join("")}</div></div>`;
+  h.querySelector("#rpG").onclick = rpAc; h.querySelector("#rpX").onclick = rpKapat; h.querySelector("#rpD").onclick = () => rpSor(m);
+  h.querySelector("#rpE").onclick = () => rpCSV(R);
+  h.querySelector("#rpP").onclick = () => { document.body.classList.add("rpprint"); setTimeout(() => { window.print(); setTimeout(() => document.body.classList.remove("rpprint"), 500); }, 50); };
+  h.scrollTop = 0;
 }
