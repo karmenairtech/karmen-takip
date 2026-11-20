@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "86";
+const APP_V = "87";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -10545,17 +10545,19 @@ const hmYaz = n => Number.isNaN(n) ? "Hata" : n.toLocaleString("tr-TR", { maximu
 function hesapMakinesi() {
   const T = [["C", "fn"], ["⌫", "fn"], ["%", "op"], ["÷", "op"], ["7"], ["8"], ["9"], ["×", "op"], ["4"], ["5"], ["6"], ["-", "op"], ["1"], ["2"], ["3"], ["+", "op"], ["(", "fn"], ["0"], [",", ""], ["=", "eq"], [")", "fn"]];
   spModal(`<div class="hm"><div class="hmh"><b>Hesap makinesi</b><button type="button" class="x" id="hmX" aria-label="Kapat">×</button></div>
-    <div class="hmd" aria-live="polite"><div class="hmi" id="hmI">${esc(HM.ifade) || "&nbsp;"}</div><div class="hms num" id="hmS">0</div></div>
-    <div class="hmk">${T.map(([k, c]) => `<button type="button" class="hmb ${c || ""}" data-hm="${esc(k)}">${esc(k)}</button>`).join("")}</div>
-    <div class="hmg" id="hmG"></div></div>`, (h, done) => {
+    <div class="hmw"><div class="hmsol"><div class="hmd" aria-live="polite"><div class="hmi" id="hmI">${esc(HM.ifade) || "&nbsp;"}</div><div class="hms num" id="hmS">0</div></div>
+    <div class="hmk">${T.map(([k, c]) => `<button type="button" class="hmb ${c || ""}" data-hm="${esc(k)}">${esc(k)}</button>`).join("")}</div></div>
+    <aside class="hmsag"><div class="hmgh"><b>Son işlemler</b><button type="button" class="btn ghost sm" id="hmGT">Geçmişi temizle</button></div><div class="hmg" id="hmG"></div></aside></div></div>`, (h, done) => {
+    { const bx = h.querySelector(".p2b"); if (bx) bx.classList.add("hmbox"); }
     const I = h.querySelector("#hmI"), S = h.querySelector("#hmS"), G = h.querySelector("#hmG");
     const ciz = () => { I.textContent = HM.ifade || " "; const v = HM.ifade ? hmHesapla(HM.ifade) : 0; S.textContent = HM.ifade && /[\d)]$|%$/.test(HM.ifade) ? hmYaz(v) : S.textContent;
-      G.innerHTML = HM.gecmis.slice(0, 5).map(g => `<button type="button" class="hmgr" data-hmg="${esc(g.s)}"><span>${esc(g.i)}</span><b class="num">= ${esc(g.s)}</b></button>`).join(""); 
+      const gt = h.querySelector("#hmGT"); if (gt) gt.disabled = !HM.gecmis.length;
+      G.innerHTML = !HM.gecmis.length ? '<p class="note">Henüz işlem yok. Sonuca dokununca hesaba geri alınır.</p>' : HM.gecmis.slice(0, 12).map(g => `<button type="button" class="hmgr" data-hmg="${esc(g.s)}"><span>${esc(g.i)}</span><b class="num">= ${esc(g.s)}</b></button>`).join(""); 
       G.querySelectorAll("[data-hmg]").forEach(b => b.onclick = () => { HM.ifade = b.dataset.hmg.replace(/\./g, ""); ciz(); }); };
     const bas = k => {
       if (k === "C") { HM.ifade = ""; S.textContent = "0"; }
       else if (k === "⌫") HM.ifade = HM.ifade.slice(0, -1);
-      else if (k === "=") { if (!HM.ifade) return; const v = hmHesapla(HM.ifade), s = hmYaz(v); HM.gecmis.unshift({ i: HM.ifade, s }); HM.gecmis = HM.gecmis.slice(0, 8); S.textContent = s; HM.ifade = Number.isNaN(v) ? "" : String(v).replace(".", ","); }
+      else if (k === "=") { if (!HM.ifade) return; const v = hmHesapla(HM.ifade), s = hmYaz(v); HM.gecmis.unshift({ i: HM.ifade, s }); HM.gecmis = HM.gecmis.slice(0, 12); S.textContent = s; HM.ifade = Number.isNaN(v) ? "" : String(v).replace(".", ","); }
       else { const op = "+-×÷%".includes(k); if (HM.son && !op) HM.ifade = ""; if (op && !HM.ifade && k !== "-") return; if (op && /[+\-×÷]$/.test(HM.ifade) && k !== "%") HM.ifade = HM.ifade.slice(0, -1); HM.ifade += k; }
       HM.son = k === "="; ciz(); };
     h.querySelectorAll("[data-hm]").forEach(b => b.onclick = () => bas(b.dataset.hm));
@@ -10564,6 +10566,7 @@ function hesapMakinesi() {
     const kapat = () => { document.removeEventListener("keydown", kb, true); done(false); };
     document.addEventListener("keydown", kb, true);
     h.querySelector("#hmX").onclick = kapat;
+    h.querySelector("#hmGT").onclick = () => { HM.gecmis = []; ciz(); };
     ciz();
   });
 }
