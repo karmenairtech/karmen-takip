@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "89";
+const APP_V = "90";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -246,7 +246,7 @@ function enter(user) {
 let dataUnsubs = [];
 function stopDataSubs() { dataUnsubs.forEach(u => { try { u(); } catch (e) {} }); dataUnsubs = []; }
 function startData() {
-  kulBasla(); logBasla(); { const rb = $("#rpBtn"); if (rb) rb.hidden = !isAdmin(); }
+  kulBasla(); logBasla(); setTimeout(panoKurGetir, 1500); setInterval(panoKurGetir, 30 * 60000); { const rb = $("#rpBtn"); if (rb) rb.hidden = !isAdmin(); }
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
@@ -5403,7 +5403,9 @@ function saChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE ===
 
 /* --- yardımcılar --- */
 const saNextNo = (pre, L) => { const y = TODAY.slice(0, 4), mx = Math.max(0, ...L.map(x => { const m = String(x.no || "").match(new RegExp("^" + pre + "-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; })); return `${pre}-${y}-${String(mx + 1).padStart(4, "0")}`; };
-const saKur = (pb, kur) => !pb || pb === "TRY" ? 1 : Number(kur) || Number((SA.cfg.kur || {})[pb]) || null;
+// Döviz → TL: her yerde fabrika panosunun çektiği güncel kur kullanılır; alınamazsa kayıttaki kur, o da yoksa satınalma ayarlarındaki kur
+const kurCanli = pb => { const K = typeof PANO !== "undefined" && PANO.kur; return K && pb ? Number(K[String(pb).toLowerCase()]) || null : null; };
+const saKur = (pb, kur) => !pb || pb === "TRY" ? 1 : kurCanli(pb) || Number(kur) || Number((SA.cfg.kur || {})[pb]) || null;
 const saTRY = (n, pb, kur) => { const k = saKur(pb, kur); return k == null ? null : (Number(n) || 0) * k; };
 function saLine(k) { const q = Number(k.miktar) || 0, f = Number(k.fiyat) || 0, isk = Math.min(100, Math.max(0, Number(k.isk) || 0)), net = q * f * (1 - isk / 100); return { brut: q * f, isk: q * f - net, net, kdv: net * (Number(k.kdv ?? 20) || 0) / 100 }; }
 function saTotals(K) { const t = { ara: 0, isk: 0, net: 0, kdv: 0, genel: 0 }; (K || []).forEach(k => { const l = saLine(k); t.ara += l.brut; t.isk += l.isk; t.net += l.net; t.kdv += l.kdv; }); t.genel = t.net + t.kdv; return t; }
@@ -7312,7 +7314,7 @@ async function spOpenForm(id, pre) {
           <div class="field"><label for="fVt">Verdiğimiz termin * <small class="note">(onay için)</small></label><input id="fVt" type="date" value="${esc(v("fVt", cur ? cur.verilenTermin || "" : ""))}"></div></div></section>
         <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>
           <div class="sprdef"><span>Siparişin varsayılan rengi:</span><button type="button" class="btn ghost sm" id="fRen">${varsR ? spSw(varsR) + " " + esc(spRenkAd(varsR)) : "Renk seç"}</button><span class="note">Yeni kalemlere kendiliğinden gelir; farklı renk seçilen kalemde teyit istenir.</span></div>
-          ${pr ? `<div class="fgrid" style="margin:8px 0"><div class="field"><label for="fPb">Para birimi</label><select id="fPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>${pb !== "TRY" ? `<div class="field"><label for="fKur">Kur (${esc(pb)}/TL)</label><input id="fKur" type="number" step="0.0001" min="0" value="${esc(v("fKur", F0.kur || (SA.cfg.kur || {})[pb] || ""))}"></div>` : "<div></div>"}</div>` : ""}
+          ${pr ? `<div class="fgrid" style="margin:8px 0"><div class="field"><label for="fPb">Para birimi</label><select id="fPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>${pb !== "TRY" ? `<div class="field"><label for="fKur">Kur (${esc(pb)}/TL)</label><input id="fKur" type="number" step="0.0001" min="0" value="${esc(v("fKur", F0.kur || kurCanli(pb) || (SA.cfg.kur || {})[pb] || ""))}"></div>` : "<div></div>"}</div>` : ""}
           <div class="spk">${K.length ? K.map((k, i) => { const vl = spVarList(k.kod, k.ad), plan = spPlanli(k);
             return `<div class="spkr${k.renk && varsR && spRenkKey(k.renk) !== spRenkKey(varsR) ? " fark" : ""}">
               <div class="spk1"><span class="spsn" title="Sıra no">${i + 1}</span><span class="num skk">${esc(k.kod || "Serbest")}</span> <b>${esc(k.ad)}</b>${plan ? ` <span class="kst" style="--tc:var(--brand)">${nf(plan)} planlandı</span>` : ""}
@@ -8044,7 +8046,7 @@ const tkTot = K => saTotals((K || []).map(k => ({ miktar: k.miktar, fiyat: k.lis
 function tkNextNo() { const d = new Date(), p = `KRM-${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-`;
   const mx = Math.max(0, ...TK.list.map(t => String(t.no || "").startsWith(p) ? Number(String(t.no).slice(p.length)) || 0 : 0)); return p + String(mx + 1).padStart(3, "0"); }
 function tkConv(n, from, to, kurUsd) { if (n == null || n === "") return null; from = from || "TRY"; to = to || "TRY"; if (from === to) return Number(n);
-  const k = pb => pb === "TRY" ? 1 : pb === "USD" && Number(kurUsd) ? Number(kurUsd) : saKur(pb); const a = k(from), b = k(to); return a && b ? Number(n) * a / b : null; }
+  const k = pb => pb === "TRY" ? 1 : kurCanli(pb) || (pb === "USD" && Number(kurUsd) ? Number(kurUsd) : saKur(pb)); const a = k(from), b = k(to); return a && b ? Number(n) * a / b : null; }
 function tkYazi(n, pb) {
   const b = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"], o = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"], g = ["", "bin", "milyon", "milyar"];
   const uc = x => { const y = Math.floor(x / 100), r = x % 100; return (y ? (y > 1 ? b[y] : "") + "yüz" : "") + o[Math.floor(r / 10)] + b[r % 10]; };
@@ -8876,7 +8878,7 @@ function mesKart(j) {
   return `<div class="mesk ${st}${MES.sec.has(key) ? " sec" : ""}${j.stage ? " asm-" + j.stage : lp ? " asm-lp" : ""}" data-mk="${esc(key)}">
     <div class="mesh"><span class="mest" style="--tc:${MES_ST[st][1]}">${MES_ST[st][0]}</span>${e.oncelik && e.oncelik !== "normal" ? `<span class="mesonc">${esc(PL_ONC[e.oncelik][0].toLocaleUpperCase("tr"))}</span>` : ""}<span class="mester ${tc}">${e.termin ? (gun < 0 ? -gun + " gün gecikti" : gun === 0 ? "Bugün" : fmtS(e.termin).slice(0, 5) + " · " + gun + " gün") : "Termin yok"}</span></div>
     <div class="masm">${etiket}</div>
-    <div class="mesu">${esc(e.urunAd || "")}</div>
+    ${(() => { const m = String(e.urunAd || "").match(/^([A-Z0-9][\w.\-]*) · (.+)$/); return m ? `<div class="meskod">${esc(m[1])}</div><div class="mesu">${esc(m[2])}</div>` : `<div class="mesu">${esc(e.urunAd || "")}</div>`; })()}
     <div class="mesr">${renk ? spSw(renk) : ""}<b>${esc(e.renkAd || "—")}</b></div>
     <div class="messp"><b>${esc(e.siparisNo || "Stoka üretim")}</b>${e.musteri ? " · " + esc(e.musteri) : ""}</div>
     ${mesProje(e) ? `<div class="mespj" title="Proje">${esc(mesProje(e))}</div>` : ""}
@@ -8928,11 +8930,13 @@ function mesSipDetay(e, ctx) {
   L.sort((a, b) => (a.id === (sp0 || {}).id ? -1 : b.id === (sp0 || {}).id ? 1 : String(a.no).localeCompare(String(b.no), "tr")));
   const IE = PL.ie.filter(x => x.durum !== "iptal");
   const ieOf = (s, k) => IE.filter(x => (x.spKalem || []).some(r => r.spId === s.id && (k == null || r.k === k)) || (k == null && x.siparisNo === s.no));
-  const sat = (ad, m, br, ies, cur) => { const ok = ies.length && ies.every(x => !plIeOpen(x));
-    return `<div class="msdr${cur ? " cur" : ""}"><div><b>${esc(ad)}</b><div class="note">${ies.length ? ies.map(x => esc(x.no)).join(", ") : "iş emri açılmadı"}</div></div><span class="num">${nf(m)} <small>${esc(br || "adet")}</small></span><span class="msds ${ok ? "ok" : ""}">${ok ? "Tamamlandı" : "Devam ediyor"}</span></div>`; };
+  const kDet = (k, x) => { const r = k ? [k.renk ? spRenkAd(k.renk) : "", spVarAd(k), k.mahal ? "Mahal: " + k.mahal : ""] : [x.renkAd, x.varyasyon], ac = k ? k.aciklama : x.not;
+    const a = r.filter(Boolean); return a.length || ac ? `<div class="msdd">${a.length ? `<div>${a.map(esc).join(" · ")}</div>` : ""}${ac ? `<div class="msda">${esc(ac)}</div>` : ""}</div>` : ""; };
+  const sat = (ad, m, br, ies, cur, det = "") => { const ok = ies.length && ies.every(x => !plIeOpen(x));
+    return `<div class="msdr${cur ? " cur" : ""}"><div><b>${esc(ad)}</b>${det}<div class="note">${ies.length ? ies.map(x => esc(x.no)).join(", ") : "iş emri açılmadı"}</div></div><span class="num">${nf(m)} <small>${esc(br || "adet")}</small></span><span class="msds ${ok ? "ok" : ""}">${ok ? "Tamamlandı" : "Devam ediyor"}</span></div>`; };
   const blok = s => { const K = s.kalemler || [];
-    const rows = K.length ? K.map(k => { const ies = ieOf(s, k.k); return { h: sat([k.kod, adMetraj(k.ad, k)].filter(Boolean).join(" · ") || "Kalem", k.miktar, k.birim, ies, ies.some(x => x.id === e.id)) + kontrol(isOf(s, k.k)), ok: ies.length && ies.every(x => !plIeOpen(x)) }; })
-      : ieOf(s).map(x => ({ h: sat(x.urunAd || x.no, x.miktar, x.birim, [x], x.id === e.id) + kontrol(J.filter(j => j.e.id === x.id)), ok: !plIeOpen(x) }));
+    const rows = K.length ? K.map(k => { const ies = ieOf(s, k.k); return { h: sat([k.kod, adMetraj(k.ad, k)].filter(Boolean).join(" · ") || "Kalem", k.miktar, k.birim, ies, ies.some(x => x.id === e.id), kDet(k)) + kontrol(isOf(s, k.k)), ok: ies.length && ies.every(x => !plIeOpen(x)) }; })
+      : ieOf(s).map(x => ({ h: sat(x.urunAd || x.no, x.miktar, x.birim, [x], x.id === e.id, kDet(null, x)) + kontrol(J.filter(j => j.e.id === x.id)), ok: !plIeOpen(x) }));
     const n = rows.filter(r => r.ok).length;
     return `<section><h3 class="sec-t">${esc(s.no)}${s.id === (sp0 || {}).id ? " · bu iş" : ""} <small>${n} / ${rows.length} kalem tamamlandı${s.termin ? " · termin " + fmtS(s.termin) : ""}</small></h3>${rows.map(r => r.h).join("") || '<p class="note">Kalem yok.</p>'}</section>`; };
   $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
@@ -9121,7 +9125,7 @@ async function panoKurGetir() {
   } catch (e) { PANO.kur = null; }
   if (!PANO.kur && SA.cfg && SA.cfg.kur && SA.cfg.kur.USD) PANO.kur = { kaynak: "Satınalma ayarlarındaki kur", tarih: "", usd: Number(SA.cfg.kur.USD) || null, eur: Number(SA.cfg.kur.EUR) || null, gbp: null };
   if (!PANO.kur) PANO.kurAt = Date.now() - 25 * 60000;   // 5 dk sonra yeniden dene
-  if (ROUTE === "pano") renderPano();
+  if (ROUTE === "pano") renderPano(); else if (PANO.kur && ROUTE === "muhasebe" && !$("#drawerHost .drawer")) renderMH();
 }
 function panoKurHtml() {
   const K = PANO.kur; if (!K) return `<div class="pn-kur"><div class="pn-ku"><span>DÖVİZ</span><b>—</b><em>kur alınıyor…</em></div></div>`;
@@ -9852,7 +9856,7 @@ function mhSatirlar() {
   })));
   return L.sort((a, b) => String(b.x.tarih || "").localeCompare(String(a.x.tarih || "")) || (b.x.at || 0) - (a.x.at || 0));
 }
-const mhTL = r => r.net == null ? 0 : r.pb === "TRY" ? r.net : r.net * (Number(r.kur) || 0);
+const mhTL = r => r.net == null ? 0 : saTRY(r.net, r.pb, r.kur) || 0;
 function mhTile(m) {
   const L = mhSatirlar(), B = L.filter(r => !r.fat), t = B.reduce((a, r) => a + mhTL(r), 0);
   return `<a class="tile on" href="#${m.id}" aria-label="${esc(m.name)} modülünü aç">
@@ -9890,7 +9894,7 @@ function renderMH() {
   const GM = new Map(); R.forEach(r => { let g = GM.get(r.s.id); if (!g) GM.set(r.s.id, g = { id: r.s.id, L: [], T: [] }); g.L.push(r); });
   A.forEach(r => { const g = GM.get(r.s.id); if (g) g.T.push(r); });
   const G = [...GM.values()], bekR = R.filter(r => !r.fat), acik = g => MH.ac.has(g.id) || ((G.length === 1 || !!F.sp) && !MH.kp.has(g.id)), hepAcik = G.length > 0 && G.every(acik);
-  const grTutar = L => { const m = {}; let top = false, yok = false; L.forEach(r => { if (r.net != null) m[r.pb || "TRY"] = (m[r.pb || "TRY"] || 0) + r.net; else if (r.toplu) top = true; else yok = true; }); const p = Object.entries(m).map(([pb, t]) => money(t, pb)); if (top) p.push("toplu fiyat"); return p.length ? p.join(" + ") : yok ? "fiyat yok" : "—"; };
+  const grTutar = L => { const m = {}; let top = false, yok = false; L.forEach(r => { if (r.net != null) m[r.pb || "TRY"] = (m[r.pb || "TRY"] || 0) + r.net; else if (r.toplu) top = true; else yok = true; }); const p = Object.entries(m).map(([pb, t]) => money(t, pb)); const tl = Object.entries(m).filter(([pb]) => pb !== "TRY"), tlT = tl.length && tl.every(([pb]) => saKur(pb)) ? ` <span class="mhgtl">≈ ${money(Object.entries(m).reduce((a, [pb, t]) => a + saTRY(t, pb), 0), "TRY")}</span>` : ""; if (top) p.push("toplu fiyat"); return p.length ? p.join(" + ") + tlT : yok ? "fiyat yok" : "—"; };
   v.innerHTML = `<div class="pkbar"><div class="filters">
       <select class="f${F.d !== "bekleyen" ? " on" : ""}" id="mhD" aria-label="Fatura durumu">${[["bekleyen", "Fatura bekleyenler"], ["kesildi", "Fatura kesilenler"], ["tum", "Tümü"]].map(([a, l]) => opt(a, l, F.d)).join("")}</select>
       <select class="f${F.c ? " on" : ""}" id="mhC" data-ara aria-label="Müşteri"><option value="">Tüm müşteriler</option>${musteriler.map(([id, ad]) => opt(id, ad || "—", F.c)).join("")}</select>
@@ -9916,7 +9920,7 @@ function renderMH() {
         <div><b class="num">${fmtS(r.x.tarih)}</b><div class="note">${cok ? `<span class="mhbir">${m.L.length} sevk birleşti</span>${m.L.map(z => `<button type="button" class="linkbtn mhsl" data-mhd="${esc(z.id)}">${fmtS(z.x.tarih).slice(0, 5)} · ${nf(z.y.miktar)}${z.x.irsaliye ? " · " + esc(z.x.irsaliye) : ""}</button>`).join("")}` : r.x.irsaliye ? "İrs. " + esc(r.x.irsaliye) : "İrsaliye no yok"}${m.L.some(z => z.x.muhasebe) ? '<div class="mhmuh">muhasebe işaretledi</div>' : ""}</div></div>
         <div class="ska mhcpw">${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}<b>${esc(r.k.ad || "")}</b>${mhCp(mhUrunAd(r.k), "Ürün adını boyasıyla kopyala: " + mhUrunAd(r.k))}${spVarAd(r.k) ? `<div class="desc">${esc(spVarAd(r.k))}</div>` : ""}<div class="mhrk">${r.k.renk && (spBoyali(r.k.renk) || /eloksal/i.test(r.k.renk.yuzey || "")) ? spSw(r.k.renk) + " " + esc(spRenkAd(r.k.renk)) : `<span class="note">Boyasız${r.k.renk && r.k.renk.yuzey ? " · " + esc(r.k.renk.yuzey) : ""}</span>`}</div></div>
         <div class="num mhcpw"><b>${nf(m.miktar)}</b> <small>${esc(r.k.birim || "Adet")}</small>${mhCp(mhSayi(m.miktar, 0), "Adedi kopyala")}${m.iade ? `<div class="svir">${nf(m.iade)} iade</div>` : ""}</div>
-        <div class="num mhcpw">${!fg ? "—" : m.net != null ? `<b>${money(m.net, m.pb)}</b>${mhCp(mhSayi(m.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(nb, m.pb)}${mhCp(mhSayi(nb), "Birim fiyatı kopyala")}</div>` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
+        <div class="num mhcpw">${!fg ? "—" : m.net != null ? `<b>${money(m.net, m.pb)}</b>${mhCp(mhSayi(m.net), "Tutarı kopyala")}<div class="note mhbf">Birim ${money(nb, m.pb)}${mhCp(mhSayi(nb), "Birim fiyatı kopyala")}</div>${m.pb !== "TRY" && saKur(m.pb, m.kur) ? `<div class="mhtl"><b>${money(saTRY(m.net, m.pb, m.kur), "TRY")}</b>${mhCp(mhSayi(saTRY(m.net, m.pb, m.kur)), "TL tutarı kopyala")}<div class="mhbf">Birim ${money(saTRY(nb, m.pb, m.kur), "TRY")}${mhCp(mhSayi(saTRY(nb, m.pb, m.kur)), "TL birim fiyatı kopyala")}</div><small>kur ${String(Math.round(saKur(m.pb, m.kur) * 10000) / 10000).replace(".", ",")}</small></div>` : ""}` : r.toplu ? '<span class="note">Toplu fiyat</span>' : '<span class="note">Fiyat yok</span>'}</div>
         <div>${m.fat ? `<span class="kst" style="--tc:var(--k-fabrikada)">Fatura kesildi</span><div class="note">${[...new Set(m.L.map(z => z.fat.faturaNo).filter(Boolean))].map(esc).join(", ")}${m.L[0].fat.faturaNo ? " · " : ""}${fmtS(m.L[0].fat.tarih)}</div>` : '<span class="kst" style="--tc:var(--k-gec)">Fatura bekliyor</span>'}</div></div>`; }).join("")}</div>
         ${(() => { const B = mhSevkBekleyen(g.id); return B.length ? `<div class="mhsb"><div class="mhsbh"><b>Henüz sevk edilmeyen kalemler</b> <span class="note">${B.length} kalem · faturaya girmez, bilgi içindir</span></div>
           ${B.map(b => `<div class="mhsbr"><span class="spsn sm">${b.sira}</span><div class="ska">${b.k.kod ? `<span class="num skk">${esc(b.k.kod)}</span> ` : ""}<b>${esc(b.k.ad || "")}</b>${spVarAd(b.k) ? `<div class="desc">${esc(spVarAd(b.k))}</div>` : ""}</div>
