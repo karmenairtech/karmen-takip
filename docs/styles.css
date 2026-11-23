@@ -1743,3 +1743,11 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 .meskod{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink-3);letter-spacing:.3px;margin-top:2px}
 .mesu{overflow-wrap:anywhere}
 .msdd{font-size:13px;color:var(--ink-2,var(--ink));margin:3px 0 2px;line-height:1.35}.msda{margin-top:3px;padding:4px 8px;border-left:3px solid var(--k-gec);background:color-mix(in srgb,var(--k-gec) 10%,var(--surface));border-radius:4px;white-space:pre-wrap}
+
+/* v91 — formu aşağı indirme */
+.dpark{display:none!important}
+.x.dminb{font-size:22px;line-height:1;margin-right:6px}
+#dminBar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:55;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--brand);box-shadow:0 10px 30px rgba(0,0,0,.22);max-width:calc(100vw - 32px)}
+#dminBar .dminic{color:var(--brand);font-size:18px}#dminBar .dmint{display:flex;flex-direction:column;min-width:0}
+#dminBar small{font-size:11px;color:var(--ink-3)}#dminBar b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.dh .dminb{margin-left:auto}

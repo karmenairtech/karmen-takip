@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "90";
+const APP_V = "91";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -540,6 +540,33 @@ function timeline(rows) {
 let cur = null;
 function writeErr(e) { const c = e && e.code; if (c === "permission-denied") return "Bu işlem için yetkiniz yok."; if (c === "unavailable") return "Bağlantı yok; bağlantı gelince tekrar deneyin."; return "Kaydedilemedi: " + ((e && e.message) || "bilinmeyen hata"); }
 let onDrawerClose = null;
+// Teklif / sipariş formunu aşağı indirme: form park edilir (kaybolmaz), alttaki çubuktan geri açılır
+const DMIN = { park: null, odc: null, cur: null, ad: "" };
+function drawerKucult() {
+  const h = $("#drawerHost"); if (!h || !h.querySelector(".drawer")) return;
+  if (DMIN.park) { toast("Aşağıda zaten bekleyen bir form var; önce onu açıp tamamlayın"); return; }
+  DMIN.ad = ((h.querySelector(".dh h2") || {}).textContent || "Form").replace(/\s+/g, " ").trim();
+  DMIN.odc = onDrawerClose; DMIN.cur = cur; onDrawerClose = null; cur = null;
+  h.id = "drawerPark"; h.classList.add("dpark"); DMIN.park = h;
+  const yeni = document.createElement("div"); yeni.id = "drawerHost"; h.parentNode.insertBefore(yeni, h);
+  dminBar();
+}
+function drawerAc() {
+  if (!DMIN.park) return;
+  if ($("#drawerHost").innerHTML) closeDrawer();
+  $("#drawerHost").remove(); const h = DMIN.park; h.id = "drawerHost"; h.classList.remove("dpark");
+  onDrawerClose = DMIN.odc; cur = DMIN.cur; DMIN.park = null; DMIN.odc = null; DMIN.cur = null;
+  const d = h.querySelector(".drawer"); if (d) d.classList.add("noanim");
+  dminBar();
+}
+function dminBar() {
+  let b = document.getElementById("dminBar");
+  if (!DMIN.park) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement("div"); b.id = "dminBar"; document.body.appendChild(b); }
+  b.innerHTML = `<span class="dminic" aria-hidden="true">▴</span><span class="dmint"><small>Aşağıda bekleyen form</small><b>${esc(DMIN.ad)}</b></span><button type="button" class="btn sm" id="dminAc">Formu aç</button>`;
+  b.querySelector("#dminAc").onclick = drawerAc;
+}
+document.addEventListener("click", e => { if (e.target.closest("[data-dmin]")) drawerKucult(); });
 function closeDrawer() { const f = onDrawerClose; onDrawerClose = null; if (f) { try { f(); } catch (e) { console.error(e); } } $("#drawerHost").innerHTML = ""; cur = null; }
 document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
@@ -5829,7 +5856,7 @@ async function saOpenTalepForm(id, opts = {}) {
     const v = (k, d) => f && k in f ? f[k] : d;
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="tfT" style="width:min(820px,100%)">
-      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> talebi düzenle` : "Yeni satın alma talebi"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> talebi düzenle` : "Yeni satın alma talebi"}</h2><button type="button" class="x dminb" data-dmin title="Aşağı indir: form kaybolmaz, başka ekranlara geçip geri dönebilirsiniz" aria-label="Formu aşağı indir">–</button><button class="x" id="tfX" aria-label="Kapat">×</button></div>
       <div class="db"><div class="fgrid">
         <div class="field"><label for="tDep">Talep eden birim</label><select id="tDep">${SA_DEPT.map(d => opt(d, d, v("dep", cur ? cur.departman : "Üretim"))).join("")}</select></div>
         <div class="field"><label for="tOnc">Öncelik</label><select id="tOnc">${Object.entries(SA_ONC).map(([a, [l]]) => opt(a, l, v("onc", cur ? cur.oncelik || "normal" : "normal"))).join("")}</select></div>
@@ -7293,7 +7320,7 @@ async function spOpenForm(id, pre) {
     const projeler = sortTr(SP.list.filter(s => s.cariId === v("fCari", cur ? cur.cariId : "")).map(s => s.proje && s.proje.ad));
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="sfT" style="width:min(1040px,100%)">
-      <div class="dh"><h2 id="sfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> siparişi düzenle${onayli ? ` <small class="note">(onaylı: kaydedince revizyon ${(cur.rev || 0) + 1})</small>` : ""}` : "Yeni sipariş"}</h2><button class="x" id="sfX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="sfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> siparişi düzenle${onayli ? ` <small class="note">(onaylı: kaydedince revizyon ${(cur.rev || 0) + 1})</small>` : ""}` : "Yeni sipariş"}</h2><button type="button" class="x dminb" data-dmin title="Aşağı indir: form kaybolmaz, başka ekranlara geçip geri dönebilirsiniz" aria-label="Formu aşağı indir">–</button><button class="x" id="sfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri ve proje</h3><div class="fgrid">
           <div class="field full"><label for="fCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="fCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), v("fCari", cur ? cur.cariId : ""))).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="fNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.tel, (c.yetkililer || [])[0] && c.yetkililer[0].ad, c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
@@ -8022,7 +8049,7 @@ const TK_DUR = { taslak: ["Taslak", "var(--ink-3)"], gonderildi: ["Gönderildi",
 const TK_TESLIM = ["Fabrika teslim", "Şantiye teslim", "Kargo ile", "Nakliye alıcıya ait"];
 const TK_NOT_TR = ["Sözleşme Temsile Yetkili Kişi veya Kişilerce Kaşelenip İmzalanmadıkça Dikkate Alınmaz.", "Sözleşme Kapsamında Doğacak İhtilaflarda KONYA Mahkemeleri ve İcra Daireleri Yetkilidir. Ürün İadesi İşlemlerinde, 4822 Sayılı Kanun ile Değişik 4077 Sayılı Tüketicinin Korunması Hakkında Kanun Şartları Uygulanır.", "Ödeme karşılıklı görüşülecektir.", "6698 Sayılı K.V.K.K. (Kişisel Verilerin Korunması Kanunu) Kapsamındaki Tüm Maddeler Geçerlidir.", "Nakliye ve Kargo alıcıya aittir.", "Fiyatlarımız döviz bazında olup GARANTİ BANKASI kuru baz alınmaktadır.", "Ödeme karşılıklı görüşülecek ve ödeme netleştikten sonra imalata başlanılacaktır.", "İmalatını yaptığımız ürünlerimiz TSE K 542 standardına uygundur."];
 const TK_NOT_EN = ["The contract is not valid unless stamped and signed by the authorized person(s).", "KONYA Courts and Enforcement Offices are authorized for disputes arising under this contract. Product returns are subject to Consumer Protection Law No. 4077 as amended by Law No. 4822.", "Payment terms are subject to mutual agreement.", "All provisions of Personal Data Protection Law No. 6698 (KVKK) apply.", "Freight and courier costs belong to the buyer.", "Our prices are in foreign currency; GARANTİ BANK exchange rate is taken as basis.", "Payment terms will be agreed mutually and production starts after payment is finalized.", "Our manufactured products comply with TSE K 542 standard."];
-const TK_FIRMA = { unvan: "BİRKAN KILIÇ KAR-MEN MÜHENDİSLİK", adres: "Fevzi Çakmak Mah. 10727 Sk. No:10 Konsan Sanayi Sitesi Karatay / KONYA", tel: "0332 346 08 39 · 0538 762 72 38", eposta: "menfez@kar-men.com.tr · muhasebe@kar-men.com.tr", web: "www.kar-men.com.tr", vd: "Selçuk V.D.",
+const TK_FIRMA = { unvan: "BİRKAN KILIÇ KAR-MEN AIRTECH", adres: "Fevzi Çakmak Mah. 10727 Sk. No:10 Konsan Sanayi Sitesi Karatay / KONYA", tel: "0332 346 08 39 · 0538 762 72 38", eposta: "menfez@kar-men.com.tr · muhasebe@kar-men.com.tr", web: "www.kar-men.com.tr", vd: "Selçuk V.D.",
   iban: ["GARANTİ BANKASI | TR88 0006 2000 7900 0006 2942 70 | TL", "ZİRAAT BANKASI | TR56 0001 0021 9770 7258 9450 04 | TL", "VAKIF BANKASI | TR88 0001 5001 5800 7323 5940 00 | TL", "VAKIF BANKASI | TR96 0001 5001 5804 8023 5395 50 | USD", "GARANTİ BANKASI | TR57 0006 2000 7900 0009 0895 92 | USD", "ZİRAAT BANKASI | TR29 0001 0021 9770 7258 9450 05 | USD"].join("\n") };
 const TK_FIRMA_V = 2;   // firma bilgisi bu sürümle güncellendi; eski kayıtlı bilgi yerine yeni varsayılan kullanılır
 const firmaIban = FI => String(FI.iban || "").split("\n").map(l => l.split("|").map(x => x.trim())).filter(r => r[0] || r[1]).map(([banka, iban, pb]) => ({ banka: banka || "", iban: iban || "", pb: pb || "" }));
@@ -8037,7 +8064,9 @@ function pdfIbanBlok(x, X0, Y0, w, FI, o = {}) {
     x.font = `600 14.5px ${mf}`; x.fillText(r.iban, X0 + 260, yy, w - 380); x.font = `700 13px ${bf}`; x.fillStyle = o.ink2 || "#4a5466"; x.textAlign = "right"; x.fillText(r.pb, X0 + w - 16, yy + 1); x.textAlign = "left"; });
   x.restore(); return h;
 }
-const tkCfg = () => { const c = SP.cfg || {}; return { notTR: c.tkNotTR != null ? c.tkNotTR : TK_NOT_TR.join("\n"), notEN: c.tkNotEN != null ? c.tkNotEN : TK_NOT_EN.join("\n"), firma: { ...TK_FIRMA, ...(c.tkFirmaV >= TK_FIRMA_V ? c.tkFirma || {} : {}) }, gecerlilik: Number(c.tkGecerlilik) || 15, teslimSure: c.tkTeslimSure || "20 gün", kase: c.tkKase !== false }; };
+// Eski kayıtlı firma bilgisinde "Kar-Men Mühendislik" geçiyorsa "Kar-Men Airtech" olarak gösterilir
+const tkFirmaAd = F => { const r = v => typeof v === "string" ? v.replace(/KAR-?MEN\s+M[ÜU]HEND[İI]SL[İI]K/g, "KAR-MEN AIRTECH").replace(/Kar-?Men\s+M[üu]hendislik/gi, "Kar-Men Airtech") : v; return Object.fromEntries(Object.entries(F).map(([k, v]) => [k, r(v)])); };
+const tkCfg = () => { const c = SP.cfg || {}; return { notTR: c.tkNotTR != null ? c.tkNotTR : TK_NOT_TR.join("\n"), notEN: c.tkNotEN != null ? c.tkNotEN : TK_NOT_EN.join("\n"), firma: tkFirmaAd({ ...TK_FIRMA, ...(c.tkFirmaV >= TK_FIRMA_V ? c.tkFirma || {} : {}) }), gecerlilik: Number(c.tkGecerlilik) || 15, teslimSure: c.tkTeslimSure || "20 gün", kase: c.tkKase !== false }; };
 const tkDurum = t => t.durum === "gonderildi" && t.tarih && t.gecerlilik && dnum(t.tarih) + Number(t.gecerlilik) < dnum(TODAY) ? "suresi" : t.durum;
 const tkAcik = t => ["taslak", "gonderildi", "onaylandi"].includes(tkDurum(t));
 const tkRevAd = r => "REV" + String(r || 1).padStart(2, "0");
@@ -8118,7 +8147,7 @@ async function tkOpenForm(id, o = {}) {
     const yets = c ? (c.yetkililer || []).filter(y => y.ad) : [];
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="tfT" style="width:min(1100px,100%)">
-      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : o.spKaynak ? `Siparişten teklif <small class="note">(${esc(src.no)} siparişinden)</small>` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button class="x" id="tfX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : o.spKaynak ? `Siparişten teklif <small class="note">(${esc(src.no)} siparişinden)</small>` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button type="button" class="x dminb" data-dmin title="Aşağı indir: form kaybolmaz, başka ekranlara geçip geri dönebilirsiniz" aria-label="Formu aşağı indir">–</button><button class="x" id="tfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri</h3><div class="fgrid">
           <div class="field full"><label for="tCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="tCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), cid)).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="tNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.iskonto ? "müşteri iskontosu %" + c.iskonto : "müşteri iskontosu tanımlı değil", c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
