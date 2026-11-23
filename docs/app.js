@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "93";
+const APP_V = "94";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -5804,8 +5804,8 @@ function saKalemHtml(K, mode, ed, pb) {
     ${ed ? `<div class="kara"><input id="kAra" type="search" placeholder="Stok kodu ya da ürün adı yazın (örn. M-0101, galvaniz sac 0,8)…" aria-label="Stokta ara" autocomplete="off"><button type="button" class="btn ghost sm" id="kSer">Serbest kalem ekle</button>${mode === "talep" && lvl("siparis") !== "none" ? '<button type="button" class="btn ghost sm" id="kSip">Siparişten al</button>' : ""}</div><div id="kAraR" class="karar"></div>` : ""}`;
 }
 // Satın alma talebine siparişten kalem alma: sipariş seçilir, kalemleri işaretlenir, miktar düzeltilebilir
-function saSiparistenAl(onAdd) {
-  let q = "", sec = null;
+function saSiparistenAl(onAdd, spId) {
+  let q = "", sec = spId ? SP.list.find(s => s.id === spId) || null : null; const sabit = !!sec;
   const L0 = () => SP.list.filter(s => s.durum !== "iptal" && s.durum !== "taslak" && (s.kalemler || []).length).sort((a, b) => (spAcik(b) - spAcik(a)) || String(b.tarih || "").localeCompare(String(a.tarih || "")));
   spModal(`<div id="sAlH"></div>`, (h, done) => {
     const box = h.querySelector(".p2b"); if (box) box.classList.add("salbox");
@@ -5824,9 +5824,10 @@ function saSiparistenAl(onAdd) {
         <div class="sall">${K.map((k, i) => { const det = [k.renk ? spRenkAd(k.renk) : "", spVarAd(k)].filter(Boolean).join(" · ");
           return `<div class="salk"><input type="checkbox" data-salk="${i}" checked aria-label="${esc(k.ad || "")}"><span class="sala"><b>${k.kod ? `<span class="num skk">${esc(k.kod)}</span> ` : ""}${esc(adMetraj(k.ad || "", k))}</b>${det ? `<small>${esc(det)}</small>` : ""}${k.sid ? "" : '<small class="note">stok kartı yok · serbest kalem olarak eklenir</small>'}</span>
             <input class="num" type="number" min="0" step="any" id="salM${i}" value="${esc(k.miktar)}" aria-label="Miktar"><small>${esc(k.birim || "Adet")}</small></div>`; }).join("")}</div>
-        <div class="r"><button type="button" class="btn ghost" id="sAlG">← Siparişler</button><button type="button" class="btn" id="sAlO">Seçilenleri ekle</button></div>`;
+        <div class="r">${sabit ? '<button type="button" class="btn ghost" id="sAlC2">Vazgeç</button>' : '<button type="button" class="btn ghost" id="sAlG">← Siparişler</button>'}<button type="button" class="btn" id="sAlO">Seçilenleri ekle</button></div>`;
       H.querySelector("#sAlT").onchange = e => H.querySelectorAll("[data-salk]").forEach(c => c.checked = e.target.checked);
-      H.querySelector("#sAlG").onclick = () => { sec = null; paint(); };
+      const g = H.querySelector("#sAlG"); if (g) g.onclick = () => { sec = null; paint(); };
+      const c2 = H.querySelector("#sAlC2"); if (c2) c2.onclick = () => done(false);
       H.querySelector("#sAlO").onclick = () => { const L = [...H.querySelectorAll("[data-salk]:checked")].map(c => { const i = Number(c.dataset.salk), k = K[i], m = Number(H.querySelector("#salM" + i).value) || 0;
           return m > 0 ? { sid: k.sid || null, kod: k.kod || "", ad: adMetraj(k.ad || "", k).slice(0, 160), tanim: "", birim: k.birim || "Adet", miktar: m, tedKod: "", not: [k.renk ? spRenkAd(k.renk) : "", spVarAd(k)].filter(Boolean).join(" · ").slice(0, 120) } : null; }).filter(Boolean);
         if (!L.length) { toast("En az bir kalem seçin"); return; } done(true); onAdd({ s: sec, L }); };
@@ -5905,7 +5906,7 @@ async function saOpenTalepForm(id, opts = {}) {
     saKalemBind(K, "talep", () => { keep(); paint(); });
     const ks = $("#kSip"); if (ks) ks.onclick = () => { keep(); saSiparistenAl(sec => { sec.L.forEach(x => { const v = K.find(k => k.sid && k.sid === x.sid && (k.not || "") === x.not); if (v) v.miktar = (Number(v.miktar) || 0) + x.miktar; else K.push(x); });
       if (f && !f.ref.trim()) f.ref = sec.s.no; if (f && !f.ac.trim()) f.ac = `${sec.s.no} · ${sec.s.cariAd || ""} için`; if (!opts.siparisId && !cur) opts.siparisId = sec.s.id;
-      toast(`${sec.L.length} kalem eklendi (${sec.s.no})`); paint(); }); };
+      toast(`${sec.L.length} kalem eklendi (${sec.s.no})`); paint(); }, opts.siparisId); };
     const kb = $("#tKrit"); if (kb) kb.onclick = async () => { keep(); kb.disabled = true; kb.textContent = "Kritik stoklar okunuyor…";
       try { const L = await saKritikKalemler(), add = L.filter(x => !K.some(k => k.sid === x.sid)); K.push(...add); toast(add.length ? `${add.length} kritik kalem eklendi (hedef: maksimum stok ya da minimumun 2 katı; yoldaki düşüldü)` : "Eklenecek kritik kalem yok"); } catch (x) { toast(writeErr(x)); }
       paint(); };

@@ -1767,3 +1767,4 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 .salk{display:grid;grid-template-columns:auto 1fr 90px auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
 .salk input[type=number]{width:90px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit}
 .kara #kSip{white-space:nowrap}
+.salbox #sAlH>label{display:block;margin-bottom:6px}.salbox #sAlQ{width:100%}
