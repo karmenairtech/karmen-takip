@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "91";
+const APP_V = "92";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -5939,6 +5939,14 @@ function saOpenTalep(id) {
     const ip = $("#taIpt"); if (ip) { let a = false; ip.onclick = () => { if (!a) { a = true; ip.textContent = "İptal edilsin mi? Tekrar basın"; return; } st({ durum: "iptal" }, "Talep iptal edildi"); }; }
     const dl = $("#taDel"); if (dl) { let a = false; dl.onclick = async () => { if (!a) { a = true; dl.textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "sa_talep", t.id)); toast("Talep silindi"); closeDrawer(); } catch (x) { toast(writeErr(x)); } }; }
     document.querySelectorAll("[data-sec]").forEach(b => b.onclick = () => saOpenPOForm(null, { teklifId: b.dataset.sec }));
+    document.querySelectorAll("[data-ftdel]").forEach(b => b.onclick = async e => { e.stopPropagation(); const tk = SA.teklif.find(x => x.id === b.dataset.ftdel); if (!tk) return;
+      if (!b.classList.contains("on")) { document.querySelectorAll("[data-ftdel].on").forEach(x => { x.classList.remove("on"); x.textContent = "×"; }); b.classList.add("on"); b.textContent = "Silinsin mi?"; return; }
+      b.disabled = true;
+      try { const B = writeBatch(fs), now = Date.now(), kalan = SA.teklif.filter(x => x.talepId === t.id && x.id !== tk.id);
+        B.delete(doc(fs, "sa_teklif", tk.id));
+        B.update(doc(fs, "sa_talep", t.id), { teklifIds: (t.teklifIds || []).filter(x => x !== tk.id), ...(t.durum === "teklif" && !kalan.length ? { durum: "onaylandi" } : {}), updatedAt: now, updatedBy: ME.name, log: saLog(t, `${tk.no} · ${tk.cariAd || ""} fiyat talebi silindi`) });
+        await B.commit(); SA.teklif = SA.teklif.filter(x => x.id !== tk.id); toast(`${tk.cariAd || tk.no} talepten çıkarıldı`); paint(); }
+      catch (x) { b.disabled = false; toast(writeErr(x)); } });
   };
   paint();
 }
@@ -5958,7 +5966,8 @@ function saCompareHtml(t, Tk) {
   const unit = (tk, k) => { const x = (tk.kalemler || []).find(y => (k.sid && y.sid === k.sid) || (!k.sid && y.ad === k.ad)); if (!x || x.fiyat == null || x.fiyat === "") return null; return { f: Number(x.fiyat) * (1 - (Number(x.isk) || 0) / 100), pb: tk.pb, gun: x.teslimGun }; };
   const best = K.map(k => { const v = cols.map(tk => { const u = unit(tk, k); return u ? u.f * (saKur(u.pb, tk.kur) || 1) : null; }).filter(x => x != null); return v.length ? Math.min(...v) : null; });
   const sel = can("sa.siparis") && ["onaylandi", "teklif"].includes(t.durum);
-  return `<div class="cmpw"><table class="cmp"><thead><tr><th>Kalem</th>${cols.map(tk => { const s = saScore(tk.cariId); return `<th><button type="button" class="linkbtn" data-rfq="${esc(tk.id)}">${esc(tk.cariAd || "")}</button><div class="note">${esc(tk.no)}${tk.proformaNo ? " · " + esc(tk.proformaNo) : ""}</div><div>${saChip(SA_FDUR, tk.durum)}${s.sinif ? ` <span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif}</span>` : ""}</div></th>`; }).join("")}</tr></thead>
+  return `<div class="cmpw"><table class="cmp"><thead><tr><th>Kalem</th>${cols.map(tk => { const s = saScore(tk.cariId); const silOk = can("sa.delete") && tk.durum !== "secildi" && !SA.siparis.some(p => p.teklifId === tk.id);
+    return `<th>${silOk ? `<button type="button" class="cmpdel" data-ftdel="${esc(tk.id)}" title="Bu tedarikçiyi talepten çıkar (fiyat talebi silinir)" aria-label="${esc(tk.cariAd || "")} fiyat talebini sil">×</button>` : ""}<button type="button" class="linkbtn" data-rfq="${esc(tk.id)}">${esc(tk.cariAd || "")}</button><div class="note">${esc(tk.no)}${tk.proformaNo ? " · " + esc(tk.proformaNo) : ""}</div><div>${saChip(SA_FDUR, tk.durum)}${s.sinif ? ` <span class="kst" style="--tc:${SA_SINIF[s.sinif]}">${s.sinif}</span>` : ""}</div></th>`; }).join("")}</tr></thead>
     <tbody>${K.map((k, i) => `<tr><td><b>${esc(k.ad)}</b><div class="note">${nf(k.miktar)} ${esc(k.birim || "")}</div></td>${cols.map(tk => { const u = unit(tk, k), v = u ? u.f * (saKur(u.pb, tk.kur) || 1) : null;
       return `<td class="num${v != null && best[i] != null && Math.abs(v - best[i]) < 1e-6 ? " best" : ""}">${u ? money(u.f, u.pb) : '<span class="note">—</span>'}${u && u.gun ? `<div class="note">${u.gun} gün</div>` : ""}</td>`; }).join("")}</tr>`).join("")}</tbody>
     <tfoot><tr><th>Toplam (KDV hariç)</th>${cols.map(tk => { const T = saTotals(tk.kalemler); return `<th class="num">${T.net ? money(T.net, tk.pb) : "—"}${tk.teslimGun ? `<div class="note">${tk.teslimGun} gün teslim</div>` : ""}${sel && tk.durum === "geldi" ? `<button type="button" class="btn sm" data-sec="${esc(tk.id)}" style="margin-top:6px">Seç → sipariş</button>` : ""}</th>`; }).join("")}</tr></tfoot></table></div>
@@ -5980,7 +5989,8 @@ async function saSerbestCari(tk) {   // siparişe geçerken serbest tedarikçide
 function saOpenRFQNew(talepId) {
   if (!can("sa.siparis")) return;
   const t = talepId ? saFind("talep", talepId) : null; let K = t ? JSON.parse(JSON.stringify(t.kalemler || [])) : [], f = null;
-  const sel = new Set(t && t.oneriCariId ? [t.oneriCariId] : []), SB = []; let sbAc = false;
+  const VAR = new Map(); if (t) SA.teklif.filter(x => x.talepId === t.id).forEach(x => VAR.set(x.cariId || "s:" + lower((x.serbest || {}).ad || x.cariAd || ""), x.no));
+  const sel = new Set(t && t.oneriCariId && !VAR.has(t.oneriCariId) ? [t.oneriCariId] : []), SB = []; let sbAc = false;
   const sbv = id => ($("#" + id) || {}).value || "";
   const keep = () => { if (!$("#rqSon")) return; f = { son: $("#rqSon").value, not: $("#rqNot").value, q: ($("#rqQ") || {}).value || "", sbAd: sbv("rqSbAd"), sbYet: sbv("rqSbYet"), sbTel: sbv("rqSbTel"), sbEp: sbv("rqSbEp") }; saKalemRead(K, "rfq"); };
   const say = () => `${sel.size + SB.length} seçili${SB.length ? ` (${SB.length} serbest)` : ""} · her birine ayrı numaralı form`;
@@ -5992,7 +6002,7 @@ function saOpenRFQNew(talepId) {
       <div class="db">
         <section><h3 class="sec-t">Tedarikçiler <small id="rqSay">${say()}</small></h3>
           <input class="f" id="rqQ" type="search" placeholder="Tedarikçi ya da kategori ara…" value="${esc(v("q", ""))}" style="width:100%;margin-bottom:8px">
-          <div class="onl" style="max-height:220px">${T.map(c => { const s = saScore(c.id); return `<label class="chk"><input type="checkbox" data-rc="${esc(c.id)}"${sel.has(c.id) ? " checked" : ""}> ${esc(crAd(c))} <small class="note">${esc(c.kategori || "")}${s.sinif ? " · " + s.sinif : ""}${!c.eposta && !c.whatsapp && !c.tel ? " · iletişim bilgisi yok" : ""}</small></label>`; }).join("") || '<p class="note">Tedarikçi bulunamadı.</p>'}</div>
+          <div class="onl" style="max-height:220px">${T.map(c => { const s = saScore(c.id); return `<label class="chk${VAR.has(c.id) ? " rqvar" : ""}"><input type="checkbox" data-rc="${esc(c.id)}"${VAR.has(c.id) ? " checked disabled" : sel.has(c.id) ? " checked" : ""}> ${esc(crAd(c))} ${VAR.has(c.id) ? `<small class="rqvb">zaten eklendi · ${esc(VAR.get(c.id))}</small> ` : ""}<small class="note">${esc(c.kategori || "")}${s.sinif ? " · " + s.sinif : ""}${!c.eposta && !c.whatsapp && !c.tel ? " · iletişim bilgisi yok" : ""}</small></label>`; }).join("") || '<p class="note">Tedarikçi bulunamadı.</p>'}</div>
           ${SB.map((x, i) => `<div class="sbrow"><span class="kst" style="--tc:var(--warn,#b45309)">Serbest</span> <b>${esc(x.ad)}</b> <small class="note">${esc([x.yetkili, x.tel, x.eposta].filter(Boolean).join(" · ") || "iletişim bilgisi yok")}</small><button type="button" class="btn ghost sm" data-sbx="${i}" aria-label="Serbest tedarikçiyi kaldır">×</button></div>`).join("")}
           ${sbAc ? `<div class="sbform"><div class="fgrid">
             <div class="field full"><label for="rqSbAd">Firma adı *</label><input id="rqSbAd" maxlength="160" value="${esc(v("sbAd", ""))}" placeholder="Cari kartı olmayan firma"></div>
@@ -6014,14 +6024,16 @@ function saOpenRFQNew(talepId) {
     const sbc = $("#rqSbC"); if (sbc) sbc.onclick = () => { keep(); sbAc = false; Object.assign(f, { sbAd: "", sbYet: "", sbTel: "", sbEp: "" }); paint(); };
     const sbo = $("#rqSbOk"); if (sbo) sbo.onclick = () => { keep(); const ad = f.sbAd.trim(); if (!ad) { toast("Firma adını yazın"); $("#rqSbAd").focus(); return; }
       if (SB.some(x => lower(x.ad) === lower(ad))) { toast("Bu firma zaten listede"); return; }
-      const c = CR.list.find(x => lower(crAd(x)) === lower(ad) || lower(x.unvan || "") === lower(ad)); if (c && c.tedarikci) { sel.add(c.id); toast(`${crAd(c)} zaten cari kartlarda var; listeden seçildi`); }
+      const c = CR.list.find(x => lower(crAd(x)) === lower(ad) || lower(x.unvan || "") === lower(ad));
+      if ((c && VAR.has(c.id)) || VAR.has("s:" + lower(ad))) { toast(`${ad} için bu talepte zaten fiyat talebi var (${VAR.get(c && VAR.has(c.id) ? c.id : "s:" + lower(ad))})`); return; }
+      if (c && c.tedarikci) { sel.add(c.id); toast(`${crAd(c)} zaten cari kartlarda var; listeden seçildi`); }
       else SB.push({ ad: ad.slice(0, 160), yetkili: f.sbYet.trim(), tel: f.sbTel.trim(), eposta: f.sbEp.trim() });
       sbAc = false; Object.assign(f, { sbAd: "", sbYet: "", sbTel: "", sbEp: "" }); paint(); };
     document.querySelectorAll("[data-sbx]").forEach(b => b.onclick = () => { keep(); SB.splice(Number(b.dataset.sbx), 1); paint(); });
     let qt = null; $("#rqQ").oninput = () => { clearTimeout(qt); qt = setTimeout(() => { keep(); paint(); const i = $("#rqQ"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }, 250); };
     saKalemBind(K, "rfq", () => { keep(); paint(); });
     $("#rqS").onclick = async () => {
-      keep(); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size && !SB.length) { toast("En az bir tedarikçi seçin ya da serbest tedarikçi ekleyin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
+      keep(); [...sel].forEach(id => { if (VAR.has(id)) sel.delete(id); }); const L = K.filter(k => Number(k.miktar) > 0); if (!sel.size && !SB.length) { toast("En az bir tedarikçi seçin ya da serbest tedarikçi ekleyin"); return; } if (!L.length) { toast("Kalem ekleyin"); return; }
       $("#rqS").disabled = true; const now = Date.now(), b = writeBatch(fs), ids = []; let ftN = (await saNoAl("FT", SA.teklif, sel.size + SB.length)) - 1;
       for (const cid of sel) { const c = crFind(cid), ref = doc(collection(fs, "sa_teklif")), no = saNoYaz("FT", ++ftN); ids.push(ref.id);
         b.set(ref, { no, tarih: TODAY, talepId: t ? t.id : "", talepNo: t ? t.no : "", cariId: cid, cariAd: crAd(c), pb: c.pb || "TRY", sonTarih: f.son || "", not: f.not.trim(),

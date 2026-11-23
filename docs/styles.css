@@ -1751,3 +1751,10 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 #dminBar .dminic{color:var(--brand);font-size:18px}#dminBar .dmint{display:flex;flex-direction:column;min-width:0}
 #dminBar small{font-size:11px;color:var(--ink-3)}#dminBar b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
 .dh .dminb{margin-left:auto}
+
+/* v92 */
+.cmp th{position:relative}
+.cmpdel{position:absolute;top:4px;right:4px;border:1px solid var(--line);background:var(--surface);color:#d92d20;border-radius:8px;min-width:24px;height:24px;font-size:15px;line-height:1;cursor:pointer;padding:0 6px}
+.cmpdel.on{background:#d92d20;color:#fff;border-color:#d92d20;font-size:11.5px;font-weight:700}
+.cmp thead th{padding-top:26px}
+.rqvar{opacity:.75}.rqvb{color:var(--k-fabrikada,#2f9e44);font-weight:600}
