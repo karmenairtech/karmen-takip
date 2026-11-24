@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "94";
+const APP_V = "95";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -4239,12 +4239,12 @@ function renderPlan() {
     ["İş istasyonu", PL.ist.length, `${PL.ist.filter(i => i.durum === "ariza").length} arızalı · ${PL.ist.filter(i => i.durum === "bakim").length} bakımda`, PL.ist.some(i => i.durum === "ariza") ? "bad" : ""]
   ].map(([k, v, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(v)}</div><div class="s">${esc(s)}</div></div>`).join("");
   document.querySelectorAll("#plTabs [data-lv]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.lv === PL.view ? "true" : "false"); b.onclick = () => { PL.view = b.dataset.lv; closeDrawer(); renderPlan(); }; });
-  const add = $("#plAdd"), L = { genel: ["pl.ie", "+ İş emri"], ie: ["pl.ie", "+ İş emri"], gun: ["pl.ie", "+ İş emri"], gantt: ["pl.ie", "+ İş emri"], akis: ["pl.akis", "+ İş akış şeması"], ist: ["pl.ist", "+ İstasyon"], havuz: ["pl.ie", "+ İş emri"], mes: ["pl.ie", "+ İş emri"] }[PL.view];
+  const add = $("#plAdd"), L = { genel: ["pl.ie", "+ İş emri"], ie: ["pl.ie", "+ İş emri"], gun: ["pl.ie", "+ İş emri"], gantt: ["pl.ie", "+ İş emri"], akis: ["pl.akis", "+ İş akış şeması"], ist: ["pl.ist", "+ İstasyon"], havuz: ["pl.ie", "+ İş emri"], mes: ["pl.ie", "+ İş emri"], teknik: ["pl.ie", "+ İş emri"], alsat: ["pl.ie", "+ İş emri"] }[PL.view];
   add.hidden = !can(L[0]); add.textContent = L[1]; add.onclick = () => PL.view === "akis" ? plOpenAkis(null) : PL.view === "ist" ? plOpenIst(null) : plOpenNewIe();
   $("#plCfgBtn").hidden = !(can("pl.ist") || can("pl.ie")); $("#plCfgBtn").onclick = plOpenCfg;
   const v = $("#plView");
   if (!PL.ready) { v.innerHTML = '<div class="empty"><h3>Planlama verileri yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
-  ({ genel: plGenelView, ie: plIeView, gun: plGunView, gantt: plGanttView, akis: plAkisView, ist: plIstView, havuz: plHavuzView, mes: plMesView })[PL.view](v);
+  ({ genel: plGenelView, ie: plIeView, gun: plGunView, gantt: plGanttView, akis: plAkisView, ist: plIstView, havuz: plHavuzView, mes: plMesView, teknik: plTeknikView, alsat: plAlSatView })[PL.view](v);
 }
 
 /* Genel bakış */
@@ -7170,7 +7170,11 @@ const spIeOf = id => (typeof PL !== "undefined" ? PL.ie.find(e => e.id === id) :
 const spPlanli = k => Math.min(Number(k.miktar) || 0, (k.ie || []).reduce((s, x) => s + (Number(x.miktar) || 0), 0) + (Number(k.stok) || 0));
 const spKalanPlan = k => Math.max(0, (Number(k.miktar) || 0) - spPlanli(k));
 const spSevkKalan = k => Math.max(0, (Number(k.miktar) || 0) - (Number(k.sevk) || 0));
-function spUretilen(k) { let u = Number(k.stok) || 0; (k.ie || []).forEach(x => { const e = spIeOf(x.id); if (!e) return; if (e.durum === "bitti") u += Number(x.miktar) || 0; else if (e.durum !== "iptal") { const st = plStats(e); u += (Number(x.miktar) || 0) * (st.pct || 0) / 100; } }); return Math.min(Number(k.miktar) || 0, u); }
+// Bir iş emrinde tüm operasyonlardan geçmiş (gerçekten bitmiş) adet: en az ilerleyen operasyonun tamamlanan adedi.
+// Önceden ilerleme yüzdesi kullanılıyordu; menfez bitince ürün boyadayken yarısı "üretildi" görünüyordu.
+function plIeHazir(e) { const q = Number(e.miktar) || 0; if (e.durum === "bitti") return q; const O = (e.ops || []).filter(o => !o.atlandi); if (!O.length) return 0;
+  return Math.max(0, Math.min(q, ...O.map(o => o.durum === "bitti" ? q : Math.min(q, Number(o.tamam) || 0)))); }
+function spUretilen(k) { let u = Number(k.stok) || 0; (k.ie || []).forEach(x => { const e = spIeOf(x.id); if (!e) return; if (e.durum === "bitti") u += Number(x.miktar) || 0; else if (e.durum !== "iptal") { const q = Number(e.miktar) || 0; u += q ? Math.floor((Number(x.miktar) || 0) * plIeHazir(e) / q) : 0; } }); return Math.min(Number(k.miktar) || 0, u); }
 function spDurum(s) {
   if (["taslak", "iptal", "kapandi"].includes(s.durum)) return s.durum;
   const K = s.kalemler || [], all = K.length && K.every(k => spSevkKalan(k) <= 0);
@@ -9323,7 +9327,7 @@ const MES_DEV_DEF = () => [
   { id: "t3", ad: "Tablet-3 · Kanal imalat", email: "", mod: "basit", ist: ["KKM-1", "SPR-1", "SPR-2", "KNT-1"], op: ["Enes Büyüktaş"] },
   { id: "pc1", ad: "Plazma-PC", email: "", mod: "basit", ist: ["PLZ-1"], op: ["Mahir Elhac"] },
   { id: "pc2", ad: "Lazer-PC", email: "", mod: "basit", ist: ["LZR-1"], op: ["Ahiret Tan"] }];
-const PL_TABS = [["genel", "Genel bakış"], ["havuz", "Planlanacak işler"], ["ie", "İş emirleri"], ["mes", "MES (tablet)"], ["gantt", "Planlama çizelgesi"], ["akis", "İş akış şemaları"], ["ist", "İş istasyonları"]];
+const PL_TABS = [["genel", "Genel bakış"], ["havuz", "Planlanacak işler"], ["ie", "İş emirleri"], ["teknik", "Teknik resim"], ["alsat", "Al-sat"], ["mes", "MES (tablet)"], ["gantt", "Planlama çizelgesi"], ["akis", "İş akış şemaları"], ["ist", "İş istasyonları"]];
 function startMesCfg() {
   if (MESC.unsub) return;
   MESC.unsub = onSnapshot(doc(fs, "config", "mes"), s => { const d = s.exists() ? s.data() : null; MESC.cfg = d ? { cihazlar: d.cihazlar || [], plTabs: d.plTabs || {}, mod: d.mod || "basit", kayitli: true } : { cihazlar: MES_DEV_DEF(), plTabs: {}, mod: "basit", kayitli: false }; MESC.ready = true;
@@ -10254,7 +10258,7 @@ function mesTamamlanan() {
   const ciz = () => {
     const [a, b] = per(), q = araFold(F.q || "");
     // bu cihazın istasyonlarında BİTİRİLEN işlemler (iş emrinin tamamı bitmemiş olsa da) — tarih: işlemin bitiş zamanı
-    const opsOf = e => (e.ops || []).map((o, k) => ({ o, k })).filter(({ o }) => o.durum === "bitti" && !o.atlandi && Number(o.bitis) > 0 && (F.kap === "tum" || mesMatch(o, S)));
+    const opsOf = e => (e.ops || []).map((o, k) => ({ o, k })).filter(({ o }) => o.durum === "bitti" && !o.atlandi && Number(o.bitis) > 0 && mesMatch(o, S));
     const T = PL.ie.map(e => ({ e, B: opsOf(e) })).filter(x => x.B.length).map(x => ({ ...x.e, _B: x.B }));
     const tipler = [...new Set(T.map(e => e.akisAd || "Diğer"))].sort((x, y) => x.localeCompare(y, "tr"));
     const cariler = [...new Set(T.map(e => e.musteri).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr"));
@@ -10264,7 +10268,7 @@ function mesTamamlanan() {
     const spler = [...new Set(T.filter(e => !F.cari || e.musteri === F.cari).map(e => e.siparisNo).filter(Boolean))].sort((x, y) => y.localeCompare(x, "tr"));
     const opSure = o => (o.calisma || []).reduce((b0, c) => b0 + (c.bit && c.bas ? Math.max(0, c.bit - c.bas) : 0), 0) / 60000;
     const islem = L.reduce((s0, e) => s0 + e._B.length, 0), adet = L.reduce((s0, e) => s0 + (Number(e.miktar) || 0), 0), fire = L.reduce((s0, e) => s0 + e._B.reduce((t, { o }) => t + (Number(o.fire) || 0), 0), 0), sure = L.reduce((s0, e) => s0 + e._B.reduce((t, { o }) => t + opSure(o), 0), 0);
-    const filtreVar = F.q || F.cari || F.sp || F.tip || F.per !== "bugun" || F.kap !== "cihaz";
+    const filtreVar = F.q || F.cari || F.sp || F.tip || F.per !== "bugun";
     $("#mtB").innerHTML = `<div class="mtf">
         <div class="seg" role="group" aria-label="Dönem">${[["bugun", "Bugün"], ["dun", "Dün"], ["hafta", "Bu hafta"], ["ay", "Bu ay"], ["tum", "Tümü"], ["ozel", "Tarih aralığı"]].map(([k, l]) => `<button type="button" data-mtp="${k}" aria-pressed="${F.per === k}">${l}</button>`).join("")}</div>
         ${F.per === "ozel" ? `<div class="mtd"><input type="date" class="f" id="mtT1" value="${esc(F.t1)}" aria-label="Başlangıç"><span>–</span><input type="date" class="f" id="mtT2" value="${esc(F.t2)}" aria-label="Bitiş"></div>` : ""}
@@ -10272,24 +10276,25 @@ function mesTamamlanan() {
           <select class="f" id="mtC" aria-label="Müşteri"><option value="">Tüm müşteriler</option>${cariler.map(c => opt(c, c, F.cari)).join("")}</select>
           <select class="f" id="mtS" aria-label="Sipariş"><option value="">Tüm siparişler</option>${spler.map(c => opt(c, c, F.sp)).join("")}</select>
           <select class="f" id="mtTp" aria-label="Ürün tipi"><option value="">Tüm ürün tipleri</option>${tipler.map(c => opt(c, c, F.tip)).join("")}</select>
-          <select class="f" id="mtK" aria-label="Kapsam"><option value="cihaz"${F.kap === "cihaz" ? " selected" : ""}>Bu tabletin istasyonları</option><option value="tum"${F.kap === "tum" ? " selected" : ""}>Tüm istasyonlar</option></select>
           ${filtreVar ? '<button type="button" class="btn ghost sm" id="mtX">Filtreleri temizle</button>' : ""}</div></div>
       <div class="mtk">${[["Biten işlem", nf(islem)], ["İş emri", nf(L.length)], ["Adet", nf(adet)], ["Fire", nf(fire)], ["Çalışma süresi", sure ? plDur(sure) : "—"]].map(([k, v0]) => `<div><span>${k}</span><b class="num">${v0}</b></div>`).join("")}</div>
-      ${L.length ? `<div class="mtl">${L.slice(0, 300).map(e => { const ac = F.ac.has(e.id), ops = (e.ops || []).filter(o => !o.atlandi), bk = new Set(e._B.map(x => x.k)), fr = e._B.reduce((t, { o }) => t + (Number(o.fire) || 0), 0), sr = e._B.reduce((t, { o }) => t + opSure(o), 0), yp = [...new Set(e._B.flatMap(({ o }) => [...(o.calisma || []).map(c => c.by), o.operator]).filter(Boolean))];
-          return `<div class="mtr${ac ? " on" : ""}"><button type="button" class="mth" data-mte="${esc(e.id)}" aria-expanded="${ac}">
-            <span class="mtc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
-            <span class="mtt"><b class="num">${fmtS(gun(e._bit))}</b><small>${new Date(e._bit).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</small></span>
-            <span class="mtu"><b class="num">${esc(e.no || "")}</b> <b>${esc(e.urunAd || "")}</b><small class="mtbo">${e._B.map(({ o }) => esc(o.ad || o.tanim || o.ist)).slice(0, 3).join(" · ")}${e._B.length > 3 ? ` +${e._B.length - 3}` : ""}${e.durum === "bitti" ? ' <span class="mtie">iş emri tamamlandı</span>' : ""}</small><small>${e.renkAd ? esc(e.renkAd) + " · " : ""}${esc(e.siparisNo || "Stoka üretim")}${e.musteri ? " · " + esc(e.musteri) : ""}${mesProje(e) ? " · " + esc(mesProje(e)) : ""}</small></span>
-            <span class="mtn num"><b>${nf(e.miktar)}</b> <small>${esc(e.birim || "adet")}</small>${fr ? `<small class="mtfr">${nf(fr)} fire</small>` : ""}</span>
-            <span class="mts note">${sr ? plDur(sr) : ""}${yp.length ? `<br>${esc(yp.slice(0, 2).join(", "))}${yp.length > 2 ? " +" + (yp.length - 2) : ""}` : ""}</span></button>
-            ${ac ? `<div class="mtops">${(e.ops || []).map((o, k) => o.atlandi ? "" : `<div class="${bk.has(k) ? "bu" : "dg"}"><span class="num">${esc(plNo(o, k))}.</span><span><b>${esc(o.ad || o.tanim || "")}</b> <small class="note">${esc(o.ist || "")}</small></span><span class="note">${o.durum === "bitti" && o.bitis ? skTs(o.bitis) : esc((PL_ODUR[o.durum || "bekliyor"] || ["—"])[0])}</span><span class="note">${esc([...new Set([...(o.calisma || []).map(c => c.by), o.operator].filter(Boolean))].join(", ") || "—")}</span><span class="num">${nf(o.tamam ?? e.miktar)}${o.fire ? ` · <span class="mtfr">${nf(o.fire)} fire</span>` : ""}</span></div>`).join("")}${e.talimat ? `<div class="mestl">${esc(e.talimat)}</div>` : ""}</div>` : ""}</div>`; }).join("")}${L.length > 300 ? `<p class="note">İlk 300 iş emri gösteriliyor; filtreyi daraltın.</p>` : ""}</div>`
+      ${L.length ? (() => { const G = new Map(); L.forEach(e => { const sp = mesSip(e), p = plProjeKey(sp, e); const g = G.get(p.key) || { ...p, L: [], sip: new Set(), bit: 0, adet: 0 }; g.L.push(e); if (e.siparisNo) g.sip.add(e.siparisNo); g.bit = Math.max(g.bit, e._bit); g.adet += Number(e.miktar) || 0; G.set(p.key, g); });
+          return `<div class="mtl">${[...G.values()].sort((x, y) => y.bit - x.bit).map(g => { const ac = F.ac.has(g.key);
+            return `<div class="mtr${ac ? " on" : ""}"><button type="button" class="mth mtpj" data-mte="${esc(g.key)}" aria-expanded="${ac}">
+              <span class="mtc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
+              <span class="mtu"><b>${esc(g.ad)}</b><small class="mtbo">${esc(g.mu || "")}${g.sip.size && !g.sipOnly ? " · " + esc([...g.sip].join(", ")) : ""}</small></span>
+              <span class="mtn num"><b>${g.L.length}</b> <small>iş emri</small></span>
+              <span class="mtn num"><b>${nf(g.adet)}</b> <small>adet</small></span>
+              <span class="mtt"><small>son</small><b class="num">${fmtS(gun(g.bit))}</b></span></button>
+              ${ac ? `<div class="mtpl">${g.L.map(e => { const fr = e._B.reduce((t, { o }) => t + (Number(o.fire) || 0), 0);
+                return `<div><span class="num skk">${esc(e.no || "")}</span><span><b>${esc(e.urunAd || "")}</b>${e.renkAd ? `<small class="note">${esc(e.renkAd)}</small>` : ""}</span><span class="num"><b>${nf(e.miktar)}</b> <small>${esc(e.birim || "adet")}</small>${fr ? ` <small class="mtfr">${nf(fr)} fire</small>` : ""}</span><span class="note num">${fmtS(gun(e._bit))} ${new Date(e._bit).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span></div>`; }).join("")}</div>` : ""}</div>`; }).join("")}</div>`; })()
         : `<div class="empty"><h3>Bu filtrede bitirilen işlem yok</h3><p>${F.per === "bugun" ? "Bugün bu tabletin istasyonlarında henüz bitirilen işlem yok. Dönemi “Bu hafta” ya da “Tümü” yapabilirsiniz." : "Filtreleri genişletmeyi deneyin."}</p></div>`}`;
     const B = $("#mtB"), re = () => { const sc = B.scrollTop; ciz(); B.scrollTop = sc; };
     B.querySelectorAll("[data-mtp]").forEach(x => x.onclick = () => { F.per = x.dataset.mtp; re(); });
     B.querySelectorAll("[data-mte]").forEach(x => x.onclick = () => { const id = x.dataset.mte; F.ac.has(id) ? F.ac.delete(id) : F.ac.add(id); re(); });
     const qi = $("#mtQ"); qi.oninput = () => { F.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { ciz(); const n = $("#mtQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
     $("#mtC").onchange = e => { F.cari = e.target.value; F.sp = ""; re(); }; $("#mtS").onchange = e => { F.sp = e.target.value; re(); };
-    $("#mtTp").onchange = e => { F.tip = e.target.value; re(); }; $("#mtK").onchange = e => { F.kap = e.target.value; re(); };
+    $("#mtTp").onchange = e => { F.tip = e.target.value; re(); };
     const t1 = $("#mtT1"); if (t1) { t1.onchange = () => { F.t1 = t1.value; re(); }; $("#mtT2").onchange = e => { F.t2 = e.target.value; re(); }; }
     const xb = $("#mtX"); if (xb) xb.onclick = () => { Object.assign(F, { per: "bugun", t1: "", t2: "", q: "", cari: "", sp: "", tip: "", kap: "cihaz" }); re(); };
   };
@@ -10297,7 +10302,7 @@ function mesTamamlanan() {
   <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="mtTt" style="width:min(1100px,100%)">
     <div class="dh"><h2 id="mtTt">Tamamlanan işler · <span style="color:var(--brand)">${esc(((document.querySelector(".mesnm") || {}).textContent || "").trim())}</span></h2><button class="x" id="mtXx" aria-label="Kapat">×</button></div>
     <div class="db" id="mtB"></div>
-    <div class="df"><span class="note">Bu tablette bitirilen işlemler, bitiş zamanına göre. Satıra dokununca iş emrinin tüm aşamaları açılır.</span><div class="r"><button class="btn" id="mtKp" type="button">Kapat</button></div></div>
+    <div class="df"><span class="note">Yalnızca bu tabletin istasyonlarında bitirilen işler, proje bazında. Projeye dokununca o projede tamamlanan iş emirleri açılır.</span><div class="r"><button class="btn" id="mtKp" type="button">Kapat</button></div></div>
   </aside>`;
   $("#scrim").onclick = closeDrawer; $("#mtXx").onclick = closeDrawer; $("#mtKp").onclick = closeDrawer;
   ciz();
@@ -10926,4 +10931,81 @@ async function rpHazirla(m, a, b) {
   h.querySelector("#rpE").onclick = () => rpCSV(R);
   h.querySelector("#rpP").onclick = () => { document.body.classList.add("rpprint"); setTimeout(() => { window.print(); setTimeout(() => document.body.classList.remove("rpprint"), 500); }, 50); };
   h.scrollTop = 0;
+}
+
+/* ================= Planlama · TEKNİK RESİM ve AL-SAT sekmeleri (proje bazında) ================= */
+const plLazerOp = o => !o.atlandi && (/^LZR/i.test(o.ist || "") || /lazer/i.test(o.ad || o.tanim || ""));
+const plProjeKey = (sp, e) => { const pa = (sp && sp.proje && sp.proje.ad) || (e && e.proje) || ""; const mu = (sp && sp.cariAd) || (e && e.musteri) || "";
+  return pa ? { key: "p:" + araFold(mu + "|" + pa), ad: pa, mu } : sp ? { key: "s:" + sp.id, ad: sp.no, mu, sipOnly: true } : e && e.siparisNo ? { key: "n:" + e.siparisNo, ad: e.siparisNo, mu, sipOnly: true } : { key: "stok", ad: "Stoka üretim", mu: "" }; };
+const PLX = { tr: { q: "", kap: "acik", ac: new Set() }, as: { q: "", kap: "acik", ac: new Set() } };
+function plGrupHtml(G, F, satirHtml, bas) {
+  return G.length ? `<div class="pxl">${G.map(g => { const ac = F.ac.has(g.key) || !!F.q;
+    return `<div class="pxg${ac ? " on" : ""}${g.gec ? " gec" : ""}"><button type="button" class="pxh" data-pxg="${esc(g.key)}" aria-expanded="${ac}">
+      <span class="mtc" aria-hidden="true">${ac ? "▾" : "▸"}</span>
+      <span class="pxa"><b>${esc(g.ad)}</b><small>${esc(g.mu || "")}${g.sip.size && !g.sipOnly ? " · " + esc([...g.sip].join(", ")) : ""}</small></span>
+      <span class="pxs">${g.ozet}</span>
+      <span class="pxt num${g.gec ? " late" : ""}">${g.termin ? fmtS(g.termin) : "—"}</span></button>
+      ${ac ? `<div class="pxr"><div class="pxrh">${bas}</div>${g.L.map(satirHtml).join("")}</div>` : ""}</div>`; }).join("")}</div>` : "";
+}
+function plTeknikView(v) {
+  const F = PLX.tr, q = araFold(F.q), G = new Map();
+  PL.ie.filter(e => e.durum !== "iptal" && (e.ops || []).some(plLazerOp)).forEach(e => {
+    const LO = e.ops.filter(plLazerOp), kesildi = LO.every(o => o.durum === "bitti");
+    if (F.kap === "acik" && (kesildi || !plIeOpen(e))) return;
+    if (F.kap === "son" && !(plIeOpen(e) || (e.bitis && Date.now() - e.bitis < 30 * 864e5))) return;
+    const sp = mesSip(e), p = plProjeKey(sp, e);
+    if (q && !araFold([e.no, e.urunAd, e.renkAd, e.varyasyon, e.not, e.siparisNo, e.musteri, p.ad].join(" ")).includes(q)) return;
+    const g = G.get(p.key) || { ...p, L: [], sip: new Set(), termin: "", adet: 0, kes: 0 }; g.L.push({ e, LO, kesildi });
+    if (e.siparisNo) g.sip.add(e.siparisNo); if (e.termin && (!g.termin || e.termin < g.termin)) g.termin = e.termin; g.adet += Number(e.miktar) || 0; if (kesildi) g.kes++; G.set(p.key, g); });
+  const L = [...G.values()].map(g => ({ ...g, gec: g.termin && g.termin < TODAY && g.kes < g.L.length, ozet: `<b>${g.L.length}</b> iş emri · ${nf(g.adet)} adet${g.kes ? ` · <span class="ok">${g.kes} kesildi</span>` : ""}` }))
+    .sort((a, b) => String(a.termin || "9").localeCompare(String(b.termin || "9")));
+  L.forEach(g => g.L.sort((a, b) => a.kesildi - b.kesildi || String(a.e.termin || "9").localeCompare(String(b.e.termin || "9"))));
+  const lzD = r => { const d = r.LO.some(o => o.durum === "devam") ? ["Kesimde", "var(--k-gec)"] : r.kesildi ? ["Kesildi", "var(--k-fabrikada)"] : r.LO.some(o => o.durum === "bitti" || Number(o.tamam) > 0) ? ["Kısmen kesildi", "var(--k-gec)"] : ["Kesilecek", "var(--brand)"];
+    return `<span class="kst" style="--tc:${d[1]}">${d[0]}</span>`; };
+  const sat = r => { const e = r.e; return `<div class="pxrr" role="button" tabindex="0" data-pxie="${esc(e.id)}"><span class="num skk">${esc(e.no)}</span>
+    <span class="pxu"><b>${esc(e.urunAd || "")}</b>${[e.renkAd, e.varyasyon].filter(Boolean).length ? `<small>${esc([e.renkAd, e.varyasyon].filter(Boolean).join(" · "))}</small>` : ""}${e.not && e.not !== [e.renkAd ? "Renk: " + e.renkAd : "", e.varyasyon].filter(Boolean).join(" · ") ? `<small class="pxnot">${esc(e.not)}</small>` : ""}</span>
+    <span class="num">${nf(e.miktar)} <small>${esc(e.birim || "Adet")}</small></span><span>${lzD(r)}<small class="note">${esc(r.LO.map(o => o.ist).join(", "))}</small></span><span class="num${e.termin && e.termin < TODAY && plIeOpen(e) ? " late" : ""}">${e.termin ? fmtS(e.termin) : "—"}</span></div>`; };
+  v.innerHTML = `<div class="pkbar"><div class="filters"><select class="f" id="pxK" aria-label="Kapsam">${[["acik", "Kesilecek işler"], ["son", "Açık + son 30 günde biten"], ["tum", "Tümü"]].map(([k, l]) => opt(k, l, F.kap)).join("")}</select>
+      <input class="f" id="pxQ" type="search" placeholder="Proje, müşteri, sipariş, ürün ara…" value="${esc(F.q)}" aria-label="Ara"></div>
+      <div class="filters"><span class="sortinfo">${L.length} proje · ${L.reduce((s, g) => s + g.L.length, 0)} iş emri</span>${L.length ? '<button type="button" class="btn ghost sm" id="pxAc">Tümünü aç / kapat</button>' : ""}</div></div>
+    <p class="note" style="margin:0 0 10px">Lazer kesim operasyonu olan iş emirleri, proje bazında. Teknik resim hazırlanacak işleri buradan takip edebilirsiniz; satıra dokununca iş emri açılır.</p>
+    ${plGrupHtml(L, F, sat, "<span>İŞ EMRİ</span><span>ÜRÜN</span><span>ADET</span><span>LAZER</span><span>TERMİN</span>") || '<div class="empty"><h3>Lazer kesim operasyonu olan iş yok</h3><p>Kapsamı “Tümü” yaparak geçmiş işlere bakabilirsiniz.</p></div>'}`;
+  plGrupBind(v, F, () => plTeknikView(v), L);
+  v.querySelectorAll("[data-pxie]").forEach(r => { const f = () => plOpenIe(r.dataset.pxie); r.onclick = f; r.onkeydown = e => { if (e.key === "Enter") f(); }; });
+}
+function plGrupBind(v, F, re, L) {
+  v.querySelectorAll("[data-pxg]").forEach(b => b.onclick = () => { const k = b.dataset.pxg; F.ac.has(k) ? F.ac.delete(k) : F.ac.add(k); re(); });
+  const k = v.querySelector("#pxK"); if (k) k.onchange = () => { F.kap = k.value; re(); };
+  const a = v.querySelector("#pxAc"); if (a) a.onclick = () => { if (F.ac.size) F.ac.clear(); else L.forEach(g => F.ac.add(g.key)); re(); };
+  const q = v.querySelector("#pxQ"); if (q) q.oninput = () => { clearTimeout(q._t); q._t = setTimeout(() => { F.q = q.value; re(); const n = v.querySelector("#pxQ"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); };
+}
+const spAlSat = k => (skKodParts(k.kod) || {}).tip === "AS" || k.tip === "AS";
+function plAlSatView(v) {
+  const F = PLX.as, q = araFold(F.q), G = new Map(), TAL = typeof SA !== "undefined" && SA.talep ? SA.talep : [], PO = typeof SA !== "undefined" && SA.siparis ? SA.siparis : [];
+  SP.list.filter(s => s.durum !== "taslak" && s.durum !== "iptal" && (F.kap === "tum" || spAcik(s))).forEach(s => (s.kalemler || []).filter(spAlSat).forEach(k => {
+    const kalan = spSevkKalan(k); if (F.kap === "acik" && kalan <= 0) return;
+    const p = plProjeKey(s, null);
+    if (q && !araFold([s.no, s.cariAd, p.ad, k.kod, k.ad, spVarAd(k)].join(" ")).includes(q)) return;
+    const T = TAL.filter(t => t.siparisId === s.id && t.durum !== "iptal" && (t.kalemler || []).some(x => (k.sid && x.sid === k.sid) || (!k.sid && x.ad === k.ad)));
+    const P = PO.filter(p0 => p0.durum !== "iptal" && T.some(t => (t.siparisIds || []).includes(p0.id) || p0.talepId === t.id));
+    const g = G.get(p.key) || { ...p, L: [], sip: new Set(), termin: "", bek: 0 }; g.L.push({ s, k, kalan, T, P }); g.sip.add(s.no);
+    const tr = k.termin || s.verilenTermin || ""; if (tr && kalan > 0 && (!g.termin || tr < g.termin)) g.termin = tr; if (kalan > 0) g.bek++; G.set(p.key, g); }));
+  const L = [...G.values()].map(g => ({ ...g, gec: g.termin && g.termin < TODAY, ozet: `<b>${g.L.length}</b> kalem${g.bek ? ` · <span class="late">${g.bek} sevk bekliyor</span>` : ' · <span class="ok">tamamı sevk edildi</span>'}` }))
+    .sort((a, b) => (b.bek > 0) - (a.bek > 0) || String(a.termin || "9").localeCompare(String(b.termin || "9")));
+  const saD = r => { if (r.kalan <= 0) return '<span class="kst" style="--tc:var(--k-fabrikada)">Sevk edildi</span>';
+    if (r.P.some(p => (p.kabuller || []).length && p.durum === "tamam")) return '<span class="kst" style="--tc:var(--k-fabrikada)">Depoda</span>';
+    if (r.P.some(p => (p.kabuller || []).length)) return '<span class="kst" style="--tc:var(--k-gec)">Kısmen geldi</span>';
+    if (r.P.length) return `<span class="kst" style="--tc:var(--brand)">Sipariş verildi</span><small class="note">${esc(r.P.map(p => p.no + (p.cariAd ? " · " + p.cariAd : "")).join(", "))}</small>`;
+    if (r.T.length) return `<span class="kst" style="--tc:var(--k-gec)">Talep açıldı</span><small class="note">${esc(r.T.map(t => t.no).join(", "))}</small>`;
+    return Number(r.k.stok) > 0 ? '<span class="kst" style="--tc:var(--k-fabrikada)">Stoktan</span>' : '<span class="kst" style="--tc:var(--k-izinsiz)">Talep yok</span>'; };
+  const sat = r => `<div class="pxrr" role="button" tabindex="0" data-pxsp="${esc(r.s.id)}"><span class="num skk">${esc(r.s.no)}</span>
+    <span class="pxu"><b>${r.k.kod ? `<span class="num skk">${esc(r.k.kod)}</span> ` : ""}${esc(adMetraj(r.k.ad || "", r.k))}</b>${[r.k.renk ? spRenkAd(r.k.renk) : "", spVarAd(r.k)].filter(Boolean).length ? `<small>${esc([r.k.renk ? spRenkAd(r.k.renk) : "", spVarAd(r.k)].filter(Boolean).join(" · "))}</small>` : ""}${r.k.aciklama ? `<small class="pxnot">${esc(r.k.aciklama)}</small>` : ""}</span>
+    <span class="num">${nf(r.k.miktar)} <small>${esc(r.k.birim || "Adet")}</small>${Number(r.k.sevk) ? `<small class="note">${nf(r.k.sevk)} sevk edildi</small>` : ""}</span><span>${saD(r)}</span><span class="num${(r.k.termin || r.s.verilenTermin) && (r.k.termin || r.s.verilenTermin) < TODAY && r.kalan > 0 ? " late" : ""}">${(r.k.termin || r.s.verilenTermin) ? fmtS(r.k.termin || r.s.verilenTermin) : "—"}</span></div>`;
+  v.innerHTML = `<div class="pkbar"><div class="filters"><select class="f" id="pxK" aria-label="Kapsam">${[["acik", "Sevk bekleyenler"], ["sip", "Açık siparişlerin tümü"], ["tum", "Tümü (kapanmışlar dahil)"]].map(([k, l]) => opt(k, l, F.kap)).join("")}</select>
+      <input class="f" id="pxQ" type="search" placeholder="Proje, müşteri, sipariş, ürün ara…" value="${esc(F.q)}" aria-label="Ara"></div>
+      <div class="filters"><span class="sortinfo">${L.length} proje · ${L.reduce((s, g) => s + g.L.length, 0)} kalem</span>${L.length ? '<button type="button" class="btn ghost sm" id="pxAc">Tümünü aç / kapat</button>' : ""}</div></div>
+    <p class="note" style="margin:0 0 10px">Siparişlerdeki al-sat ürünler (stok kodu AS- ile başlayanlar), proje bazında. Satın alma durumu siparişe bağlı satın alma taleplerinden gelir; satıra dokununca sipariş açılır.</p>
+    ${plGrupHtml(L, F, sat, "<span>SİPARİŞ</span><span>ÜRÜN</span><span>MİKTAR</span><span>DURUM</span><span>TERMİN</span>") || '<div class="empty"><h3>Al-sat ürün yok</h3><p>Siparişlerde stok kodu AS- ile başlayan ürün bulunamadı. Kapsamı genişletmeyi deneyin.</p></div>'}`;
+  plGrupBind(v, F, () => plAlSatView(v), L);
+  v.querySelectorAll("[data-pxsp]").forEach(r => { const f = () => { if (lvl("siparis") === "none") return; spOpen(r.dataset.pxsp); }; r.onclick = f; r.onkeydown = e => { if (e.key === "Enter") f(); }; });
 }
