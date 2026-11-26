@@ -17,7 +17,8 @@ let KAT = null, KAT_AT = 0;
 async function katalog() {
   if (KAT && Date.now() - KAT_AT < 10 * 60e3) return KAT;
   const s = await db.doc("web_katalog/v1").get();
-  const j = s.exists ? JSON.parse(s.data().json || "{}") : { u: [] };
+  const j = s.exists ? JSON.parse(s.data().json || "{}") : { u: [] }; j.u = j.u || [];
+  for (let i = 0; i < (Number(j.parca) || 0); i++) { const p = await db.doc("web_katalog/p" + i).get(); if (p.exists) j.u.push(...JSON.parse(p.data().json || "[]")); }
   KAT = new Map((j.u || []).map(u => [u[0], { id: u[0], kod: u[1], ad: u[2], birim: u[3] || "Adet" }])); KAT_AT = Date.now();
   return KAT;
 }

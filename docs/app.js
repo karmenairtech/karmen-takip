@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "96";
+const APP_V = "97";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -11134,9 +11134,14 @@ async function webCfg() {
       const U = sn.docs.map(x => ({ id: x.id, ...x.data() })).filter(i => i.aktif !== false && i.kod && i.ad && (!G.length || G.some(g => i.kod.startsWith(g))))
         .sort((a, b) => a.kod.localeCompare(b.kod)).map(i => [i.id, i.kod, String(i.ad).slice(0, 160), i.birim || "Adet"]);
       const gruplar = (G.length ? G : [...new Set(U.map(u => u[1].slice(0, 4)))]).map(g => ({ kod: g, ad: (anaG.find(a => a.kod === g) || {}).ad || g })).filter(g => U.some(u => u[1].startsWith(g.kod)));
-      const json = JSON.stringify({ at: Date.now(), gruplar, u: U, varyasyon: SP.cfg.varyasyon || "", varHazir: SP_VAR_HAZIR, renkler: SP.cfg.sikRenkler || [] });
-      if (json.length > 950000) throw new Error(`Katalog çok büyük (${Math.round(json.length / 1024)} KB); daha az ürün grubu seçin`);
-      await setDoc(doc(fs, "web_katalog", "v1"), { json, at: Date.now(), by: ME.name, n: U.length, gruplar: G });
+      // Firestore belge sınırı 1 MB: ürünler ~600 KB'lık parçalara bölünür (web_katalog/p0, p1…), v1 belgesi parça sayısını tutar
+      const P = []; let cur = [], boy = 0; U.forEach(u => { const n = JSON.stringify(u).length + 1; if (boy + n > 600000 && cur.length) { P.push(cur); cur = []; boy = 0; } cur.push(u[3] === "Adet" ? u.slice(0, 3) : u); boy += n; }); if (cur.length) P.push(cur);
+      if (P.length > 20) throw new Error("Katalog çok büyük; daha az ürün grubu seçin");
+      d.textContent = `${nf(U.length)} ürün yayınlanıyor…`;
+      for (let i = 0; i < P.length; i++) await setDoc(doc(fs, "web_katalog", "p" + i), { json: JSON.stringify(P[i]), at: Date.now() });
+      const json = JSON.stringify({ at: Date.now(), gruplar, u: [], parca: P.length, varyasyon: SP.cfg.varyasyon || "", varHazir: SP_VAR_HAZIR, renkler: SP.cfg.sikRenkler || [] });
+      await setDoc(doc(fs, "web_katalog", "v1"), { json, at: Date.now(), by: ME.name, n: U.length, gruplar: G, parca: P.length });
+      for (let i = P.length; i < P.length + 5; i++) deleteDoc(doc(fs, "web_katalog", "p" + i)).catch(() => {});
       d.textContent = `${nf(U.length)} ürün yayınlandı`; toast("Web kataloğu yayınlandı");
     } catch (e) { d.textContent = ""; toast(e && e.code ? writeErr(e) : (e.message || String(e))); }
     b.disabled = false;

@@ -94,7 +94,9 @@ button,input,select,textarea{font:inherit;color:inherit}
   const varAd = v => Object.entries(v || {}).filter(([, x]) => x).map(([a, x]) => `${a}: ${x}`).join(" · ");
 
   async function yukle() {
-    try { const r = await fetch(KATALOG); if (!r.ok) throw new Error(r.status); const d = await r.json(); S.kat = JSON.parse(d.fields.json.stringValue); }
+    try { const al = async id => { const r = await fetch(KATALOG.replace(/v1$/, id)); if (!r.ok) throw new Error(r.status); return JSON.parse((await r.json()).fields.json.stringValue); };
+      S.kat = await al("v1"); const n = Number(S.kat.parca) || 0;
+      if (n) S.kat.u = [...(S.kat.u || []), ...(await Promise.all(Array.from({ length: n }, (_, i) => al("p" + i)))).flat()]; }
     catch (e) { app.innerHTML = `<div class="load">Ürün listesi şu an yüklenemedi. Lütfen daha sonra tekrar deneyin ya da <a href="https://wa.me/${WA}" target="_blank" rel="noopener">WhatsApp</a> üzerinden yazın.</div>`; boy(); return; }
     S.idx = S.kat.u.map(u => ({ id: u[0], kod: u[1], ad: u[2], birim: u[3] || "Adet", f: fold(u[1] + " " + u[2]) }));
     ciz();
