@@ -17,4 +17,4 @@ export const EXTRA_ICE = [];
 
 // Anlık bildirim (web push) ortak anahtarı: Firebase Console → Proje ayarları → Cloud Messaging → Web Push sertifikaları → Anahtar çifti
 // Bu anahtar gizli değildir (herkese açık anahtar). Boşsa anlık bildirim kapalıdır, uygulama içi bildirimler çalışmaya devam eder.
-export const VAPID_KEY = "";
+export const VAPID_KEY = "BDNGIhyXnqj6ZW3IY3aWYYJ6uomy-GvZ8UBFOmIXMV_YAAGcZUXqG8b8AtfSScS7xhVmLBO7vrMjwFBGwGlR1jw";
