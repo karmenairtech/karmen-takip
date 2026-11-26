@@ -1,0 +1,6 @@
+karmen-veri.json
+*karmen-yedek*
+*client_secret*
+*.json.bak
+.firebase/
+node_modules/

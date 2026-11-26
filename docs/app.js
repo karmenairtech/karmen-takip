@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "95";
+const APP_V = "96";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -259,7 +259,7 @@ function startData() {
   if (lvl("cari") !== "none" || lvl("satinalma") !== "none" || lvl("siparis") !== "none" || lvl("sevkiyat") !== "none" || lvl("muhasebe") !== "none") startCari(); else { CR.list = []; CR.ready = true; }
   if (lvl("satinalma") !== "none") startSA(); else { SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true; }
   if (lvl("siparis") !== "none" || lvl("planlama") !== "none" || lvl("sevkiyat") !== "none" || lvl("muhasebe") !== "none") startSP(); else { SP.list = []; SP.ready = true; }
-  if (can("sp.teklif")) startTK(); else { TK.list = []; TK.ready = true; }
+  if (can("sp.teklif")) { startTK(); startWeb(); } else { TK.list = []; TK.ready = true; WEB.list = []; WEB.ready = true; }
   startMesCfg();
   if (lvl("urun") !== "none") startUT();
   if (lvl("cv") !== "none") startCV(); else { CV.list = []; CV.ready = true; }
@@ -2274,6 +2274,9 @@ function buildEvents() {
       ev.push({ id: `t:${t.id}:${t.updatedAt}`, at: t.updatedAt, mod: "proje", ref: t.id, title: `${t.updatedBy} sorumlusu olduğunuz işi güncelledi`, body: `${t.no}. ${shortTxt(t.title, 70)} · %${Number(t.progress) || 0}`, kind: "" });
     });
   }
+  // Web sitesinden gelen teklif istekleri
+  if (typeof WEB !== "undefined" && can("sp.teklif")) WEB.list.forEach(w => { if (w.durum !== "yeni" || !w.at || w.at < since) return;
+    ev.push({ id: `w:${w.id}`, at: w.at, mod: "web", ref: w.id, title: `Web sitesinden teklif isteği · ${w.no}`, body: `${(w.kisi || {}).firma || ""} · ${(w.kalemler || []).length} kalem`, kind: "" }); });
   // Mesajlar
   if (P.msg && typeof MSG !== "undefined") for (const m of MSG.map.values()) {
     if (!m.at || m.at < since || lower(m.from) === ME.email) continue;
@@ -2323,6 +2326,7 @@ function goEvent(e) {
   closeDrawer();
   if (e.mod === "disis") { location.hash = "disis"; setTimeout(() => { if (e.ref && DT.jobs.some(j => j.id === e.ref)) openDisis(e.ref); }, 80); }
   else if (e.mod === "msg") openMsgs(e.ref || "all");
+  else if (e.mod === "web") { SP.view = "web"; location.hash = "siparis"; setTimeout(() => { renderSP(); if (e.ref) webOpen(e.ref); }, 120); }
   else { VIEW = "list"; location.hash = "proje"; setTimeout(() => { render(); if (e.ref) openDrawer(e.ref); }, 80); }
 }
 function relTime(ts) {
@@ -7237,7 +7241,8 @@ function renderSP() {
   const isT = SP.view === "teklif", add = $("#spAdd"); add.hidden = !(isT ? can("sp.teklif") : can("sp.edit")); add.textContent = isT ? "+ Teklif" : "+ Sipariş"; add.onclick = () => isT ? tkOpenForm(null) : spOpenForm(null);
   $("#spCfgBtn").hidden = !can("sp.cfg"); $("#spCfgBtn").onclick = spOpenCfg;
   const v = $("#spView");
-  document.querySelectorAll('#spTabs [data-sp="teklif"]').forEach(b => b.hidden = !can("sp.teklif"));
+  document.querySelectorAll('#spTabs [data-sp="teklif"]').forEach(b => b.hidden = !can("sp.teklif")); webTabRozet();
+  if (SP.view === "web") { add.hidden = true; if (!can("sp.teklif")) { SP.view = "liste"; renderSP(); return; } webListView(v); return; }
   if (isT) { tkListView(v); return; }
   if (!SP.ready) { v.innerHTML = '<div class="empty"><h3>Siparişler yükleniyor</h3><p>Veritabanına bağlanılıyor.</p></div>'; return; }
   if (!L.length) {
@@ -8198,7 +8203,7 @@ async function tkOpenForm(id, o = {}) {
     const yets = c ? (c.yetkililer || []).filter(y => y.ad) : [];
     $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
     <aside class="drawer${$("#drawerHost .drawer") ? " noanim" : ""}" role="dialog" aria-modal="true" aria-labelledby="tfT" style="width:min(1100px,100%)">
-      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : o.spKaynak ? `Siparişten teklif <small class="note">(${esc(src.no)} siparişinden)</small>` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button type="button" class="x dminb" data-dmin title="Aşağı indir: form kaybolmaz, başka ekranlara geçip geri dönebilirsiniz" aria-label="Formu aşağı indir">–</button><button class="x" id="tfX" aria-label="Kapat">×</button></div>
+      <div class="dh"><h2 id="tfT">${cur ? `<span class="num skk">${esc(cur.no)}</span> ${rev ? `revizyon · ${tkRevAd((cur.rev || 1) + 1)}` : "teklifi düzenle"}` : o.webKaynak ? `Web talebinden teklif <small class="note">(${esc(src.no)})</small>` : o.spKaynak ? `Siparişten teklif <small class="note">(${esc(src.no)} siparişinden)</small>` : src ? `Kopya teklif <small class="note">(${esc(src.no)} kaynaklı)</small>` : "Yeni teklif"}</h2><button type="button" class="x dminb" data-dmin title="Aşağı indir: form kaybolmaz, başka ekranlara geçip geri dönebilirsiniz" aria-label="Formu aşağı indir">–</button><button class="x" id="tfX" aria-label="Kapat">×</button></div>
       <div class="db">
         <section><h3 class="sec-t">Müşteri</h3><div class="fgrid">
           <div class="field full"><label for="tCari">Müşteri *</label><div style="display:flex;gap:6px"><select id="tCari" style="flex:1"><option value="">Seçin</option>${CR.list.filter(x => x.musteri && x.aktif !== false).sort((a, b) => crAd(a).localeCompare(crAd(b), "tr")).map(x => opt(x.id, crSecAd(x) + (x.il ? " · " + x.il : ""), cid)).join("")}</select>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="tNewC">+ Yeni müşteri</button>' : ""}</div>${c ? `<span class="note">${esc([c.vergiNo && "VKN " + c.vergiNo, c.iskonto ? "müşteri iskontosu %" + c.iskonto : "müşteri iskontosu tanımlı değil", c.vade ? c.vade + " gün vade" : ""].filter(Boolean).join(" · "))}</span>` : ""}</div>
@@ -11008,4 +11013,132 @@ function plAlSatView(v) {
     ${plGrupHtml(L, F, sat, "<span>SİPARİŞ</span><span>ÜRÜN</span><span>MİKTAR</span><span>DURUM</span><span>TERMİN</span>") || '<div class="empty"><h3>Al-sat ürün yok</h3><p>Siparişlerde stok kodu AS- ile başlayan ürün bulunamadı. Kapsamı genişletmeyi deneyin.</p></div>'}`;
   plGrupBind(v, F, () => plAlSatView(v), L);
   v.querySelectorAll("[data-pxsp]").forEach(r => { const f = () => { if (lvl("siparis") === "none") return; spOpen(r.dataset.pxsp); }; r.onclick = f; r.onkeydown = e => { if (e.key === "Enter") f(); }; });
+}
+
+/* ================= WEB SİTESİ TEKLİF İSTEKLERİ =================
+   Sitedeki "Teklif iste" formu (docs/web-teklif) ürün listesini web_katalog/v1 belgesinden okur; gönderilen istek sunucu
+   fonksiyonu (webTeklif) ile web_talep koleksiyonuna yazılır. Burada listelenir, tek tuşla teklife dönüştürülür. */
+const WEB = { list: [], ready: false, F: { dur: "acik", q: "" } };
+const WEB_DUR = { yeni: ["Yeni", "var(--k-izinsiz)"], incelendi: ["İnceleniyor", "var(--k-gec)"], teklif: ["Teklif verildi", "var(--k-fabrikada)"], kapali: ["Kapatıldı", "var(--ink-3)"] };
+function startWeb() {
+  WEB.ready = false;
+  dataUnsubs.push(onSnapshot(query(collection(fs, "web_talep"), orderBy("at", "desc"), limit(200)), s => { WEB.list = s.docs.map(d => ({ id: d.id, ...d.data() })); WEB.ready = true; spChanged(); notifRefresh(); },
+    () => { WEB.ready = true; }));
+}
+const webYeni = () => WEB.list.filter(w => w.durum === "yeni").length;
+function webTabRozet() { const b = document.querySelector('#spTabs [data-sp="web"]'); if (!b) return; b.hidden = !can("sp.teklif"); const n = webYeni(); b.innerHTML = "Web talepleri" + (n ? ` <span class="cnt">${n}</span>` : ""); }
+function webListView(v) {
+  const F = WEB.F, q = araFold(F.q);
+  $("#spKpis").innerHTML = [["Yeni istek", webYeni(), "Henüz bakılmamış", webYeni() ? "bad" : "ok"], ["İnceleniyor", WEB.list.filter(w => w.durum === "incelendi").length, "Teklif bekleyen", ""],
+    ["Bu ay gelen", WEB.list.filter(w => dayOf(w.at).slice(0, 7) === TODAY.slice(0, 7)).length, "Web sitesinden", ""], ["Teklife dönen", WEB.list.filter(w => w.durum === "teklif").length, "Son 200 istek içinde", ""]]
+    .map(([k, x, s, cl]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${cl}">${esc(x)}</div><div class="s">${esc(s)}</div></div>`).join("");
+  if (!WEB.ready) { v.innerHTML = '<div class="empty"><h3>Web talepleri yükleniyor</h3></div>'; return; }
+  const L = WEB.list.filter(w => (F.dur === "tum" || (F.dur === "acik" ? ["yeni", "incelendi"].includes(w.durum) : w.durum === F.dur)) && (!q || araFold([w.no, w.kisi && w.kisi.firma, w.kisi && w.kisi.ad, w.kisi && w.kisi.tel, w.kisi && w.kisi.proje, w.not, ...(w.kalemler || []).map(k => k.kod + " " + k.ad)].join(" ")).includes(q)));
+  v.innerHTML = `<div class="pkbar"><div class="filters"><select class="f" id="wbD" aria-label="Durum">${[["acik", "Açık istekler"], ["yeni", "Yeni"], ["incelendi", "İnceleniyor"], ["teklif", "Teklif verildi"], ["kapali", "Kapatıldı"], ["tum", "Tümü"]].map(([k, l]) => opt(k, l, F.dur)).join("")}</select>
+      <input class="f" id="wbQ" type="search" placeholder="Firma, kişi, telefon, ürün ara…" value="${esc(F.q)}" aria-label="Ara"></div>
+      <div class="filters"><span class="sortinfo">${L.length} istek</span>${can("sp.cfg") ? '<button type="button" class="btn ghost sm" id="wbCfg">Web formu ayarları</button>' : ""}</div></div>
+    ${L.length ? `<div class="ledger wbled" role="table"><div class="lhead" role="row"><div>No</div><div>Tarih</div><div>Firma / kişi</div><div>Ürünler</div><div>Durum</div></div>
+      ${L.map(w => { const d = WEB_DUR[w.durum] || [w.durum, "var(--ink-3)"], K = w.kalemler || [];
+        return `<div class="row" role="row" tabindex="0" data-wb="${esc(w.id)}" style="--stripe:${w.durum === "yeni" ? "var(--k-izinsiz)" : "transparent"}"><div class="num skk">${esc(w.no)}</div><div class="num">${skTs(w.at)}</div>
+          <div class="ska"><b>${esc((w.kisi || {}).firma || "")}</b><div class="desc">${esc([(w.kisi || {}).ad, (w.kisi || {}).tel, (w.kisi || {}).il].filter(Boolean).join(" · "))}</div></div>
+          <div class="izs">${esc(K.slice(0, 2).map(k => k.ad).join(", "))}${K.length > 2 ? ` <span class="note">+${K.length - 2}</span>` : ""}<div class="note">${K.length} kalem · ${nf(K.reduce((a, k) => a + (Number(k.miktar) || 0), 0))} adet</div></div>
+          <div><span class="kst" style="--tc:${d[1]}">${esc(d[0])}</span>${w.teklifNo ? `<div class="note num">${esc(w.teklifNo)}</div>` : ""}</div></div>`; }).join("")}</div>`
+      : `<div class="empty"><h3>${WEB.list.length ? "Bu filtrede istek yok" : "Henüz web sitesinden teklif isteği gelmedi"}</h3><p>${WEB.list.length ? "Durum filtresini değiştirin." : "Web sitesindeki teklif formundan gelen istekler burada listelenir. Formu siteye eklemek için “Web formu ayarları”na bakın."}</p></div>`}`;
+  $("#wbD").onchange = e => { F.dur = e.target.value; webListView(v); };
+  const qi = $("#wbQ"); qi.oninput = () => { clearTimeout(qi._t); qi._t = setTimeout(() => { F.q = qi.value; webListView(v); const n = $("#wbQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 250); };
+  const cb = $("#wbCfg"); if (cb) cb.onclick = webCfg;
+  v.querySelectorAll("[data-wb]").forEach(r => { r.onclick = () => webOpen(r.dataset.wb); r.onkeydown = e => { if (e.key === "Enter") webOpen(r.dataset.wb); }; });
+}
+const webRenkAd = r => !r ? "" : /^(elektrostatik|yaş) boya$/i.test(r.yuzey || "") ? `RAL ${r.kod || "?"}` : r.yuzey;
+async function webDurum(w, durum, t, ek = {}) {
+  try { await updateDoc(doc(fs, "web_talep", w.id), { durum, ...ek, updatedAt: Date.now(), updatedBy: ME.name, log: [...(w.log || []), { at: Date.now(), by: ME.name, t }].slice(-40) }); }
+  catch (e) { toast(writeErr(e)); }
+}
+function webOpen(id) {
+  const w = WEB.list.find(x => x.id === id); if (!w) return;
+  if (w.durum === "yeni" && can("sp.teklif")) webDurum(w, "incelendi", "İstek açıldı");
+  const k = w.kisi || {}, d = WEB_DUR[w.durum === "yeni" ? "incelendi" : w.durum] || [w.durum, ""], tel = String(k.tel || "").replace(/\D/g, ""), wa = tel.length === 11 && tel[0] === "0" ? "9" + tel : tel.length === 10 ? "90" + tel : tel;
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="wbT" style="width:min(900px,100%)">
+    <div class="dh"><h2 id="wbT"><span class="num skk">${esc(w.no)}</span> Web teklif isteği</h2><button class="x" id="wbX" aria-label="Kapat">×</button></div>
+    <div class="db">
+      <section class="spsum" style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><b style="font-size:17px">${esc(k.firma || "")}</b><div class="note">${esc(k.ad || "")}${k.il ? " · " + esc(k.il) : ""}${k.proje ? " · Proje: " + esc(k.proje) : ""}</div><div class="note">${skTs(w.at)} · web sitesi</div></div>
+        <div><span class="kst" style="--tc:${d[1]}">${esc(d[0])}</span>${w.teklifNo ? ` <span class="num skk">${esc(w.teklifNo)}</span>` : ""}</div></section>
+      <section><h3 class="sec-t">İletişim</h3><div class="wbil">
+        ${k.tel ? `<a class="btn ghost sm" href="tel:${esc(tel)}">Ara · ${esc(k.tel)}</a><a class="btn ghost sm" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+        ${k.eposta ? `<a class="btn ghost sm" href="mailto:${esc(k.eposta)}">${esc(k.eposta)}</a>` : ""}</div></section>
+      ${w.not ? `<section><h3 class="sec-t">Müşteri notu</h3><p class="wbnot">${esc(w.not)}</p></section>` : ""}
+      <section><h3 class="sec-t">İstenen ürünler <small>${(w.kalemler || []).length} kalem</small></h3>
+        <div class="ledger wbkl"><div class="lhead"><div>Ürün</div><div>Renk / varyasyon</div><div>Miktar</div></div>
+        ${(w.kalemler || []).map(x => `<div class="row" style="cursor:default"><div class="ska">${x.kod ? `<span class="num skk">${esc(x.kod)}</span> ` : ""}<b>${esc(x.ad)}</b>${x.not ? `<div class="desc">Not: ${esc(x.not)}</div>` : ""}</div>
+          <div class="izs">${esc([webRenkAd(x.renk), spVarAd(x)].filter(Boolean).join(" · ") || "—")}</div><div class="num"><b>${nf(x.miktar)}</b> ${esc(x.birim || "Adet")}</div></div>`).join("")}</div></section>
+      ${(w.log || []).length ? `<section><h3 class="sec-t">Geçmiş</h3>${w.log.slice().reverse().map(l => `<div class="note">${skTs(l.at)} · ${esc(l.by)} · ${esc(l.t)}</div>`).join("")}</section>` : ""}
+    </div>
+    <div class="df">${can("sp.delete") ? '<button type="button" class="btn ghost dangerb" id="wbSil">Sil</button>' : "<span></span>"}<div class="r">
+      ${can("sp.teklif") && w.durum !== "kapali" && w.durum !== "teklif" ? '<button type="button" class="btn ghost" id="wbKap">Kapat (teklif verilmeyecek)</button>' : ""}
+      ${can("sp.teklif") && w.durum === "kapali" ? '<button type="button" class="btn ghost" id="wbAc">Yeniden aç</button>' : ""}
+      ${w.teklifId && TK.list.some(t => t.id === w.teklifId) ? '<button type="button" class="btn ghost" id="wbTk">Teklifi aç</button>' : ""}
+      ${can("sp.teklif") && w.durum !== "teklif" ? '<button type="button" class="btn" id="wbDon">Teklife dönüştür</button>' : ""}</div></div>
+  </aside>`;
+  const kap = () => closeDrawer(); $("#wbX").onclick = kap; $("#scrim").onclick = kap;
+  const b = id2 => $("#" + id2);
+  if (b("wbKap")) b("wbKap").onclick = async () => { await webDurum(w, "kapali", "Kapatıldı (teklif verilmeyecek)"); closeDrawer(); };
+  if (b("wbAc")) b("wbAc").onclick = async () => { await webDurum(w, "incelendi", "Yeniden açıldı"); closeDrawer(); };
+  if (b("wbTk")) b("wbTk").onclick = () => { closeDrawer(); setTimeout(() => tkOpen(w.teklifId), 80); };
+  if (b("wbSil")) { let arm = false; b("wbSil").onclick = async () => { if (!arm) { arm = true; b("wbSil").textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "web_talep", w.id)); toast(w.no + " silindi"); closeDrawer(); } catch (e) { toast(writeErr(e)); } }; }
+  if (b("wbDon")) b("wbDon").onclick = () => webTeklifeDonustur(w);
+}
+function webTeklifeDonustur(w) {
+  const k = w.kisi || {}, f = araFold(k.firma || "");
+  const c = f ? CR.list.find(x => x.musteri && [x.kisaAd, x.unvan].some(a => a && (araFold(a) === f || (f.length > 5 && (araFold(a).includes(f) || f.includes(araFold(a))))))) : null;
+  const R = new Map(); (w.kalemler || []).forEach(x => { if (x.renk) R.set(spRenkKey(webRenk(x.renk)), { r: webRenk(x.renk), n: ((R.get(spRenkKey(webRenk(x.renk))) || {}).n || 0) + 1 }); });
+  const renk = [...R.values()].sort((a, b) => b.n - a.n)[0];
+  const kay = { no: w.no, web: true, cariId: c ? c.id : "", cariAd: k.firma || "", yetkili: k.ad || "", tel: k.tel || "", eposta: k.eposta || "", adres: k.il || "", santiye: k.proje || "", pb: "USD", kur: "", odeme: "", not: w.not || "", renk: renk ? renk.r : null, iskonto: null, dil: "TR",
+    kalemler: (w.kalemler || []).map(x => ({ k: spNewK(), sid: x.sid || null, kod: x.kod || "", ad: x.ad, adEn: "", w: "", h: "", n: "", birim: x.birim || "Adet", miktar: Number(x.miktar) || 0, renk: webRenk(x.renk), var: x.var || {}, ozel: x.not || "", liste: null, isk: 0, kdv: 20 })) };
+  closeDrawer();
+  if (!c) toast(`“${k.firma}” müşteri listesinde bulunamadı; teklif formunda müşteriyi seçin ya da yeni cari ekleyin`);
+  setTimeout(() => tkOpenForm(null, { spKaynak: kay, webKaynak: true, onSaved: async (tkId, tkNo) => { const w2 = WEB.list.find(x => x.id === w.id) || w; await webDurum(w2, "teklif", `${tkNo} teklifi hazırlandı`, { teklifId: tkId, teklifNo: tkNo }); } }), 80);
+}
+const webRenk = r => !r || !r.yuzey ? null : /^(elektrostatik|yaş) boya$/i.test(r.yuzey) ? { kod: String(r.kod || "9016"), yuzey: "Elektrostatik boya", parlak: "Mat", doku: "Düz" } : { yuzey: r.yuzey, ...(r.kod ? { kod: r.kod } : {}) };
+// ---- Ayarlar: katalog yayınlama ve siteye ekleme kodu
+async function webCfg() {
+  if (!can("sp.cfg")) return;
+  let mevcut = null; try { const s = await getDoc(doc(fs, "web_katalog", "v1")); mevcut = s.exists() ? s.data() : null; } catch (e) { }
+  const secili = new Set((mevcut && mevcut.gruplar) || []);
+  const anaG = Object.entries(((SK.cfg || {}).kodlar || {}).M || {}).map(([k, a]) => ({ kod: "M-" + k, ad: (a && a.ad) || "M-" + k })).sort((a, b) => a.kod.localeCompare(b.kod));
+  const url = new URL("web-teklif/", location.href.split("#")[0]).href;
+  const kod = `<div id="karmen-teklif"><iframe src="${url}" title="Teklif iste" style="width:100%;border:0;min-height:900px" loading="lazy"></iframe></div>
+<script>addEventListener("message",function(e){if(e.data&&e.data.karmenTeklifH){var f=document.querySelector("#karmen-teklif iframe");if(f)f.style.height=(e.data.karmenTeklifH+20)+"px";}});<\/script>`;
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="wcT" style="width:min(720px,100%)">
+    <div class="dh"><h2 id="wcT">Web sitesi teklif formu</h2><button class="x" id="wcX" aria-label="Kapat">×</button></div>
+    <div class="db">
+      <section><h3 class="sec-t">1 · Ürün kataloğu</h3><p class="note" style="margin:0 0 8px">Sitedeki formda yalnızca yayınlanan ürünler görünür (stok kodu, adı, birimi; fiyat ve stok miktarı yayınlanmaz). Stokta yeni ürün açtığınızda ya da ad değiştirdiğinizde kataloğu yeniden yayınlayın.</p>
+        <div class="note" style="margin:0 0 8px">${mevcut ? `Son yayın: <b>${skTs(mevcut.at)}</b> · ${nf(mevcut.n || 0)} ürün · ${esc(mevcut.by || "")}` : "<b>Katalog henüz yayınlanmadı</b> — form ürün listesi olmadan açılmaz."}</div>
+        <label class="note" style="display:block;margin:6px 0 4px;font-weight:600">Formda gösterilecek ürün grupları <span style="font-weight:400">(hiçbiri seçilmezse tüm mamuller (M-) yayınlanır)</span></label>
+        <div class="wcg">${anaG.length ? anaG.map(g => `<label class="chk"><input type="checkbox" data-wg="${esc(g.kod)}"${secili.has(g.kod) ? " checked" : ""}> <span class="num">${esc(g.kod)}</span> ${esc(g.ad)}</label>`).join("") : '<p class="note">Stok kod sistemi okunamadı; tüm mamuller yayınlanır.</p>'}</div>
+        <div style="margin-top:10px"><button type="button" class="btn" id="wcYay">Kataloğu yayınla</button> <span class="note" id="wcDur"></span></div></section>
+      <section><h3 class="sec-t">2 · Siteye ekleme</h3><p class="note" style="margin:0 0 8px">WordPress'te teklif sayfasına bir <b>Özel HTML</b> bloğu ekleyip aşağıdaki kodu yapıştırın. Form, sayfanın yüksekliğine kendiliğinden uyar.</p>
+        <pre class="cfgpre" id="wcKod" style="white-space:pre-wrap;word-break:break-all">${esc(kod)}</pre>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn ghost sm" id="wcKop">Kodu kopyala</button><a class="btn ghost sm" href="${esc(url)}" target="_blank" rel="noopener">Formu yeni sekmede aç</a></div></section>
+      <section><h3 class="sec-t">3 · Gelen istekler</h3><p class="note" style="margin:0">Formdan gönderilen istekler <b>Sipariş takip → Web talepleri</b> sekmesine düşer; teklif yetkisi olanlara zil bildirimi gider. “Teklife dönüştür” ile ürünler, renk ve varyasyonlarıyla teklif formuna aktarılır. Kötüye kullanıma karşı aynı bağlantıdan saatte en fazla 5 istek kabul edilir.</p></section>
+    </div>
+    <div class="df"><span></span><div class="r"><button type="button" class="btn ghost" id="wcK2">Kapat</button></div></div></aside>`;
+  const kap = () => closeDrawer(); $("#wcX").onclick = kap; $("#wcK2").onclick = kap; $("#scrim").onclick = kap;
+  $("#wcKop").onclick = () => kopyala(kod);
+  $("#wcYay").onclick = async () => {
+    const b = $("#wcYay"), d = $("#wcDur"), G = [...document.querySelectorAll("[data-wg]:checked")].map(x => x.dataset.wg);
+    b.disabled = true; d.textContent = "Stok kartları okunuyor…";
+    try {
+      const sn = await getDocs(query(collection(fs, "stok"), where("kod", ">=", "M-"), where("kod", "<=", "M-")));
+      const U = sn.docs.map(x => ({ id: x.id, ...x.data() })).filter(i => i.aktif !== false && i.kod && i.ad && (!G.length || G.some(g => i.kod.startsWith(g))))
+        .sort((a, b) => a.kod.localeCompare(b.kod)).map(i => [i.id, i.kod, String(i.ad).slice(0, 160), i.birim || "Adet"]);
+      const gruplar = (G.length ? G : [...new Set(U.map(u => u[1].slice(0, 4)))]).map(g => ({ kod: g, ad: (anaG.find(a => a.kod === g) || {}).ad || g })).filter(g => U.some(u => u[1].startsWith(g.kod)));
+      const json = JSON.stringify({ at: Date.now(), gruplar, u: U, varyasyon: SP.cfg.varyasyon || "", varHazir: SP_VAR_HAZIR, renkler: SP.cfg.sikRenkler || [] });
+      if (json.length > 950000) throw new Error(`Katalog çok büyük (${Math.round(json.length / 1024)} KB); daha az ürün grubu seçin`);
+      await setDoc(doc(fs, "web_katalog", "v1"), { json, at: Date.now(), by: ME.name, n: U.length, gruplar: G });
+      d.textContent = `${nf(U.length)} ürün yayınlandı`; toast("Web kataloğu yayınlandı");
+    } catch (e) { d.textContent = ""; toast(e && e.code ? writeErr(e) : (e.message || String(e))); }
+    b.disabled = false;
+  };
 }

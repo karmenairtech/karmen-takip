@@ -1,11 +1,12 @@
 rules_version = '2';
-// Kar-Men Proje Takip — Firestore güvenlik kuralları
-// Ekip listesi ve roller: config/access belgesi ({ members: { "eposta": { name, role } } })
-// Roller: admin (yönetici), member (üye), viewer (izleyici)
+// Kar-Men MRP-ERP — Firestore güvenlik kuralları
+// Ekip ve yetkiler: config/access belgesi
+//   members: { "eposta": { name, role: "admin" | "user", mods: { proje: "none|view|use|edit", ... }, acts: { "d.create": true, ... } } }
+// Eski kayıtlar (role: "member" / "viewer", mods yok) eskisi gibi çalışmaya devam eder.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function signedIn() { return request.auth != null && request.auth.token.email is string; }
     function myEmail() { return request.auth.token.email.lower(); }
     // Her zaman yönetici olan hesaplar (docs/config.js içindeki BOOT_ADMINS ile aynı olmalı)
     function isBoot() { return signedIn() && myEmail() in ['planlama.karmen@gmail.com']; }
@@ -13,32 +14,48 @@ service cloud.firestore {
     function me() { return get(accessPath()).data.members.get(myEmail(), null); }
     function hasEntry() { return signedIn() && exists(accessPath()) && me() != null; }
     function isAdmin() { return isBoot() || (hasEntry() && me().role == 'admin'); }
-    function isMember() { return isBoot() || (hasEntry() && me().role in ['admin', 'member', 'viewer']); }
-    function canWrite() { return isBoot() || (hasEntry() && me().role in ['admin', 'member']); }
+    function isMember() { return isBoot() || hasEntry(); }
+    function legacy() { return me().get('mods', null) == null; }
 
+    // Modülü görebilir mi (erişim yok dışındaki her seviye)
+    function canRead(m) {
+      return isAdmin() || (hasEntry() && (legacy() || me().mods.get(m, 'none') != 'none'));
+    }
+    // Modül içindeki bir işlemi yapabilir mi
+    function can(a) {
+      return isAdmin() || (hasEntry() && (
+        (legacy() && me().role == 'member' && a in ['p.progress.own', 'p.feedback', 'p.msg', 'd.create', 'd.inout', 'd.edit.own'])
+        || (!legacy() && me().get('acts', {}).get(a, false) == true)
+      ));
+    }
+    // Personel modülü (kişisel veri): eski tip kayıtlara açılmaz, yalnızca açıkça verilen yetkiyle
+    function canReadP() { return isAdmin() || (hasEntry() && !legacy() && me().mods.get('personel', 'none') != 'none'); }
+    function canP(a) { return isAdmin() || (hasEntry() && !legacy() && me().get('acts', {}).get(a, false) == true); }
+    function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // ---- Ekip ve yetkiler ----
     match /config/access {
       allow read: if isMember();
       allow create, update: if isAdmin() && request.resource.data.members is map;
       allow delete: if isBoot();
     }
 
+    // ---- Proje takip ----
     match /tasks/{taskId} {
-      allow read: if isMember();
-      allow create, delete: if isAdmin();
-      // Yönetici her alanı; üye yalnızca sorumlusu olduğu işin oranını değiştirir
-      allow update: if isAdmin() || (
-        canWrite()
-        && me().name in resource.data.owners
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress', 'updatedAt', 'updatedBy'])
+      allow read: if canRead('proje');
+      allow create, delete: if can('p.task');
+      allow update: if can('p.task') || (
+        (can('p.progress.all') || (can('p.progress.own') && me().name in resource.data.owners))
+        && onlyKeys(['progress', 'updatedAt', 'updatedBy'])
         && request.resource.data.progress is number
         && request.resource.data.progress >= 0 && request.resource.data.progress <= 100
       );
     }
 
     match /feedback/{fbId} {
-      allow read: if isMember();
+      allow read: if canRead('proje');
       allow create: if isAdmin() || (
-        canWrite()
+        can('p.feedback')
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.author == me().name
         && request.resource.data.taskId is string
@@ -46,7 +63,374 @@ service cloud.firestore {
         && request.resource.data.text.size() <= 4000
       );
       allow update: if false;
-      allow delete: if isAdmin() || (canWrite() && resource.data.uid == request.auth.uid);
+      allow delete: if can('p.task') || (can('p.feedback') && resource.data.uid == request.auth.uid);
+    }
+
+    // Mesajlar: "all" = tüm ekip kanalı; özel mesajı yalnızca gönderen ve alıcı okur
+    match /messages/{msgId} {
+      allow read: if isMember() && (resource.data.to == 'all' || myEmail() in resource.data.participants);
+      allow create: if can('p.msg')
+        && request.resource.data.from == myEmail()
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 2000
+        && (request.resource.data.text.size() > 0 || request.resource.data.att is map || request.resource.data.call is map)
+        && request.resource.data.at is number
+        && (
+          (request.resource.data.to == 'all' && request.resource.data.participants.size() == 0)
+          || (
+            request.resource.data.to != myEmail()
+            && request.resource.data.participants.size() == 2
+            && myEmail() in request.resource.data.participants
+            && request.resource.data.to in request.resource.data.participants
+            && (request.resource.data.to in ['planlama.karmen@gmail.com']
+                || get(accessPath()).data.members.get(request.resource.data.to, null) != null)
+          )
+        );
+      allow update: if false;
+      allow delete: if isMember() && (resource.data.from == myEmail() || (isAdmin() && resource.data.to == 'all'));
+    }
+
+    // Mesaj ekleri (fotoğraf, doküman, ses kaydı): mesajla aynı kişiler okur, belge başına 1 MB sınırı
+    match /msg_files/{fileId} {
+      allow read: if isMember() && (resource.data.to == 'all' || myEmail() in resource.data.participants);
+      allow create: if can('p.msg')
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.from == myEmail()
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 1000000
+        && (request.resource.data.to == 'all' || myEmail() in request.resource.data.participants);
+      allow update: if false;
+      allow delete: if resource.data.uid == request.auth.uid || isAdmin();
+    }
+
+    // Birebir aramalar: yalnızca arayan ve aranan görür; bağlantı bilgileri ice alt koleksiyonunda
+    match /calls/{callId} {
+      allow read: if isMember() && (resource.data.to == myEmail() || resource.data.from == myEmail());
+      allow create: if can('p.msg')
+        && request.resource.data.from == myEmail()
+        && request.resource.data.to is string && request.resource.data.to != myEmail()
+        && request.resource.data.participants == [myEmail(), request.resource.data.to]
+        && request.resource.data.status == 'ringing'
+        && (request.resource.data.to in ['planlama.karmen@gmail.com']
+            || get(accessPath()).data.members.get(request.resource.data.to, null) != null);
+      allow update: if isMember()
+        && (resource.data.to == myEmail() || resource.data.from == myEmail())
+        && request.resource.data.from == resource.data.from
+        && request.resource.data.to == resource.data.to
+        && request.resource.data.participants == resource.data.participants;
+      allow delete: if false;
+      match /ice/{iceId} {
+        allow read, create: if isMember() && myEmail() in get(/databases/$(database)/documents/calls/$(callId)).data.participants;
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- Dış iş takip ----
+    match /config/disis {
+      allow read: if canRead('disis');
+      allow write: if can('d.cfg');
+    }
+
+    match /disis/{jobId} {
+      allow read: if canRead('disis');
+      allow create: if can('d.create')
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.personel is string
+        && request.resource.data.tanim is string && request.resource.data.tanim.size() <= 2000;
+      // Not: aynı araçla 1 dakika içinde çıkışı yapılan işler tek çıkışta birleşir (arac, mergedFrom/mergedInto ve görev alanları)
+      allow update: if request.resource.data.no == resource.data.no
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        && (
+          can('d.edit.all')
+          || (can('d.edit.own') && resource.data.createdByUid == request.auth.uid)
+          // çıkış/giriş ve görev bitirme: yetkisi olan ya da işin kendi personeli
+          || ((can('d.inout') || (hasEntry() && resource.data.personel == me().name))
+              && onlyKeys(['cikis', 'cikisBy', 'giris', 'girisBy', 'gorevler', 'arac', 'files', 'tur', 'tanim', 'yer', 'masraf', 'oncelik', 'mergedFrom', 'mergedInto', 'updatedAt', 'updatedBy', 'log']))
+          || (can('d.cancel') && onlyKeys(['iptal', 'updatedAt', 'updatedBy', 'log']))
+        );
+      allow delete: if can('d.delete');
+    }
+
+    // Dış iş ekleri (fotoğraf / PDF, belge başına 1 MB sınırı)
+    match /disis_files/{fileId} {
+      allow read: if canRead('disis');
+      allow create: if (can('d.create') || can('d.edit.own') || can('d.edit.all'))
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 1000000;
+      allow update: if false;
+      allow delete: if can('d.delete') || can('d.edit.all')
+        || ((can('d.create') || can('d.edit.own')) && resource.data.uid == request.auth.uid);
+    }
+
+    // ---- Stok ----
+    match /stok/{sid} {
+      allow read: if canRead('stok');
+      allow read: if canRead('satinalma');
+      allow read: if canRead('siparis') || canRead('sevkiyat');
+      allow create: if (can('s.edit') || can('sa.fatura') || canP('sp.edit') || canP('sp.teklif')) && request.resource.data.kod is string && request.resource.data.kod.size() > 0
+        && request.resource.data.ad is string && request.resource.data.ad.size() > 0;
+      // kart düzenleme ya da yalnızca miktar güncellemesi (giriş / çıkış / sayım hareketiyle birlikte)
+      allow update: if can('s.edit')
+        || ((can('s.move') || can('s.count') || can('sa.kabul') || can('sa.fatura') || canP('sp.sevk') || canP('sv.sevk')) && onlyKeys(['miktar', 'seviye', 'sonHareket', 'updatedAt', 'updatedBy']));
+      allow delete: if can('s.delete');
+    }
+    // Alış fiyatı ve fiyat arşivi: yalnızca fiyat yetkisi olanlar görür
+    match /stok_fiyat/{sid} {
+      allow read: if can('s.price') || can('sa.talep') || can('sa.siparis') || can('sa.fatura');
+      allow write: if can('s.price') || can('sa.siparis') || can('sa.kabul') || can('sa.fatura');
+    }
+    match /stok_hareket/{hid} {
+      allow read: if canRead('stok');
+      allow read: if canRead('satinalma');
+      allow create: if (can('s.move') || can('s.count') || can('s.edit') || can('sa.kabul') || can('sa.fatura') || canP('sp.sevk') || canP('sv.sevk'))
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.sid is string && request.resource.data.miktar is number;
+      allow update: if false;
+      allow delete: if can('s.delete');
+    }
+    match /stok_foto/{sid} {
+      allow read: if canRead('stok') || canP('sp.teklif');
+      allow create, update: if can('s.edit') && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
+      allow delete: if can('s.edit');
+    }
+    match /config/stok {
+      allow read: if canRead('stok') || canRead('satinalma') || canRead('siparis');
+      allow write: if can('s.cfg');
+      // sipariş/teklif girişinde serbest kalemden yeni ürün grubu tanımlanabilir (yalnızca kod sistemi)
+      allow update: if (canP('sp.edit') || canP('sp.teklif')) && onlyKeys(['kodlar']);
+    }
+
+    // ---- Cari (müşteri / tedarikçi) ----
+    match /cari/{cid} {
+      allow read: if canRead('cari') || canRead('satinalma') || canRead('siparis') || canRead('sevkiyat') || canRead('muhasebe');
+      allow create, update: if (can('c.edit') || can('c.puan') || can('sa.siparis') || can('sa.fatura'))
+        && request.resource.data.unvan is string && request.resource.data.unvan.size() > 0 && request.resource.data.unvan.size() <= 160;
+      allow delete: if can('c.delete');
+    }
+    // e-Fatura eşleşme hafızası: tedarikçi ürün kodu → stok kartı
+    match /cari_eslesme/{cid} {
+      allow read: if canRead('satinalma');
+      allow write: if can('sa.fatura') || (can('sa.delete') && request.resource == null);
+    }
+
+    // ---- Satınalma ----
+    function saCfg() { return get(/databases/$(database)/documents/config/satinalma).data; }
+    // Onaycı: yönetici ya da ayarlardaki onay listelerinden birinde
+    function saOnayci() {
+      return isAdmin() || (hasEntry() && exists(/databases/$(database)/documents/config/satinalma)
+        && (myEmail() in saCfg().get('onayKucuk', []) || myEmail() in saCfg().get('onayBuyuk', [])));
+    }
+    match /sa_talep/{id} {
+      allow read: if canRead('satinalma');
+      allow create: if can('sa.talep') && request.resource.data.no is string && request.resource.data.kalemler is list;
+      allow update: if can('sa.talep') || can('sa.siparis') || saOnayci();
+      allow delete: if can('sa.delete');
+    }
+    match /sa_teklif/{id} {
+      allow read: if canRead('satinalma');
+      allow create, update: if can('sa.siparis') && request.resource.data.no is string;
+      allow delete: if can('sa.delete');
+    }
+    match /sa_siparis/{id} {
+      allow read: if canRead('satinalma');
+      allow create: if can('sa.siparis') && request.resource.data.no is string && request.resource.data.kalemler is list;
+      allow update: if request.resource.data.no == resource.data.no && (can('sa.siparis') || saOnayci()
+        || (can('sa.kabul') && onlyKeys(['kalemler', 'kabuller', 'iadeler', 'durum', 'updatedAt', 'updatedBy', 'log']))
+        || (can('sa.fatura') && onlyKeys(['faturalar', 'updatedAt', 'updatedBy', 'log'])));
+      allow delete: if can('sa.delete');
+    }
+    match /sa_fatura/{id} {
+      allow read: if canRead('satinalma');
+      allow create: if can('sa.fatura') && request.resource.data.no is string;
+      allow update: if can('sa.fatura');
+      allow delete: if can('sa.delete');
+    }
+    match /config/satinalma {
+      allow read: if canRead('satinalma') || canRead('siparis') || canRead('sevkiyat');
+      allow write: if can('sa.cfg');
+    }
+
+    // ---- Planlama ----
+    match /istasyon/{iid} {
+      allow read: if canRead('planlama');
+      allow create, update: if can('pl.ist') && request.resource.data.kod is string && request.resource.data.ad is string;
+      allow delete: if can('pl.ist');
+    }
+    match /akis/{aid} {
+      allow read: if canRead('planlama');
+      allow create, update: if can('pl.akis') && request.resource.data.kod is string && request.resource.data.adimlar is list;
+      allow delete: if can('pl.akis');
+    }
+    match /isemri/{eid} {
+      allow read: if canRead('planlama');
+      allow create: if can('pl.ie') && request.resource.data.no is string && request.resource.data.ops is list;
+      // iş emri düzenleme ya da üretimde yalnızca operasyon ilerlemesi
+      allow update: if request.resource.data.no == resource.data.no && (can('pl.ie')
+        || (can('pl.op') && onlyKeys(['ops', 'durum', 'bitis', 'basladi', 'updatedAt', 'updatedBy', 'log']))
+        || (canP('pl.miktar') && onlyKeys(['miktar', 'spKalem', 'ops', 'durum', 'bitis', 'updatedAt', 'updatedBy', 'log']))
+        || (canP('sp.edit') && onlyKeys(['miktar', 'spKalem', 'ops', 'durum', 'bitis', 'renk', 'renkAd', 'urunAd', 'varyasyon', 'not', 'updatedAt', 'updatedBy', 'log']))
+        || (canP('s.edit') && onlyKeys(['urunAd', 'updatedAt', 'updatedBy'])));
+      allow delete: if can('pl.delete');
+    }
+    match /config/planlama {
+      allow read: if canRead('planlama');
+      allow write: if can('pl.ist');
+    }
+
+    // ---- Personel takip ----
+    // Genel bilgiler (ad, departman, iş tanımı, işe giriş, izin hakkı)
+    match /personel/{pid} {
+      allow read: if canReadP();
+      allow create, update: if canP('k.list') && request.resource.data.ad is string
+        && request.resource.data.ad.size() > 0 && request.resource.data.ad.size() <= 80;
+      allow delete: if canP('k.list');
+    }
+    // Kişisel bilgiler (TC kimlik, adres, telefon, acil durum kişisi): yalnızca kişisel bilgi yetkisi olanlar
+    match /personel_ozel/{pid} {
+      allow read: if canP('k.ozel');
+      allow write: if canP('k.ozel') && canP('k.list');
+    }
+    // Günlük yoklama: gün başına bir belge (yoklama/YYYY-AA-GG), içinde kişi başına durum
+    match /yoklama/{day} {
+      allow read: if canReadP();
+      allow create, update: if canP('k.yoklama') && request.resource.data.ay is string && request.resource.data.k is map;
+      allow delete: if false;
+    }
+    match /izinler/{iid} {
+      allow read: if canReadP();
+      allow create, update: if canP('k.izin') && request.resource.data.pid is string
+        && request.resource.data.bas is string && request.resource.data.bit is string && request.resource.data.bit >= request.resource.data.bas;
+      allow delete: if canP('k.izin');
+    }
+    match /config/personel {
+      allow read: if canReadP();
+      allow write: if canP('k.list');
+    }
+
+    // ---- CV arşivi (aday kişisel verileri: eski tip kayıtlara açılmaz, yalnızca açıkça verilen yetkiyle) ----
+    // ---- Sipariş takip ----
+    match /siparis/{id} {
+      allow read: if canRead('siparis') || canRead('planlama') || canRead('sevkiyat') || canRead('muhasebe');
+      allow create: if canP('sp.edit') && request.resource.data.no is string && request.resource.data.cariId is string && request.resource.data.kalemler is list;
+      allow update: if request.resource.data.no == resource.data.no && (
+        (canP('sp.edit') && request.resource.data.kalemler is list)
+        || ((canP('sp.sevk') || canP('sv.sevk') || canP('sv.duzelt') || canP('mh.sevk') || canP('pl.miktar') || can('pl.ie')) && onlyKeys(['kalemler', 'sevkiyatlar', 'updatedAt', 'updatedBy', 'log'])));
+      allow delete: if canP('sp.delete');
+    }
+    // satış fiyatları ayrı belgede: yalnızca fiyat yetkisi olanlar okur
+    match /siparis_fiyat/{id} {
+      allow read, write: if canP('sp.fiyat');
+      allow read: if canP('mh.fiyat');
+      allow create: if canP('sp.teklif');
+      allow delete: if canP('sp.delete');
+    }
+    // ---- Muhasebe: sevk edilen ürünlerde "fatura kesildi" kaydı ----
+    match /muhasebe_fatura/{id} {
+      allow read: if canRead('muhasebe');
+      allow write: if canP('mh.fatura');
+    }
+    match /sp_dosya/{id} {
+      allow read: if canRead('siparis') || canRead('planlama');   // MES tabletleri sipariş eklerini (görsel/PDF) görebilsin
+      allow create: if canP('sp.edit') && request.resource.data.d is string && request.resource.data.d.size() <= 950000;
+      allow update: if false;
+      allow delete: if canP('sp.edit') || canP('sp.delete');
+    }
+    // teklifler (satış fiyatları dahil) ve satış liste fiyatları
+    // Web sitesi teklif formu: katalog herkese açık okunur (yalnızca tek belge), talepler sunucu fonksiyonuyla yazılır
+    match /web_katalog/{id} {
+      allow get: if true;
+      allow write: if isAdmin() || canP('sp.cfg');
+    }
+    match /web_talep/{id} {
+      allow read: if canP('sp.teklif');
+      allow update: if canP('sp.teklif') && onlyKeys(['durum', 'teklifId', 'teklifNo', 'updatedAt', 'updatedBy', 'log', 'icNot']);
+      allow delete: if canP('sp.delete');
+    }
+    match /teklif/{id} {
+      allow read: if canP('sp.teklif');
+      allow create, update: if canP('sp.teklif') && request.resource.data.no is string && request.resource.data.kalemler is list;
+      allow update: if canP('sp.edit') && onlyKeys(['durum', 'siparisId', 'siparisNo', 'updatedAt', 'updatedBy', 'log']);
+      allow delete: if canP('sp.delete');
+    }
+    match /satis_fiyat/{sid} {
+      allow read: if canP('sp.teklif') || canP('sp.fiyat') || can('s.price');
+      allow write: if canP('sp.fiyat') || can('s.price');
+    }
+    // MES cihazları ve planlama menü yetkileri
+    // belge numarası sayaçları (sipariş, iş emri, teklif, satınalma): yalnızca ileri sayar
+    match /sayac/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && request.resource.data.n is number && request.resource.data.keys().hasOnly(['n', 'at']);
+      allow update: if isMember() && request.resource.data.n is number && request.resource.data.n > resource.data.n && request.resource.data.keys().hasOnly(['n', 'at']);
+      allow delete: if isAdmin();
+    }
+    // işlem kayıtları (log): herkes yalnızca kendi adına ekler, yalnızca yönetici okur; değiştirilemez
+    match /islem_log/{id} {
+      allow read: if isAdmin();
+      allow get: if signedIn() && id.matches(request.auth.uid + '_.*');
+      allow create, update: if signedIn() && request.resource.data.uid == request.auth.uid && request.resource.data.L is list && id.matches(request.auth.uid + '_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-5]');
+      allow delete: if isAdmin();
+    }
+    // kullanım takibi: herkes yalnızca kendi günlük belgesini yazar, yalnızca yönetici okur
+    match /kullanim/{id} {
+      allow read: if isAdmin();
+      allow get: if signedIn() && id.matches(request.auth.uid + '_.*');
+      allow create, update: if signedIn() && request.resource.data.uid == request.auth.uid && id.matches(request.auth.uid + '_[0-9]{4}-[0-9]{2}-[0-9]{2}');
+      allow delete: if isAdmin();
+    }
+    // yedekleme ayarı ve son yedek bilgisi
+    match /config/yedek {
+      allow read, write: if isAdmin();
+    }
+    match /config/mes {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+    // fabrika panosu (TV): günün yemek menüsü
+    // ---- Ürün tanıtım (eğitim kataloğu): varsayılan olarak tüm ekip görür ----
+    function canReadU() { return isAdmin() || (hasEntry() && (legacy() || me().mods.get('urun', 'view') != 'none')); }
+    match /urun_tanitim/{id} {
+      allow read: if canReadU();
+      allow write: if can('ut.edit');
+    }
+    match /urun_foto/{id} {
+      allow read: if canReadU();
+      allow write: if can('ut.edit');
+    }
+    match /urun_egitim/{em} {
+      allow read: if signedIn() && (myEmail() == em || isAdmin() || can('ut.takip') || can('ut.edit'));
+      allow write: if signedIn() && myEmail() == em && canReadU();
+    }
+    match /config/pano {
+      allow read: if isMember();
+      allow write: if isAdmin() || can('k.list') || canP('pano.menu');
+    }
+    match /config/siparis {
+      allow read: if canRead('siparis') || canRead('planlama') || canRead('sevkiyat');
+      allow write: if canP('sp.cfg');
+    }
+
+    function canReadCV() { return isAdmin() || (hasEntry() && !legacy() && me().mods.get('cv', 'none') != 'none'); }
+    match /cv/{id} {
+      allow read: if canReadCV();
+      allow create: if canP('cv.edit') && request.resource.data.ad is string && request.resource.data.ad.size() > 0 && request.resource.data.ad.size() <= 80
+        && request.resource.data.tur in ['mavi', 'beyaz'];
+      allow update: if (canP('cv.edit') && request.resource.data.ad is string && request.resource.data.tur in ['mavi', 'beyaz'])
+        || (canP('cv.gorusme') && onlyKeys(['gorusmeler', 'durum', 'karar', 'updatedAt', 'updatedBy', 'log']))
+        || (canP('k.list') && onlyKeys(['personelId', 'updatedAt', 'updatedBy', 'log']));
+      allow delete: if canP('cv.delete');
+    }
+    // CV dosyası: 900 KB'lık parçalar (cvId_0, cvId_1 …)
+    match /cv_dosya/{id} {
+      allow read: if canReadCV();
+      allow create, update: if canP('cv.edit') && request.resource.data.cvId is string && request.resource.data.d is string && request.resource.data.d.size() <= 950000;
+      allow delete: if canP('cv.edit') || canP('cv.delete');
+    }
+
+    // Her kişinin hangi sohbeti en son nereye kadar okuduğu (yalnızca kendisi)
+    match /reads/{uid} {
+      allow read, write: if isMember() && request.auth.uid == uid;
     }
   }
 }

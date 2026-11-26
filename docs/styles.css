@@ -1790,3 +1790,10 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 .pxnot{border-left:3px solid var(--k-gec);padding-left:6px;margin-top:2px}
 .pxrr small.note{display:block;font-size:11.5px}
 @media (max-width:800px){.pxh{grid-template-columns:18px 1fr auto}.pxh .pxs{grid-column:2/-1;order:3}.pxr{padding-left:14px}.pxrh{display:none}.pxrr{grid-template-columns:1fr auto}.pxrr>span:nth-child(1),.pxrr>span:nth-child(5){display:none}}
+
+/* v96 — web teklif istekleri */
+.wbled .lhead,.wbled .row{grid-template-columns:120px 130px minmax(0,1.2fr) minmax(0,1.4fr) 150px}
+.wbkl .lhead,.wbkl .row{grid-template-columns:minmax(0,1.6fr) minmax(0,1.2fr) 120px}
+.wbil{display:flex;gap:8px;flex-wrap:wrap}.wbnot{white-space:pre-wrap;margin:0;padding:10px 12px;border-left:3px solid var(--k-gec);background:color-mix(in srgb,var(--k-gec) 8%,var(--surface));border-radius:6px}
+.wcg{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;max-height:260px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:10px}
+@media (max-width:800px){.wbled .lhead{display:none}.wbled .row{grid-template-columns:1fr auto}.wbled .row>div:nth-child(2),.wbled .row>div:nth-child(4){display:none}.wbkl .row{grid-template-columns:1fr auto}.wbkl .row>div:nth-child(2){grid-column:1/-1;order:3}}
