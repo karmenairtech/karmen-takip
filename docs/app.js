@@ -9,7 +9,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, arrayUnion, orderBy, limit, getCountFromServer, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE } from "./config.js";
+import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE, VAPID_KEY } from "./config.js";
 // Kullanım takibi için kullanıcının yaptığı kayıtlar sayılır (veri yazma işlevleri aynen çalışır)
 let KUL_KAYIT = 0;
 const kulSay = r => { const p = String((r && (r.path || r.c)) || ""); if (!/^(reads|kullanim)\b/.test(p)) KUL_KAYIT++; };   // okundu işaretleri sayılmaz
@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "97";
+const APP_V = "98";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -246,7 +246,9 @@ function enter(user) {
 let dataUnsubs = [];
 function stopDataSubs() { dataUnsubs.forEach(u => { try { u(); } catch (e) {} }); dataUnsubs = []; }
 function startData() {
-  kulBasla(); logBasla(); setTimeout(panoKurGetir, 1500); setInterval(panoKurGetir, 30 * 60000); { const rb = $("#rpBtn"); if (rb) rb.hidden = !isAdmin(); }
+  kulBasla(); logBasla(); pushBasla();
+  // kapalıyken gelen bildirime tıklanıp açıldıysa ilgili kaydı aç
+  { const ac = new URLSearchParams(location.search).get("ac"); if (ac) { history.replaceState(null, "", location.pathname + location.hash); const i = ac.indexOf(":"); setTimeout(() => goEvent({ mod: ac.slice(0, i), ref: ac.slice(i + 1) }), 2500); } } setTimeout(panoKurGetir, 1500); setInterval(panoKurGetir, 30 * 60000); { const rb = $("#rpBtn"); if (rb) rb.hidden = !isAdmin(); }
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
@@ -298,6 +300,7 @@ $("#outBtn").onclick = async () => {
     });
     if (!ok) return;
   }
+  await pushKapat(true).catch(() => {});
   signOut(auth);
 };
 
@@ -2342,6 +2345,50 @@ function paintNotifList() {
     : '<div class="empty" style="margin:0"><h3>Bildirim yok</h3><p>Son 7 gündeki size ait hareketler burada görünür.</p></div>';
   box.querySelectorAll("[data-ni]").forEach(b => b.onclick = () => goEvent(L[Number(b.dataset.ni)]));
 }
+/* ---- Anlık bildirim (FCM web push): uygulama kapalıyken de telefona / bilgisayara bildirim ---- */
+const PUSH = { tok: null, yuk: false, hata: "" };
+const pushDestek = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && !!VAPID_KEY;
+const iosTarayici = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !(matchMedia("(display-mode: standalone)").matches || navigator.standalone);
+const pushYerel = () => { try { return localStorage.getItem("karmen.push") || ""; } catch (e) { return ""; } };
+async function pushMsg() { const m = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js"); if (!(await m.isSupported())) throw new Error("Bu tarayıcı anlık bildirimi desteklemiyor"); return m; }
+async function pushAc(sessiz) {
+  if (!pushDestek() || !ME) return false;
+  if (Notification.permission !== "granted") { if (sessiz) return false; const p = await Notification.requestPermission(); if (p !== "granted") throw new Error("Bildirim izni verilmedi"); }
+  const m = await pushMsg(), reg = await navigator.serviceWorker.ready;
+  const tok = await m.getToken(m.getMessaging(fb), { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+  if (!tok) throw new Error("Cihaz anahtarı alınamadı");
+  const cihaz = /android/i.test(navigator.userAgent) ? "Android" : /iphone|ipad/i.test(navigator.userAgent) ? "iPhone / iPad" : /windows/i.test(navigator.userAgent) ? "Windows" : /mac os/i.test(navigator.userAgent) ? "Mac" : "Diğer";
+  await _setDoc(doc(fs, "push_token", tok), { uid: ME.uid, email: ME.email, ad: ME.name || "", cihaz, ua: navigator.userAgent.slice(0, 160), at: Date.now() });
+  const eski = pushYerel(); if (eski && eski !== tok) _deleteDoc(doc(fs, "push_token", eski)).catch(() => {});
+  try { localStorage.setItem("karmen.push", tok); } catch (e) {}
+  PUSH.tok = tok; return true;
+}
+async function pushKapat(cikis) {
+  const tok = pushYerel(); if (!tok) return;
+  try { await _deleteDoc(doc(fs, "push_token", tok)); } catch (e) {}
+  if (!cikis) try { const m = await pushMsg(); await m.deleteToken(m.getMessaging(fb)); } catch (e) {}
+  try { localStorage.removeItem("karmen.push"); } catch (e) {}
+  PUSH.tok = null;
+}
+// girişte: izin verilmiş ve bu cihaz daha önce açılmışsa anahtarı tazele (anahtar değişirse güncellenir)
+function pushBasla() { if (pushDestek() && pushYerel() && Notification.permission === "granted") pushAc(true).catch(e => console.warn("push", e && e.message)); }
+function pushKutu() {
+  if (!VAPID_KEY) return "<div>Anlık bildirim henüz yapılandırılmadı.</div>";
+  if (iosTarayici()) return "<div><b>iPhone / iPad:</b> anlık bildirim için önce Safari'de Paylaş → <b>Ana Ekrana Ekle</b> yapın, uygulamayı ana ekrandaki simgeden açıp buradan bildirimi açın.</div>";
+  if (!pushDestek()) return "<div>Bu tarayıcı anlık bildirimi desteklemiyor. Chrome, Edge ya da Safari'nin güncel sürümünü kullanın.</div>";
+  const acik = !!pushYerel() && Notification.permission === "granted";
+  if (Notification.permission === "denied") return "<div>Bu cihazda bildirimler <b>engellenmiş</b>. Tarayıcının adres çubuğundaki kilit simgesinden bu site için bildirim iznini açıp sayfayı yenileyin.</div>";
+  return `<div><b>Anlık bildirim</b> · bu cihaz: ${acik ? '<b style="color:var(--k-fabrikada)">açık</b>' : "<b>kapalı</b>"}</div>
+    <p class="note" style="margin:4px 0 8px">${acik ? "Uygulama kapalıyken de bu cihaza bildirim gelir: mesaj, gelen arama, dış iş, geri bildirim, web teklif isteği. Hangi türlerin geleceğini yukarıdaki anahtarlardan seçebilirsiniz." : "Açarsanız uygulama kapalıyken de bu cihaza bildirim gelir (telefon kilit ekranı, bilgisayar sağ alt köşe)."}</p>
+    ${PUSH.hata ? `<p class="note" style="color:#d92d20;margin:0 0 8px">${esc(PUSH.hata)}</p>` : ""}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${acik ? '<button class="btn ghost sm" id="pushTest" type="button">Deneme bildirimi</button><button class="btn ghost sm" id="pushOff" type="button">Bu cihazda kapat</button>' : `<button class="btn" id="pushOn" type="button"${PUSH.yuk ? " disabled" : ""}>${PUSH.yuk ? "Açılıyor…" : "Bu cihazda anlık bildirimi aç"}</button>`}</div>`;
+}
+function pushBagla() {
+  const box = $("#pushBox"); if (!box) return; const re = () => { box.innerHTML = pushKutu(); pushBagla(); };
+  const on2 = $("#pushOn"); if (on2) on2.onclick = async () => { PUSH.yuk = true; PUSH.hata = ""; re(); try { await pushAc(false); toast("Anlık bildirim bu cihazda açıldı"); } catch (e) { PUSH.hata = (e && e.message) || String(e); } PUSH.yuk = false; re(); };
+  const off = $("#pushOff"); if (off) off.onclick = async () => { await pushKapat(false); toast("Bu cihazda anlık bildirim kapatıldı"); re(); };
+  const ts = $("#pushTest"); if (ts) ts.onclick = async () => { try { await addDoc(collection(fs, "push_test"), { uid: ME.uid, email: ME.email, at: Date.now() }); toast("Deneme bildirimi gönderildi; birkaç saniye içinde gelmeli"); } catch (e) { toast(writeErr(e)); } };
+}
 function openNotif() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div>
@@ -2353,7 +2400,7 @@ function openNotif() {
       <div id="ntSet" hidden>
         <div class="ntset">${NT_PREFS.map(([k, l, d]) => `<label class="ntsw"><input type="checkbox" data-np="${k}"${NT.prefs[k] ? " checked" : ""}><span><b>${esc(l)}</b><small>${esc(d)}</small></span></label>`).join("")}</div>
         <div class="roles" style="margin-top:12px">${perm === "granted" ? "<div>Bu cihazda bildirim izni <b>açık</b>.</div>" : perm === "denied" ? "<div>Bu cihazda bildirimler <b>engellenmiş</b>. Tarayıcı ayarlarından site için bildirim iznini açın.</div>" : perm === "unsupported" ? "<div>Bu tarayıcı cihaz bildirimini desteklemiyor. iPhone'da uygulamayı Ana Ekrana ekleyip oradan açın.</div>" : '<div>Bu cihazda bildirim izni henüz verilmedi.</div><button class="btn" id="ntPerm" type="button" style="margin-top:8px">Bildirimlere izin ver</button>'}</div>
-        <p class="note" style="margin:10px 0 0">Bildirimler uygulama açıkken gelir (başka sekmede veya arka planda olsa da). Uygulama tamamen kapalıyken gelmez; açtığınızda burada görürsünüz.</p>
+        <div class="roles pushbox" id="pushBox" style="margin-top:12px">${pushKutu()}</div>
       </div>
     </div>
     <div class="df"><span class="note" id="ntCount"></span><div class="r"><button class="btn ghost" id="ntAll" type="button">Tümünü okundu say</button></div></div>
@@ -2370,6 +2417,7 @@ function openNotif() {
     setDoc(doc(fs, "reads", ME.uid), { notifPrefs: NT.prefs }, { merge: true }).catch(() => {});
   });
   const pb = $("#ntPerm"); if (pb) pb.onclick = () => Notification.requestPermission().then(() => openNotif());
+  pushBagla();
   // panel açıldığında yeni bildirimler birkaç saniye vurgulu kalır, sonra okundu sayılır
   onDrawerClose = () => markSeen();
 }

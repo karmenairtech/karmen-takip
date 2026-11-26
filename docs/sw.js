@@ -1,5 +1,5 @@
 // Kar-Men Proje Takip — uygulama kabuğu önbelleği
-const CACHE = "karmen-takip-v97";
+const CACHE = "karmen-takip-v98";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "logo.jpg", "kase.png", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/favicon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
@@ -24,6 +24,15 @@ self.addEventListener("fetch", e => {
   }
 });
 
+// Anlık bildirim (FCM web push): sunucu yalnızca veri gönderir, bildirimi burada gösteririz.
+// Etiket (tag) uygulamanın kendi bildirimiyle aynı: aynı olay ikinci kez görünmez, üstüne yazılır.
+self.addEventListener("push", e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (x) { d = { data: { title: "Kar-Men", body: e.data ? e.data.text() : "" } }; }
+  const x = d.data || d, n = d.notification || {};
+  const title = x.title || n.title || "Kar-Men", opt = { body: x.body || n.body || "", icon: "icons/icon-192.png", badge: "icons/icon-192.png", data: { mod: x.mod || "", ref: x.ref || "" } };
+  if (x.tag) opt.tag = x.tag; if (/^call-/.test(x.tag || "")) { opt.requireInteraction = true; opt.vibrate = [400, 200, 400, 200, 400]; }
+  e.waitUntil(self.registration.showNotification(title, opt));
+});
 // Bildirime tıklanınca uygulamayı öne getir ve ilgili kaydı aç
 self.addEventListener("notificationclick", e => {
   e.notification.close();
@@ -31,6 +40,6 @@ self.addEventListener("notificationclick", e => {
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
     const c = list[0];
     if (c) { c.postMessage({ type: "open", mod: d.mod, ref: d.ref }); return c.focus(); }
-    return self.clients.openWindow("./#" + (d.mod === "disis" ? "disis" : d.mod ? "proje" : "home"));
+    return self.clients.openWindow((d.mod ? `./?ac=${encodeURIComponent(d.mod + ":" + (d.ref || ""))}` : "./") + "#" + ({ disis: "disis", web: "siparis", proje: "proje" }[d.mod] || "home"));
   }));
 });

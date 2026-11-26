@@ -14,3 +14,7 @@ export const BOOT_ADMINS = ["planlama.karmen@gmail.com"];
 // İsteğe bağlı aktarma (TURN) sunucuları. Bazı mobil/şirket ağlarında aramanın bağlanması için gerekir.
 // Örnek: [{ urls: "turn:sunucu.ornek.com:3478", username: "kullanici", credential: "sifre" }]
 export const EXTRA_ICE = [];
+
+// Anlık bildirim (web push) ortak anahtarı: Firebase Console → Proje ayarları → Cloud Messaging → Web Push sertifikaları → Anahtar çifti
+// Bu anahtar gizli değildir (herkese açık anahtar). Boşsa anlık bildirim kapalıdır, uygulama içi bildirimler çalışmaya devam eder.
+export const VAPID_KEY = "";

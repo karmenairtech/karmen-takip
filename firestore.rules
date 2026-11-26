@@ -429,6 +429,15 @@ service cloud.firestore {
     }
 
     // Her kişinin hangi sohbeti en son nereye kadar okuduğu (yalnızca kendisi)
+    // anlık bildirim cihaz anahtarları: herkes yalnızca kendi cihazını kaydeder/siler; okuma sunucu tarafında
+    match /push_token/{tok} {
+      allow create, update: if isMember() && request.resource.data.uid == request.auth.uid && request.resource.data.email == myEmail();
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+    // deneme bildirimi isteği (sunucu gönderip siler)
+    match /push_test/{id} {
+      allow create: if isMember() && request.resource.data.uid == request.auth.uid && request.resource.data.email == myEmail();
+    }
     match /reads/{uid} {
       allow read, write: if isMember() && request.auth.uid == uid;
     }
