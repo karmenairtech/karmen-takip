@@ -72,6 +72,8 @@ button,input,select,textarea{font:inherit;color:inherit}
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const fold = s => String(s || "").toLocaleUpperCase("tr").replace(/Ç/g, "C").replace(/Ğ/g, "G").replace(/İ/g, "I").replace(/Ö/g, "O").replace(/Ş/g, "S").replace(/Ü/g, "U");
   const trFold = s => fold(s).replace(/[^A-Z0-9]/g, "");
+  // arama: "400x200", "400 X 200", "400*200", "400×200" aynı sayılır; boşluk ve tireler önemsenmez
+  const araN = s => fold(s).replace(/(\d)\s*[X×*]\s*(?=\d)/g, "$1X").replace(/[^A-Z0-9X ]/g, " ").replace(/\s+/g, " ").trim();
   const S = { kat: null, grup: "", q: "", ac: null, sepet: [], adim: 1, t0: Date.now(), gonder: false, hata: "", sonuc: null, form: {} };
   try { const x = JSON.parse(localStorage.getItem("karmen.webteklif") || "null"); if (x && Array.isArray(x.sepet)) { S.sepet = x.sepet; S.form = x.form || {}; } } catch (e) {}
   const sakla = () => { try { localStorage.setItem("karmen.webteklif", JSON.stringify({ sepet: S.sepet, form: S.form })); } catch (e) {} };
@@ -98,12 +100,12 @@ button,input,select,textarea{font:inherit;color:inherit}
       S.kat = await al("v1"); const n = Number(S.kat.parca) || 0;
       if (n) S.kat.u = [...(S.kat.u || []), ...(await Promise.all(Array.from({ length: n }, (_, i) => al("p" + i)))).flat()]; }
     catch (e) { app.innerHTML = `<div class="load">Ürün listesi şu an yüklenemedi. Lütfen daha sonra tekrar deneyin ya da <a href="https://wa.me/${WA}" target="_blank" rel="noopener">WhatsApp</a> üzerinden yazın.</div>`; boy(); return; }
-    S.idx = S.kat.u.map(u => ({ id: u[0], kod: u[1], ad: u[2], birim: u[3] || "Adet", f: fold(u[1] + " " + u[2]) }));
+    S.idx = S.kat.u.map(u => ({ id: u[0], kod: u[1], ad: u[2], birim: u[3] || "Adet", f: araN(u[1] + " " + u[2]), f2: araN(u[1] + " " + u[2]).replace(/ /g, "") }));
     ciz();
   }
   function urunler() {
-    const q = fold(S.q).split(/\s+/).filter(Boolean);
-    return S.idx.filter(u => (!S.grup || u.kod.startsWith(S.grup)) && q.every(w => u.f.includes(w))).slice(0, 80);
+    const q = araN(S.q).split(" ").filter(Boolean);
+    return S.idx.filter(u => (!S.grup || u.kod.startsWith(S.grup)) && q.every(w => u.f.includes(w) || u.f2.includes(w))).slice(0, 80);
   }
   function ciz() {
     if (S.sonuc) { app.innerHTML = `<div class="done"><div class="ic" aria-hidden="true">✓</div><h2>Teklif isteğiniz alındı</h2>
