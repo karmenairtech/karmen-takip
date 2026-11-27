@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "103";
+const APP_V = "105";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7465,6 +7465,28 @@ function spRenkOzet(s, K) {
   });
 }
 
+/* --- Hızlı müşteri ekleme: teklif / sipariş formundan çıkmadan yeni cari açar --- */
+function crHizliEkle() {
+  return new Promise(res => spModal(`<label>Yeni müşteri</label>
+    <div class="fgrid" style="margin:6px 0 0"><div class="field full"><label for="hcU">Firma ünvanı *</label><input id="hcU" maxlength="160" autocomplete="off"></div>
+      <div class="field"><label for="hcY">Yetkili</label><input id="hcY" maxlength="80"></div><div class="field"><label for="hcT">Telefon</label><input id="hcT" maxlength="20" inputmode="tel"></div>
+      <div class="field"><label for="hcE">E-posta</label><input id="hcE" maxlength="120" type="email"></div><div class="field"><label for="hcI">İl</label><input id="hcI" maxlength="40"></div>
+      <div class="field"><label for="hcV">Vergi dairesi</label><input id="hcV" maxlength="60"></div><div class="field"><label for="hcN">Vergi no / TCKN</label><input id="hcN" maxlength="11" inputmode="numeric"></div></div>
+    <p class="note" id="hcW" style="margin:6px 0 0">Genel iskonto %${CR_GENEL_ISK} ile açılır; diğer bilgileri sonra cari kartından tamamlayabilirsiniz.</p>
+    <div class="r"><button type="button" class="btn ghost" id="hcC">Vazgeç</button><button type="button" class="btn" id="hcO">Müşteriyi ekle</button></div>`, (h, done) => {
+    const g = id => h.querySelector("#" + id).value.trim(); setTimeout(() => h.querySelector("#hcU").focus(), 30);
+    h.querySelector("#hcU").oninput = () => { const f = araFold(g("hcU")), x = f.length > 3 ? CR.list.find(c => [c.unvan, c.kisaAd].some(a => a && araFold(a) === f)) : null;
+      h.querySelector("#hcW").innerHTML = x ? `<span style="color:#d92d20">Bu ünvanla kayıtlı cari var: <b>${esc(crAd(x))}</b> (${esc(x.kod || "")}). Listeden seçebilirsiniz.</span>` : `Genel iskonto %${CR_GENEL_ISK} ile açılır; diğer bilgileri sonra cari kartından tamamlayabilirsiniz.`; };
+    h.querySelector("#hcC").onclick = () => { done(false); res(null); };
+    h.querySelector("#hcO").onclick = async () => { const un = g("hcU"); if (un.length < 2) { toast("Firma ünvanını yazın"); return; } const b = h.querySelector("#hcO"); b.disabled = true;
+      const now = Date.now(), ref = doc(collection(fs, "cari")), tel = g("hcT");
+      const data = { kod: crNextKod(), muhasebeKod: "", unvan: un.toLocaleUpperCase("tr").slice(0, 160), kisaAd: "", tedarikci: false, musteri: true, kategori: "", vd: g("hcV"), vergiNo: g("hcN").replace(/\D/g, ""), mersis: "", adres: "", il: g("hcI"), ilce: "", tel, whatsapp: tel, eposta: g("hcE"), web: "", vade: null, pb: "TRY",
+        iskGenel: CR_GENEL_ISK, iskOzel: 0, iskonto: CR_GENEL_ISK, iban: "", yetkililer: g("hcY") ? [{ ad: g("hcY"), gorev: "", tel, eposta: g("hcE") }] : [], not: "", aktif: true, kaynak: "hizli", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+      try { await setDoc(ref, data); const c = { id: ref.id, ...data }; if (!crFind(ref.id)) CR.list.push(c); toast(`${data.unvan} müşteri olarak eklendi (${data.kod})`); done(true); res(c); }
+      catch (e) { b.disabled = false; toast(writeErr(e)); } };
+  }));
+}
+
 /* --- sipariş formu --- */
 async function spOpenForm(id, pre) {
   if (!can("sp.edit")) return;
@@ -7473,7 +7495,7 @@ async function spOpenForm(id, pre) {
   let K = cur ? JSON.parse(JSON.stringify(cur.kalemler || [])) : [], f = null, varsR = cur ? cur.renk || null : null, ekYeni = [];
   if (cur && pr) K.forEach(k => Object.assign(k, (F0.k || {})[k.k] || {}));
   if (pre) { K = pre.kalemler || []; f = { ...(pre.f || {}) }; varsR = pre.renk || null; }
-  const keep = () => { if (!$("#fCari")) return; f = {}; ["fCari", "fPa", "fPt", "fPm", "fPy", "fPtel", "fPadr", "fSv", "fMs", "fTk", "fOd", "fTar", "fIs", "fVt", "fOnc", "fNot", "fPb", "fKur", "fTop", "fTopK"].forEach(i => { const el = $("#" + i); if (el) f[i] = el.value; });
+  const keep = () => { if (!$("#fCari")) return; f = {}; ["fCari", "fPa", "fPt", "fPm", "fPy", "fPtel", "fPadr", "fSv", "fMs", "fTk", "fOd", "fTar", "fIs", "fVt", "fOnc", "fNot", "fPb", "fKur", "fTop", "fTopK", "fIsk"].forEach(i => { const el = $("#" + i); if (el) f[i] = el.value; });
     K.forEach((k, i) => { const g = p => { const el = $("#" + p + i); return el ? el.value : undefined; }; if (g("qM") !== undefined) k.miktar = Math.max(0, Number(g("qM")) || 0); if (g("qB") !== undefined) k.birim = g("qB"); if (g("qMh") !== undefined) k.mahal = g("qMh").trim(); if (g("qT") !== undefined) k.termin = g("qT");
       if (pr) { const x = g("qF"); if (x !== undefined) k.fiyat = x === "" ? null : Math.max(0, Number(x) || 0); const is = g("qI"); if (is !== undefined) k.isk = Math.min(100, Math.max(0, Number(is) || 0)); const kd = g("qK"); if (kd !== undefined) k.kdv = Number(kd); } }); };
   const v = (k, d) => f && k in f ? f[k] : d;
@@ -7504,7 +7526,8 @@ async function spOpenForm(id, pre) {
           <div class="field"><label for="fVt">Verdiğimiz termin * <small class="note">(onay için)</small></label><input id="fVt" type="date" value="${esc(v("fVt", cur ? cur.verilenTermin || "" : ""))}"></div></div></section>
         <section><h3 class="sec-t">Kalemler <small>${K.length}</small></h3>
           <div class="sprdef"><span>Siparişin varsayılan rengi:</span><button type="button" class="btn ghost sm" id="fRen">${varsR ? spSw(varsR) + " " + esc(spRenkAd(varsR)) : "Renk seç"}</button><span class="note">Yeni kalemlere kendiliğinden gelir; farklı renk seçilen kalemde teyit istenir.</span></div>
-          ${pr ? `<div class="fgrid" style="margin:8px 0"><div class="field"><label for="fPb">Para birimi</label><select id="fPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>${pb !== "TRY" ? `<div class="field"><label for="fKur">Kur (${esc(pb)}/TL)</label><input id="fKur" type="number" step="0.0001" min="0" value="${esc(v("fKur", F0.kur || kurCanli(pb) || (SA.cfg.kur || {})[pb] || ""))}"></div>` : "<div></div>"}</div>` : ""}
+          ${pr ? `<div class="fgrid" style="margin:8px 0"><div class="field"><label for="fPb">Para birimi</label><select id="fPb">${ST_PB.map(p => opt(p, p, pb)).join("")}</select></div>${pb !== "TRY" ? `<div class="field"><label for="fKur">Kur (${esc(pb)}/TL)</label><input id="fKur" type="number" step="0.0001" min="0" value="${esc(v("fKur", F0.kur || kurCanli(pb) || (SA.cfg.kur || {})[pb] || ""))}"></div>` : "<div></div>"}</div>
+            <div class="spiskr"><span>Genel iskonto %</span><input class="kin num" id="fIsk" type="number" min="0" max="100" step="0.5" style="width:90px" value="${esc(v("fIsk", cur ? ((K.find(k => k && k.isk != null) || {}).isk ?? "") : c ? crIsk(c) : ""))}"><button type="button" class="btn ghost sm" id="fIskA">Tüm kalemlere uygula</button><span class="note">Müşteri seçilince müşterinin iskontosu gelir. Liste fiyatı ürünle birlikte otomatik gelir.</span></div>` : ""}
           <div class="spk">${K.length ? K.map((k, i) => { const vl = spVarList(k.kod, k.ad), plan = spPlanli(k);
             return `<div class="spkr${k.renk && varsR && spRenkKey(k.renk) !== spRenkKey(varsR) ? " fark" : ""}">
               <div class="spk1"><span class="spsn" title="Sıra no">${i + 1}</span><span class="num skk">${esc(k.kod || "Serbest")}</span> <b>${esc(k.ad)}</b>${plan ? ` <span class="kst" style="--tc:var(--brand)">${nf(plan)} planlandı</span>` : ""}
@@ -7516,7 +7539,7 @@ async function spOpenForm(id, pre) {
                 <input class="kin" id="qMh${i}" maxlength="60" value="${esc(k.mahal || "")}" placeholder="Mahal / etiket" style="flex:0 1 150px">
                 <input class="kin" id="qT${i}" type="date" value="${esc(k.termin || "")}" title="Kalem termini (boşsa sipariş termini)" style="flex:0 0 140px"></div>
               <textarea class="kin tknot spacik" data-qac="${i}" maxlength="1000" rows="1" placeholder="Ürün açıklaması: ölçü detayı, montaj şekli, teknik not… (sipariş formunda ve iş emrinde ürünün altında yazar)" aria-label="Ürün açıklaması">${esc(k.aciklama || "")}</textarea>
-              ${pr ? `<div class="spk3"><label>Birim fiyat <input class="kin num" id="qF${i}" type="number" min="0" step="any" value="${esc(k.fiyat ?? "")}"></label><label>İsk. % <input class="kin num" id="qI${i}" type="number" min="0" max="100" value="${esc(k.isk || "")}"></label><label>KDV <select class="kin" id="qK${i}">${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></label><b class="num" id="qTt${i}">${money(saLine(k).net, pb)}</b></div>` : ""}</div>`; }).join("") : '<p class="note">Kalem yok. Stokta arayın, ölçüden ekleyin ya da serbest kalem girin.</p>'}</div>
+              ${pr ? `<div class="spk3"><label>Liste fiyatı <input class="kin num" id="qF${i}" type="number" min="0" step="any" value="${esc(k.fiyat ?? "")}"></label><label>İsk. % <input class="kin num" id="qI${i}" type="number" min="0" max="100" value="${esc(k.isk || "")}"></label><label>KDV <select class="kin" id="qK${i}">${["0", "1", "10", "20"].map(x => opt(x, "%" + x, String(k.kdv ?? 20))).join("")}</select></label><span class="note num" id="qNt${i}">Net ${money((Number(k.fiyat) || 0) * (1 - (Number(k.isk) || 0) / 100), pb)}</span><b class="num" id="qTt${i}">${money(saLine(k).net, pb)}</b></div>` : ""}</div>`; }).join("") : '<p class="note">Kalem yok. Stokta arayın, ölçüden ekleyin ya da serbest kalem girin.</p>'}</div>
           <div class="kara"><input id="kAra" type="search" placeholder="Stok kodu ya da ürün adı (M-0101, lineer slot 2li…)" autocomplete="off"><button type="button" class="btn ghost sm" id="kSer">Serbest kalem</button><button type="button" class="btn ghost sm" id="fOlc">Ölçüden ekle</button></div><div id="kAraR" class="karar"></div>
           ${pr ? `<div class="sptopw"><div class="sptopf"><label for="fTop">Toplam fiyat (KDV hariç) <small class="note">müşteri tek fiyat verdiyse yazın · birim fiyatlar boş kalabilir</small></label>
               <div style="display:flex;gap:8px"><input id="fTop" class="num" type="number" min="0" step="any" placeholder="Boş: kalem fiyatlarından hesaplanır" value="${esc(v("fTop", F0.toplu ?? ""))}"><select id="fTopK" aria-label="KDV oranı">${["0", "1", "10", "20"].map(x => opt(x, "KDV %" + x, String(v("fTopK", F0.topluKdv ?? 20)))).join("")}</select></div></div>
@@ -7527,9 +7550,13 @@ async function spOpenForm(id, pre) {
       <div class="df"><span class="note">${cur && onayli ? "Onaylı siparişte değişiklik revizyon olarak kaydedilir." : "Taslak kaydedilebilir; onaylanınca kalemler planlama havuzuna düşer."}</span><div class="r"><button class="btn ghost" id="sfC" type="button">Vazgeç</button>${!onayli ? '<button class="btn ghost" id="sfT1" type="button">Taslak kaydet</button>' : ""}<button class="btn" id="sfS" type="button">${onayli ? "Revizyonu kaydet" : "Onayla"}</button></div></div>
     </aside>`;
     formKapat(() => K.length || (f && f.fCari), "#sfX", "#sfC");
-    $("#fCari").onchange = () => { keep(); paint(); };
-    const nc = $("#fNewC"); if (nc) nc.onclick = () => { keep(); toast("Müşteri kartını kaydedip yeniden sipariş girin"); crOpen(null, "mus"); };
-    const pbS = $("#fPb"); if (pbS) pbS.onchange = () => { keep(); paint(); };
+    $("#fCari").onchange = () => { keep(); const c2 = crFind(f.fCari); if (c2 && pr) { const ci = crIsk(c2); f.fIsk = String(ci); K.forEach(k => { if (k) { k.isk = ci; delete k.iskOto; } }); } paint(); };
+    const ia = $("#fIskA"); if (ia) ia.onclick = () => { keep(); const x = Math.min(100, Math.max(0, Number(f.fIsk) || 0)); K.forEach(k => { if (k) { k.isk = x; delete k.iskOto; } }); paint(); };
+    const nc = $("#fNewC"); if (nc) nc.onclick = async () => { keep(); const c2 = await crHizliEkle(); if (!c2) return; f.fCari = c2.id; if (pr) { f.fIsk = String(crIsk(c2)); K.forEach(k => { if (k) { k.isk = crIsk(c2); delete k.iskOto; } }); } paint(); };
+    const pbS = $("#fPb"); if (pbS) { pbS.dataset.old = pbS.value; } if (pbS) pbS.onchange = () => { const old = pbS.dataset.old || F0.pb || "USD"; keep(); if (old !== f.fPb && K.some(k => k && k.fiyat != null)) { let hata = 0;
+      K.forEach(k => { if (!k || k.fiyat == null) return; const x = tkConv(k.fiyat, old, f.fPb, f.fKur); if (x != null) k.fiyat = Math.round(x * 100) / 100; else hata++; });
+      if (f.fTop !== "" && f.fTop != null) { const x = tkConv(Number(f.fTop), old, f.fPb, f.fKur); if (x != null) f.fTop = String(Math.round(x * 100) / 100); }
+      toast(hata ? `${hata} fiyat kur bulunamadığı için çevrilemedi` : `Fiyatlar ${old} → ${f.fPb} çevrildi (güncel kur)`); } paint(); };
     $("#fRen").onclick = async () => { keep(); const r = await spRenkSec(varsR); if (!r) return; varsR = r; K.forEach(k => { if (!k.renk) k.renk = r; }); paint(); };
     document.querySelectorAll("[data-qr]").forEach(b => b.onclick = async () => { keep(); const i = Number(b.dataset.qr), r = await spRenkSec(K[i].renk, varsR); if (!r) return;
       if (varsR && spRenkKey(r) !== spRenkKey(varsR)) { const ok = await spEmin("Farklı renk", `<div class="spemr">${spSw(r, true)}<div><b>${esc(spRenkAd(r))}</b><small>${esc(K[i].kod || "")} ${esc(K[i].ad)}</small></div></div><p>Siparişin geri kalanı <b>${esc(spRenkAd(varsR))}</b> ${spSw(varsR)}. Bu kalem gerçekten <b>${esc(spRenkAd(r))}</b> olacak mı?</p>`); if (!ok) return; }
@@ -7539,11 +7566,15 @@ async function spOpenForm(id, pre) {
     document.querySelectorAll("[data-qrm]").forEach(b => b.onclick = () => { keep(); K.splice(Number(b.dataset.qrm), 1); paint(); });
     document.querySelectorAll("[data-qac]").forEach(s => { const fit = () => { s.style.height = "auto"; s.style.height = s.scrollHeight + 2 + "px"; }; if (s.value) fit(); s.oninput = () => { K[Number(s.dataset.qac)].aciklama = s.value.trim(); fit(); }; });
     const sumYaz = () => { const s = $("#spSumB"); if (s) s.innerHTML = spSumHtml(K, ($("#fPb") || {}).value || "TRY", ($("#fKur") || {}).value, f.fTop, f.fTopK); };
-    if (pr) K.forEach((k, i) => ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const t = $("#qTt" + i); if (t) t.textContent = money(saLine(K[i]).net, ($("#fPb") || {}).value || "TRY"); sumYaz(); }); }));
+    if (pr) K.forEach((k, i) => ["qM", "qF", "qI", "qK"].forEach(p => { const el = $("#" + p + i); if (el) el.addEventListener("input", () => { keep(); const pbx = ($("#fPb") || {}).value || "TRY", t = $("#qTt" + i), n = $("#qNt" + i); if (t) t.textContent = money(saLine(K[i]).net, pbx); if (n) n.textContent = "Net " + money((Number(K[i].fiyat) || 0) * (1 - (Number(K[i].isk) || 0) / 100), pbx); sumYaz(); }); }));
     ["fTop", "fTopK"].forEach(id => { const el = $("#" + id); if (el) el.addEventListener("input", () => { keep(); sumYaz(); }); });
     const addLine = async it => { keep(); if (it && K.some(k => k.sid === it.id && !k.ozel)) { const ok = await spEmin("Aynı ürün", `<p><b>${esc(it.kod)} ${esc(it.ad)}</b> listede zaten var. Farklı renk ya da varyasyon için ayrı satır mı açıyorsunuz?</p>`, "Evet, ayrı satır"); if (!ok) return; }
       const k = it ? { k: spNewK(), sid: it.id, kod: it.kod, ad: it.ad, olcu: it.olcu || "", birim: it.birim || "Adet", miktar: 1, renk: varsR || null, var: {}, ozel: "", mahal: "", termin: "", kdv: 20 } : null;
-      if (k && pr) { const s = await saFiyatGet(it.id).catch(() => null); k.kdv = s && s.kdv != null ? s.kdv : 20; }
+      if (k && pr) { const s = await saFiyatGet(it.id).catch(() => null); k.kdv = s && s.kdv != null ? s.kdv : 20;
+        // liste fiyatı (siparişin para birimine çevrilir) ve müşterinin iskontosu otomatik gelir
+        const pb2 = f.fPb || "USD", lf = await tkListeGet(it.id), c = crFind(f.fCari);
+        if (lf && lf.liste != null) { const x = tkConv(lf.liste, lf.pb || "USD", pb2, f.fKur); if (x != null) k.fiyat = Math.round(x * 100) / 100; else toast(`Liste fiyatı ${lf.pb}; ${pb2} kuru bulunamadığı için çevrilemedi`); }
+        k.isk = f.fIsk !== "" && f.fIsk != null ? Math.min(100, Math.max(0, Number(f.fIsk) || 0)) : c ? crIsk(c) : 0; k.iskOto = !c && (f.fIsk === "" || f.fIsk == null); }
       K.push(k); paint(); setTimeout(() => { const n = $("#qM" + (K.length - 1)); if (n) { n.focus(); n.select(); } }, 40); };
     const a = $("#kAra"), r = $("#kAraR"); let tm = null, seq = 0;
     a.oninput = () => { clearTimeout(tm); const q = a.value.trim(); if (q.length < 2) { r.innerHTML = ""; return; } r.innerHTML = '<div class="note">Aranıyor…</div>';
@@ -8298,6 +8329,8 @@ async function tkOpenForm(id, o = {}) {
   let K = base ? JSON.parse(JSON.stringify(base.kalemler || [])) : [], f = null, varsR = base ? base.renk || null : null;
   let pbOld = base ? base.pb || "USD" : "USD";
   if (src) K.forEach(k => k.k = spNewK());
+  // web talebinden / siparişten gelen kalemlerde liste fiyatı yoksa stok kartının liste fiyatı çekilir
+  if (src && !cur) { const pbH = src.pb || "USD"; for (const k of K) { if (k.liste != null || !k.sid) continue; const lf = await tkListeGet(k.sid); if (lf && lf.liste != null) { const x = tkConv(lf.liste, lf.pb || "USD", pbH, src.kur); if (x != null) k.liste = Math.round(x * 100) / 100; } } }
   const C = tkCfg();
   const keep = () => { if (!$("#tCari")) return; f = {}; ["tCari", "tYet", "tTel", "tMail", "tAdr", "tSan", "tTes", "tTt", "tOd", "tGec", "tPb", "tKur", "tDil", "tIsk", "tNot", "tTar"].forEach(i => { const el = $("#" + i); if (el) f[i] = el.value; });
     K.forEach((k, i) => { const g = p => { const el = $("#" + p + i); return el ? el.value : undefined; }; const n = (p, d) => { const x = g(p); return x === undefined ? d : x === "" ? (d === null ? null : "") : Number(x); };
@@ -8354,7 +8387,7 @@ async function tkOpenForm(id, o = {}) {
     formKapat(() => K.length, "#tfX", "#tfC");
     K.forEach(async (k, i) => { const u = await tkFoto(k); const el = document.querySelector(`[data-th="${i}"]`); if (el && u) el.innerHTML = `<img src="${u}" alt="">`; });
     $("#tCari").onchange = () => { keep(); const c2 = crFind(f.tCari); if (c2) { const y = (c2.yetkililer || []).find(x => x.ad) || {}; f.tYet = y.ad || ""; f.tTel = y.tel || c2.tel || ""; f.tMail = y.eposta || c2.eposta || ""; f.tAdr = [c2.adres, c2.ilce, c2.il].filter(Boolean).join(" "); { const ci = crIsk(c2); f.tIsk = String(ci); K.forEach(k => k.isk = ci); } if (c2.vade) f.tOd = c2.vade + " gün vadeli"; } paint(); };
-    const nc = $("#tNewC"); if (nc) nc.onclick = () => { toast("Müşteri kartını kaydedip teklife dönün"); crOpen(null, "mus"); };
+    const nc = $("#tNewC"); if (nc) nc.onclick = async () => { keep(); const c2 = await crHizliEkle(); if (!c2) return; const y = (c2.yetkililer || [])[0] || {}; f.tCari = c2.id; f.tYet = y.ad || ""; f.tTel = c2.tel || ""; f.tMail = c2.eposta || ""; f.tAdr = c2.il || ""; f.tIsk = String(crIsk(c2)); K.forEach(k => k.isk = crIsk(c2)); paint(); };
     $("#tYet").onchange = () => { const c2 = crFind($("#tCari").value), y = c2 && (c2.yetkililer || []).find(x => x.ad === $("#tYet").value); if (y) { if (y.tel) $("#tTel").value = y.tel; if (y.eposta) $("#tMail").value = y.eposta; } };
     $("#tPb").onchange = () => { keep(); const old = pbOld; if (K.some(k => k.liste != null) && old !== f.tPb) { K.forEach(k => { if (k.liste != null) { const x = tkConv(k.liste, old, f.tPb, f.tKur); if (x != null) k.liste = Math.round(x * 100) / 100; } }); toast("Fiyatlar yeni para birimine çevrildi; kontrol edin"); } pbOld = f.tPb; paint(); };
     $("#tDil").onchange = () => { keep(); paint(); };
@@ -11232,8 +11265,8 @@ function webTeklifeDonustur(w, c0) {
   if (c && !c.musteri && can("c.edit")) updateDoc(doc(fs, "cari", c.id), { musteri: true, updatedAt: Date.now(), updatedBy: ME.name }).then(() => { c.musteri = true; }).catch(() => {});
   const R = new Map(); (w.kalemler || []).forEach(x => { if (x.renk) R.set(spRenkKey(webRenk(x.renk)), { r: webRenk(x.renk), n: ((R.get(spRenkKey(webRenk(x.renk))) || {}).n || 0) + 1 }); });
   const renk = [...R.values()].sort((a, b) => b.n - a.n)[0];
-  const kay = { no: w.no, web: true, cariId: c ? c.id : "", cariAd: k.firma || "", yetkili: k.ad || "", tel: k.tel || "", eposta: k.eposta || "", adres: k.il || "", santiye: k.proje || "", pb: "USD", kur: "", odeme: "", not: w.not || "", renk: renk ? renk.r : null, iskonto: null, dil: "TR",
-    kalemler: (w.kalemler || []).map(x => ({ k: spNewK(), sid: x.sid || null, kod: x.kod || "", ad: x.ad, adEn: "", w: "", h: "", n: "", birim: x.birim || "Adet", miktar: Number(x.miktar) || 0, renk: webRenk(x.renk), var: x.var || {}, ozel: x.not || "", liste: null, isk: 0, kdv: 20 })) };
+  const kay = { no: w.no, web: true, cariId: c ? c.id : "", cariAd: k.firma || "", yetkili: k.ad || "", tel: k.tel || "", eposta: k.eposta || "", adres: k.il || "", santiye: k.proje || "", pb: "USD", kur: "", odeme: "", not: w.not || "", renk: renk ? renk.r : null, iskonto: c ? crIsk(c) : null, dil: "TR",
+    kalemler: (w.kalemler || []).map(x => ({ k: spNewK(), sid: x.sid || null, kod: x.kod || "", ad: x.ad, adEn: "", w: "", h: "", n: "", birim: x.birim || "Adet", miktar: Number(x.miktar) || 0, renk: webRenk(x.renk), var: x.var || {}, ozel: x.not || "", liste: null, isk: c ? crIsk(c) : 0, kdv: 20 })) };
   closeDrawer();
   if (!c) toast(`Teklif formunda “${k.firma}” için müşteriyi seçin`);
   setTimeout(() => tkOpenForm(null, { spKaynak: kay, webKaynak: true, onSaved: async (tkId, tkNo) => { const w2 = WEB.list.find(x => x.id === w.id) || w; await webDurum(w2, "teklif", `${tkNo} teklifi hazırlandı`, { teklifId: tkId, teklifNo: tkNo }); } }), 80);

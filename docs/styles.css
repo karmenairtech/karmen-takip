@@ -1803,3 +1803,7 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 .lfor>div{display:grid;grid-template-columns:120px minmax(0,1fr) 100px 120px;gap:10px;align-items:center;padding:7px 10px;border-top:1px solid var(--line);font-size:13px}.lfor>div:first-child{border-top:0}
 .lfor small{color:var(--ink-3);text-align:right}.lfor b{text-align:right}
 @media (max-width:700px){.lfor>div{grid-template-columns:1fr auto}.lfor>div>span:first-child,.lfor small{display:none}}
+
+/* v105 */
+.spiskr{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}.spiskr>span:first-child{font-weight:600}
+.spk3 .note.num{white-space:nowrap}
