@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "98";
+const APP_V = "99";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3348,11 +3348,34 @@ function startStok() {
     const d = s.exists() ? s.data() : {};
     SK.cfg = { depolar: Array.isArray(d.depolar) ? d.depolar : [], gruplar: d.gruplar && typeof d.gruplar === "object" ? d.gruplar : {}, kodlar: d.kodlar && typeof d.kodlar === "object" ? d.kodlar : {}, sema: Number(d.sema) || 0, katalog: d.katalog || null };
     if (SK.cfg.sema < 2 && can("s.edit")) skMigrate();
+    if (!(Number(d.adV) >= 1) && isAdmin() && Object.keys(SK.cfg.kodlar).length) skGrupAdStd();
     skChanged();
   }, () => {}));
   SK.subs = {}; SK.movBy = {};
   dataUnsubs.push(() => { Object.values(SK.subs).forEach(u => { try { u(); } catch (e) {} }); SK.subs = {}; if (SK.pageUnsub) { try { SK.pageUnsub(); } catch (e) {} SK.pageUnsub = null; } });
   skWatch(); skPageWatch(); skCounts();
+}
+// Grup adları standardı (tek seferlik): tüm ana / alt grup adları büyük harf; mamul grupları web formundaki adlarla
+const trU = s => String(s || "").toLocaleUpperCase("tr").replace(/\s+/g, " ").trim();
+const skKodBuyuk = K => { const o = {}; Object.entries(K || {}).forEach(([t, T]) => { o[t] = {}; Object.entries(T || {}).forEach(([a, A]) => { o[t][a] = { ...A, ad: trU(A && A.ad), alt: Object.fromEntries(Object.entries((A && A.alt) || {}).map(([l, x]) => [l, trU(x)])) }; }); }); return o; };
+const SK_AD_STD = { ad: [["SABİT KANATLI DIŞ HAVA PANJURU (BÜYÜK KANATLI)", "SABİT KANATLI DIŞ HAVA PANJURU (BÜYÜK KANAT)"], ["LİNEER SLOT DİFÜZÖR", "SLOT DİFÜZÖR"], ["GİZLİ TAVAN TİPİ SLOT DİFÜZÖR", "GİZLİ TAVAN SLOT DİFÜZÖRÜ"],
+  ["ANEMOSTAD", "KARE ANEMOSTAD"], ["KARE PETEK", "KARE PETEK MENFEZ"]], kod: { "16": "SABİT KANATLI DIŞ HAVA PANJURU (EKO)", "17": "HAREKETLİ KANAT DIŞ HAVA PANJURU (BANYO)" }, alt: { "08": { "01": "MÜDAHALE KAPAĞI", "02": "KARE PETEK MÜDAHALE KAPAĞI" } } };
+let skAdStdCalisiyor = false;
+async function skGrupAdStd() {
+  if (skAdStdCalisiyor) return; skAdStdCalisiyor = true;
+  try {
+    const K = skKodBuyuk(SK.cfg.kodlar), M = K.M || {};
+    Object.entries(M).forEach(([a, A]) => { const r = SK_AD_STD.ad.find(([x]) => trFold(x) === trFold(A.ad)); if (r) A.ad = r[1]; if (SK_AD_STD.kod[a]) A.ad = SK_AD_STD.kod[a];
+      Object.entries((SK_AD_STD.alt[a]) || {}).forEach(([l, x]) => { if (A.alt && A.alt[l] != null) A.alt[l] = x; }); });
+    // stok kartlarındaki grup adları da güncellenir
+    const sn = await getDocs(collection(fs, "stok")), now = Date.now(), D = [];
+    sn.docs.forEach(x => { const i = x.data(), A = ((K[i.tip] || {})[i.anaKod]); if (!A) return; const an = A.ad || i.anaGrup, al = (A.alt || {})[i.altKod] || trU(i.altGrup);
+      if (an !== i.anaGrup || (al || "") !== (i.altGrup || "")) D.push([x.id, { ...i, anaGrup: an, altGrup: al || "" }]); });
+    for (let k = 0; k < D.length; k += 400) { const b = writeBatch(fs); D.slice(k, k + 400).forEach(([id, i]) => b.update(doc(fs, "stok", id), { anaGrup: i.anaGrup, altGrup: i.altGrup, kelimeler: skWords(i), updatedAt: now })); await b.commit(); }
+    await setDoc(doc(fs, "config", "stok"), { kodlar: K, adV: 1, updatedAt: now, updatedBy: ME.name }, { merge: true });
+    if (D.length) toast(`Stok grup adları standartlaştırıldı (${nf(D.length)} kart güncellendi)`);
+  } catch (e) { console.warn("grup adı standardı", e); }
+  skAdStdCalisiyor = false;
 }
 // Eski kartlara seviye, arama kelimeleri ve aktif alanı bir kez eklenir (koleksiyon o sırada küçük)
 let skMigrating = false;
@@ -4096,7 +4119,7 @@ function skOpenCfg() {
     const gr = {}; $("#scG").value.split("\n").forEach(l => { const [a, ...r] = l.split(":"); const ana = (a || "").trim(); if (!ana) return; gr[ana] = [...new Set(r.join(":").split(",").map(x => x.trim()).filter(Boolean))].slice(0, 60); });
     const dep = [...new Set($("#scD").value.split("\n").map(x => x.trim()).filter(Boolean))].slice(0, 60);
     $("#scS").disabled = true;
-    const kod = skParseKodlar($("#scK").value);
+    const kod = skKodBuyuk(skParseKodlar($("#scK").value));
     try { await setDoc(doc(fs, "config", "stok"), { gruplar: gr, depolar: dep, kodlar: kod, updatedAt: Date.now(), updatedBy: ME.name }, { merge: true }); toast("Gruplar, kod sistemi ve depolar kaydedildi"); closeDrawer(); }
     catch (x) { $("#scS").disabled = false; toast(writeErr(x)); }
   };
@@ -11147,6 +11170,25 @@ function webTeklifeDonustur(w) {
   if (!c) toast(`“${k.firma}” müşteri listesinde bulunamadı; teklif formunda müşteriyi seçin ya da yeni cari ekleyin`);
   setTimeout(() => tkOpenForm(null, { spKaynak: kay, webKaynak: true, onSaved: async (tkId, tkNo) => { const w2 = WEB.list.find(x => x.id === w.id) || w; await webDurum(w2, "teklif", `${tkNo} teklifi hazırlandı`, { teklifId: tkId, teklifNo: tkNo }); } }), 80);
 }
+// Web formundaki ürün grupları (üst grup → ürün grubu). Ad ya da kodla eşleşir; eşleşmeyen gruplar "DİĞER ÜRÜNLER" altında görünür.
+const WEB_UST = [
+  ["MENFEZ GRUBU", ["TEK SIRA KANATLI MENFEZ", "ÇİFT SIRA KANATLI MENFEZ", "LİNEER MENFEZ", "KARE PETEK MENFEZ", "KAPI TRANSFER MENFEZİ", "YUVARLAK KANAL MENFEZİ"]],
+  ["DİFÜZÖR GRUBU", ["KARE ANEMOSTAD", "SLOT DİFÜZÖR", "GİZLİ TAVAN SLOT DİFÜZÖRÜ", "KLİPİN ANEMOSTAD"]],
+  ["PANJUR GRUBU", ["SABİT KANATLI DIŞ HAVA PANJURU", "SABİT KANATLI DIŞ HAVA PANJURU (BÜYÜK KANAT)", "M-16", "M-17"]],
+  ["DAMPER GRUBU", ["HAVA AYAR DAMPERİ", "YANGIN DAMPERİ"]],
+  ["MÜDAHALE KAPAĞI", ["M-0801", "M-0802"]],
+  ["KANAL VE FİTTİNGLER", ["YUVARLAK KANAL", "KARE KANAL", "REDÜKSİYON", "30° DİRSEK", "45° DİRSEK", "60° DİRSEK", "90° DİRSEK", "120° DİRSEK"]]];
+function webUstKur(U) {
+  const KM = ((SK.cfg || {}).kodlar || {}).M || {}, kul = new Set(), n = k => U.filter(u => u[1].startsWith(k)).length;
+  const anaAd = a => trU((KM[a] || {}).ad || ("M-" + a)), altAd = (a, l) => trU(((KM[a] || {}).alt || {})[l] || (anaAd(a) + " " + l));
+  const bul = x => { if (/^M-\d{2}(\d{2})?$/.test(x)) { const a = x.slice(2, 4), l = x.slice(4); return { kod: x, ad: l ? altAd(a, l) : anaAd(a) }; }
+    const a = Object.keys(KM).find(k => trFold(anaAd(k)) === trFold(x)); return a ? { kod: "M-" + a, ad: anaAd(a) } : null; };
+  const ust = WEB_UST.map(([ad, L]) => ({ ad, g: L.map(bul).filter(Boolean).map(g => ({ ...g, n: n(g.kod) })).filter(g => g.n) }));
+  ust.forEach(x => x.g.forEach(g => kul.add(g.kod)));
+  const diger = [...new Set(U.map(u => u[1].slice(0, 4)))].filter(k => ![...kul].some(c => c.startsWith(k) || k.startsWith(c))).sort().map(k => ({ kod: k, ad: anaAd(k.slice(2)), n: n(k) }));
+  if (diger.length) ust.push({ ad: "DİĞER ÜRÜNLER", g: diger });
+  return ust.filter(x => x.g.length);
+}
 const webRenk = r => !r || !r.yuzey ? null : /^(elektrostatik|yaş) boya$/i.test(r.yuzey) ? { kod: String(r.kod || "9016"), yuzey: "Elektrostatik boya", parlak: "Mat", doku: "Düz" } : { yuzey: r.yuzey, ...(r.kod ? { kod: r.kod } : {}) };
 // ---- Ayarlar: katalog yayınlama ve siteye ekleme kodu
 async function webCfg() {
@@ -11181,13 +11223,13 @@ async function webCfg() {
       const sn = await getDocs(query(collection(fs, "stok"), where("kod", ">=", "M-"), where("kod", "<=", "M-")));
       const U = sn.docs.map(x => ({ id: x.id, ...x.data() })).filter(i => i.aktif !== false && i.kod && i.ad && (!G.length || G.some(g => i.kod.startsWith(g))))
         .sort((a, b) => a.kod.localeCompare(b.kod)).map(i => [i.id, i.kod, String(i.ad).slice(0, 160), i.birim || "Adet"]);
-      const gruplar = (G.length ? G : [...new Set(U.map(u => u[1].slice(0, 4)))]).map(g => ({ kod: g, ad: (anaG.find(a => a.kod === g) || {}).ad || g })).filter(g => U.some(u => u[1].startsWith(g.kod)));
+      const gruplar = (G.length ? G : [...new Set(U.map(u => u[1].slice(0, 4)))]).map(g => ({ kod: g, ad: trU((anaG.find(a => a.kod === g) || {}).ad || g) })).filter(g => U.some(u => u[1].startsWith(g.kod))), ust = webUstKur(U);
       // Firestore belge sınırı 1 MB: ürünler ~600 KB'lık parçalara bölünür (web_katalog/p0, p1…), v1 belgesi parça sayısını tutar
       const P = []; let cur = [], boy = 0; U.forEach(u => { const n = JSON.stringify(u).length + 1; if (boy + n > 600000 && cur.length) { P.push(cur); cur = []; boy = 0; } cur.push(u[3] === "Adet" ? u.slice(0, 3) : u); boy += n; }); if (cur.length) P.push(cur);
       if (P.length > 20) throw new Error("Katalog çok büyük; daha az ürün grubu seçin");
       d.textContent = `${nf(U.length)} ürün yayınlanıyor…`;
       for (let i = 0; i < P.length; i++) await setDoc(doc(fs, "web_katalog", "p" + i), { json: JSON.stringify(P[i]), at: Date.now() });
-      const json = JSON.stringify({ at: Date.now(), gruplar, u: [], parca: P.length, varyasyon: SP.cfg.varyasyon || "", varHazir: SP_VAR_HAZIR, renkler: SP.cfg.sikRenkler || [] });
+      const json = JSON.stringify({ at: Date.now(), gruplar, ust, u: [], parca: P.length, varyasyon: SP.cfg.varyasyon || "", varHazir: SP_VAR_HAZIR, renkler: SP.cfg.sikRenkler || [] });
       await setDoc(doc(fs, "web_katalog", "v1"), { json, at: Date.now(), by: ME.name, n: U.length, gruplar: G, parca: P.length });
       for (let i = P.length; i < P.length + 5; i++) deleteDoc(doc(fs, "web_katalog", "p" + i)).catch(() => {});
       d.textContent = `${nf(U.length)} ürün yayınlandı`; toast("Web kataloğu yayınlandı");
