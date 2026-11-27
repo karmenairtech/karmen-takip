@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "101";
+const APP_V = "102";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -11329,6 +11329,8 @@ const LF_F = {
   kp: (A, B, kl) => { const C = Math.max(A, B), D = A * B / 1e4 * 200, E = (20 + A + B) * 2 * (kl ? 0.25 : 0.189) / 100 * 44, F = (6 + A) * (6 + B) * 2 / 1e4 * 22, G = lfIf(C, [[60, 8.5], [100, 12.5], [150, 25]], 35); return lfSon((G + F + E + D) * 1.3); },
   volum: (A, B) => { const D = B / 10, G = (((A * 2 * 1.223) + ((B + 6) * 2 * 0.954)) / 100 + A * D * 0.84 / 100) * 44; return lfSon((17 + D * 4 + 2 + G) * 1.3); },
   kapi: (A, B) => { const C = B / 2 - 1, F = (2 * (A + B + 18) * 0.224 / 100 + C * A * 0.092 / 100) * 44, G = (3.24 + 3.1 + A) * (3.24 + 3.1 + B) * 2 / 1e4 * 22; return lfSon((5 + G + F) * 1.3); },
+  // DÜZ KANAT MENFEZ DAMPERİ (Excel satır 240; boya bedeli Excel'de 0 ile çarpılıyor)
+  duzDamper: (A, B) => { const C = Math.max(A, B), D = A / 4, G = (2 * (A + B) * 0.23 / 100 + D * B * 0.143 / 100) * 45, I = lfIf(C, [[60, 5], [80, 6], [100, 8], [120, 33]], 50); return lfSon((D * 0.045 + I + G) * 1.3); },
   banyo: (A, B) => { const C = Math.max(A, B), D = A / 4, G = (2 * (A + B + 18) * 0.224 / 100 + D * B * 0.143 / 100) * 44, H = (13.12 + A) * (13.12 + B) * 2 / 1e4 * 22, I = lfIf(C, [[60, 5], [80, 6], [100, 8], [120, 33]], 50); return lfSon((D * 0.045 * 2 + I + H + G) * 1.3); }
 };
 // Stok kartı → eski (USD, %40'a göre) liste fiyatı; formül yoksa null
@@ -11339,7 +11341,7 @@ function lfHesap(it) {
   const A = Math.max(G, Y) / 10, B = Math.min(G, Y) / 10, dik = A > 0 && B > 0;
   if (ana === "06" || ana === "07") { const L = Number((ad.match(/(\d{3,4})\s*MM/) || [])[1]) || G; const n = Number(alt); return L ? LF_F.slot(L / 10, n, ana === "07") : null; }
   if (!dik) return null;
-  const T = { "0101": () => LF_F.tsk(A, B), "0102": () => LF_F.tskD(A, B), "0201": () => LF_F.csk(A, B), "0202": () => LF_F.cskD(A, B), "0301": () => LF_F.lin(A, B), "0302": () => LF_F.linD(A, B), "0801": () => LF_F.mud(A, B), "0802": () => LF_F.kpMud(A, B) }[ana + alt];
+  const T = { "0101": () => LF_F.tsk(A, B), "0102": () => LF_F.tskD(A, B), "0103": () => LF_F.duzDamper(A, B), "0201": () => LF_F.csk(A, B), "0202": () => LF_F.cskD(A, B), "0301": () => LF_F.lin(A, B), "0302": () => LF_F.linD(A, B), "0801": () => LF_F.mud(A, B), "0802": () => LF_F.kpMud(A, B) }[ana + alt];
   if (T) return T();
   if (ana === "04") return LF_F.dhp(A, B, false);
   if (ana === "05") return LF_F.dhp(A, B, true);
