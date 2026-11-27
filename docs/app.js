@@ -7,7 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, arrayUnion, orderBy, limit, getCountFromServer, runTransaction
+  collection, doc, onSnapshot, setDoc as _setDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, addDoc as _addDoc, writeBatch as _writeBatch, query, where, getDoc, getDocs, increment, arrayUnion, orderBy, limit, getCountFromServer, runTransaction, documentId
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, BOOT_ADMINS, EXTRA_ICE, VAPID_KEY } from "./config.js";
 // Kullanım takibi için kullanıcının yaptığı kayıtlar sayılır (veri yazma işlevleri aynen çalışır)
@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "99";
+const APP_V = "100";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -252,6 +252,23 @@ function startData() {
   if (dataStarted) { showApp(); paintUser(); return; }
   dataStarted = true; showApp(); paintUser(); render();
   state.tasks = []; state.feedback = []; state.ready = false;
+  // MES tableti mi? (cihaz listesi config/mes'te; önbellekten hızlı gelir). Tabletler yalnızca üretim verisini yükler.
+  startMesCfg();
+  const karar = () => { if (MESC.ready || Date.now() - t0 > 4000) startDataAsil(); else setTimeout(karar, 50); }, t0 = Date.now(); karar();
+}
+// MES tableti hafif modu: yalnızca istasyonlar, iş akışları, açık iş emirleri (+ son 40 günde bitenler) ve bunların siparişleri yüklenir.
+// Tablet uykudan her uyandığında bütün koleksiyonları yeniden okumak yerine yalnızca bunlar okunur → hem hız hem okuma tasarrufu.
+const MESMOD = { on: false, spIds: new Set() };
+function startDataAsil() {
+  MESMOD.karar = true;
+  if (mesMyDev()) {
+    MESMOD.on = true; try { localStorage.setItem("karmen.mesmod", ME.email); } catch (e) {}
+    startNotif(); startPlan({ mes: true });
+    DT.jobs = []; DT.ready = true; SK.page = []; SK.stocked = []; SK.ready = true; CR.list = []; CR.ready = true; SA.talep = []; SA.teklif = []; SA.siparis = []; SA.fatura = []; SA.ready = true;
+    SP.list = []; SP.ready = true; TK.list = []; TK.ready = true; WEB.list = []; WEB.ready = true; CV.list = []; CV.ready = true; PT.people = []; PT.izin = []; PT.ozel = {}; PT.ready = true;
+    state.ready = true; render(); return;
+  }
+  try { localStorage.removeItem("karmen.mesmod"); } catch (e) {}
   startNotif();
   startMessages();
   startIncoming();
@@ -4273,13 +4290,32 @@ const saNoAl = async (pre, L, adet = 1) => sayacAl(pre + "-" + TODAY.slice(0, 4)
 const saNoYaz = (pre, n) => `${pre}-${TODAY.slice(0, 4)}-${String(n).padStart(4, "0")}`;
 const plNextNo = () => { const y = TODAY.slice(0, 4), mx = Math.max(0, ...PL.ie.map(e => { const m = String(e.no || "").match(new RegExp("^İE-" + y + "-(\\d+)$")); return m ? Number(m[1]) : 0; })); return `İE-${y}-${String(mx + 1).padStart(4, "0")}`; };
 
-function startPlan() {
+function startPlan(o = {}) {
   PL.ready = false; let a = false, b = false, c = false;
   const done = () => { PL.ready = a && b && c; plChanged(); };
   dataUnsubs.push(onSnapshot(collection(fs, "istasyon"), s => { PL.ist = s.docs.map(d => ({ id: d.id, ...d.data() })); a = true; done(); }, e => { a = true; done(); toast("İş istasyonları okunamadı: " + (e.code || e.message)); }));
   dataUnsubs.push(onSnapshot(collection(fs, "akis"), s => { PL.akis = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((x, y) => String(x.kod).localeCompare(String(y.kod), "tr")); b = true; done(); }, e => { b = true; done(); toast("İş akışları okunamadı: " + (e.code || e.message)); }));
+  if (o.mes) {   // tablet: açık iş emirleri + son 40 günde bitenler (tamamlanan işler ekranı için)
+    const A = new Map(), B = new Map(); let x1 = false, x2 = false;
+    const birles = () => { PL.ie = [...new Map([...B, ...A]).values()]; c = x1 && x2; done(); mesSipYukle(); };
+    dataUnsubs.push(onSnapshot(query(collection(fs, "isemri"), where("durum", "in", ["plan", "uretim", "bekle"])), s => { A.clear(); s.docs.forEach(d => A.set(d.id, { id: d.id, ...d.data() })); x1 = true; birles(); }, e => { x1 = true; birles(); toast("İş emirleri okunamadı: " + (e.code || e.message)); }));
+    dataUnsubs.push(onSnapshot(query(collection(fs, "isemri"), where("bitis", ">=", Date.now() - 40 * 864e5)), s => { B.clear(); s.docs.forEach(d => { const v = d.data(); if (v.durum === "bitti") B.set(d.id, { id: d.id, ...v }); }); x2 = true; birles(); }, () => { x2 = true; birles(); }));
+  } else
   dataUnsubs.push(onSnapshot(collection(fs, "isemri"), s => { PL.ie = s.docs.map(d => ({ id: d.id, ...d.data() })); c = true; done(); if (!IE_METRAJ_OK) setTimeout(() => stokAdSync().finally(ieMetrajGoc), 4000); }, e => { c = true; done(); toast("İş emirleri okunamadı: " + (e.code || e.message)); }));
   dataUnsubs.push(onSnapshot(doc(fs, "config", "planlama"), s => { const d = s.exists() ? s.data() : {}; PL.cfg = { mesaiBas: d.mesaiBas || "08:00", gunlukDk: Number(d.gunlukDk) || 540, cumartesi: d.cumartesi !== false }; plChanged(); }, () => {}));
+}
+// Tablet modunda yalnızca açık iş emirlerinin bağlı olduğu siparişler (30'arlık gruplar hâlinde) dinlenir
+function mesSipYukle() {
+  if (!MESMOD.on) return;
+  const A = PL.ie.filter(e => e.durum !== "bitti");
+  const yeni = [...new Set(A.flatMap(e => e.siparisIds || []).filter(Boolean))].filter(id => !MESMOD.spIds.has(id));
+  const yeniNo = [...new Set(A.filter(e => !(e.siparisIds || []).length && e.siparisNo).map(e => e.siparisNo))].filter(n => !MESMOD.spIds.has("no:" + n));
+  if (!yeni.length && !yeniNo.length) return;
+  yeni.forEach(id => MESMOD.spIds.add(id)); yeniNo.forEach(n => MESMOD.spIds.add("no:" + n));
+  const M = MESMOD.spMap = MESMOD.spMap || new Map();
+  const dinle = (alan, L) => { for (let i = 0; i < L.length; i += 30) dataUnsubs.push(onSnapshot(query(collection(fs, "siparis"), where(alan, "in", L.slice(i, i + 30))), s => {
+    s.docs.forEach(d => M.set(d.id, { id: d.id, ...d.data() })); SP.list = [...M.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); SP.ready = true; spChanged(); plChanged(); }, () => {})); };
+  dinle(documentId(), yeni); dinle("no", yeniNo);
 }
 let plDrawerRefresh = null;
 function plChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "planlama") renderPlan(); if (plDrawerRefresh) plDrawerRefresh(); }
@@ -9407,6 +9443,7 @@ const PL_TABS = [["genel", "Genel bakış"], ["havuz", "Planlanacak işler"], ["
 function startMesCfg() {
   if (MESC.unsub) return;
   MESC.unsub = onSnapshot(doc(fs, "config", "mes"), s => { const d = s.exists() ? s.data() : null; MESC.cfg = d ? { cihazlar: d.cihazlar || [], plTabs: d.plTabs || {}, mod: d.mod || "basit", kayitli: true } : { cihazlar: MES_DEV_DEF(), plTabs: {}, mod: "basit", kayitli: false }; MESC.ready = true;
+    if (MESMOD.karar && ME && !!mesMyDev() !== MESMOD.on) { setTimeout(() => location.reload(), 300); return; }
     const md = mesMyDev(); if (md && ((md.kilit === "tam" && ROUTE !== "planlama") || (!MES.ilkAcilis && ROUTE === "home"))) route(); else { if (ROUTE === "planlama") renderPlan(); if (ROUTE === "yetki") renderYtMes(); } }, () => { MESC.ready = true; });
   dataUnsubs.push(() => { try { MESC.unsub(); } catch (e) {} MESC.unsub = null; });
 }
@@ -11135,6 +11172,8 @@ function webOpen(id) {
     <div class="db">
       <section class="spsum" style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap"><div><b style="font-size:17px">${esc(k.firma || "")}</b><div class="note">${esc(k.ad || "")}${k.il ? " · " + esc(k.il) : ""}${k.proje ? " · Proje: " + esc(k.proje) : ""}</div><div class="note">${skTs(w.at)} · web sitesi</div></div>
         <div><span class="kst" style="--tc:${d[1]}">${esc(d[0])}</span>${w.teklifNo ? ` <span class="num skk">${esc(w.teklifNo)}</span>` : ""}</div></section>
+      ${(() => { const c = webCariBul(w); return `<section class="wbcari"><h3 class="sec-t">Cari</h3>${c ? `<div><span class="kst" style="--tc:var(--k-fabrikada)">Carilerde kayıtlı</span> <b>${esc(crAd(c))}</b> <span class="num skk">${esc(c.kod || "")}</span>${c.musteri ? "" : ' <span class="note">(tedarikçi kartı; teklife dönüştürünce müşteri olarak da işaretlenir)</span>'}</div>`
+        : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="kst" style="--tc:var(--k-gec)">Carilerde yok</span><span class="note">“${esc(k.firma || "")}” unvan, telefon ya da e-postayla bulunamadı.</span>${can("c.edit") ? '<button type="button" class="btn ghost sm" id="wbCari">Cariye ekle</button>' : ""}</div>`}</section>`; })()}
       <section><h3 class="sec-t">İletişim</h3><div class="wbil">
         ${k.tel ? `<a class="btn ghost sm" href="tel:${esc(tel)}">Ara · ${esc(k.tel)}</a><a class="btn ghost sm" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
         ${k.eposta ? `<a class="btn ghost sm" href="mailto:${esc(k.eposta)}">${esc(k.eposta)}</a>` : ""}</div></section>
@@ -11158,16 +11197,45 @@ function webOpen(id) {
   if (b("wbTk")) b("wbTk").onclick = () => { closeDrawer(); setTimeout(() => tkOpen(w.teklifId), 80); };
   if (b("wbSil")) { let arm = false; b("wbSil").onclick = async () => { if (!arm) { arm = true; b("wbSil").textContent = "Silinsin mi? Tekrar basın"; return; } try { await deleteDoc(doc(fs, "web_talep", w.id)); toast(w.no + " silindi"); closeDrawer(); } catch (e) { toast(writeErr(e)); } }; }
   if (b("wbDon")) b("wbDon").onclick = () => webTeklifeDonustur(w);
+  if (b("wbCari")) b("wbCari").onclick = async () => { b("wbCari").disabled = true; try { await webCariEkle(w); webOpen(w.id); } catch (x) { b("wbCari").disabled = false; toast(writeErr(x)); } };
 }
-function webTeklifeDonustur(w) {
-  const k = w.kisi || {}, f = araFold(k.firma || "");
-  const c = f ? CR.list.find(x => x.musteri && [x.kisaAd, x.unvan].some(a => a && (araFold(a) === f || (f.length > 5 && (araFold(a).includes(f) || f.includes(araFold(a))))))) : null;
+// Web talebinin firmasını carilerde bul: unvan / kısa ad, telefon ya da e-posta eşleşmesi
+function webCariBul(w) {
+  const k = w.kisi || {}, f = araFold(k.firma || ""), tel = String(k.tel || "").replace(/\D/g, "").slice(-10), ep = lower(k.eposta || "");
+  const adOk = x => f && [x.kisaAd, x.unvan].some(a => a && (araFold(a) === f || (f.length > 5 && araFold(a).length > 5 && (araFold(a).includes(f) || f.includes(araFold(a))))));
+  const telOk = x => tel.length === 10 && [x.tel, x.whatsapp, ...(x.yetkililer || []).map(y => y.tel)].some(t => String(t || "").replace(/\D/g, "").slice(-10) === tel);
+  const epOk = x => ep && [x.eposta, ...(x.yetkililer || []).map(y => y.eposta)].some(e => lower(e || "") === ep);
+  const L = CR.list.filter(x => x.aktif !== false);
+  return L.find(x => x.musteri && adOk(x)) || L.find(adOk) || L.find(x => x.musteri && (telOk(x) || epOk(x))) || L.find(x => telOk(x) || epOk(x)) || null;
+}
+async function webCariEkle(w) {
+  const k = w.kisi || {}, now = Date.now(), ref = doc(collection(fs, "cari"));
+  const data = { kod: crNextKod(), muhasebeKod: "", unvan: String(k.firma || "Web müşterisi").slice(0, 160), kisaAd: "", tedarikci: false, musteri: true, kategori: "", vd: "", vergiNo: "", mersis: "", adres: "", il: k.il || "", ilce: "", tel: k.tel || "", whatsapp: k.tel || "", eposta: k.eposta || "", web: "", vade: null, pb: "TRY",
+    iskGenel: 40, iskOzel: 0, iskonto: 40, iban: "", yetkililer: k.ad ? [{ ad: k.ad, gorev: "", tel: k.tel || "", eposta: k.eposta || "" }] : [], not: `Web sitesinden gelen teklif isteğiyle açıldı (${w.no})`, aktif: true, kaynak: "web", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+  await setDoc(ref, data); if (!crFind(ref.id)) CR.list.push({ id: ref.id, ...data });
+  toast(`${data.unvan} müşteri olarak carilere eklendi (${data.kod})`);
+  return { id: ref.id, ...data };
+}
+function webTeklifeDonustur(w, c0) {
+  const k = w.kisi || {};
+  const c = c0 || webCariBul(w);
+  if (!c && c0 !== false) {   // carilerde yok: sor
+    spModal(`<label>“${esc(k.firma || "")}” carilerde kayıtlı değil</label>
+      <p class="note" style="margin:0 0 10px">Teklif bir müşteriye bağlanmalı. Firmayı müşteri olarak carilere ekleyebilir (yetkili, telefon, e-posta ve il talepten aktarılır) ya da teklif formunda mevcut bir cariyi seçebilirsiniz.</p>
+      <div class="r">${can("c.edit") ? '<button type="button" class="btn" id="wcE">Cariye ekle ve devam et</button>' : ""}<button type="button" class="btn ghost" id="wcS">Formda cari seçeceğim</button><button type="button" class="btn ghost" id="wcV">Vazgeç</button></div>`, (h, done) => {
+      const e = h.querySelector("#wcE"); if (e) e.onclick = async () => { e.disabled = true; try { const yc = await webCariEkle(w); done(true); webTeklifeDonustur(w, yc); } catch (x) { e.disabled = false; toast(writeErr(x)); } };
+      h.querySelector("#wcS").onclick = () => { done(true); webTeklifeDonustur(w, false); };
+      h.querySelector("#wcV").onclick = () => done(false);
+    });
+    return;
+  }
+  if (c && !c.musteri && can("c.edit")) updateDoc(doc(fs, "cari", c.id), { musteri: true, updatedAt: Date.now(), updatedBy: ME.name }).then(() => { c.musteri = true; }).catch(() => {});
   const R = new Map(); (w.kalemler || []).forEach(x => { if (x.renk) R.set(spRenkKey(webRenk(x.renk)), { r: webRenk(x.renk), n: ((R.get(spRenkKey(webRenk(x.renk))) || {}).n || 0) + 1 }); });
   const renk = [...R.values()].sort((a, b) => b.n - a.n)[0];
   const kay = { no: w.no, web: true, cariId: c ? c.id : "", cariAd: k.firma || "", yetkili: k.ad || "", tel: k.tel || "", eposta: k.eposta || "", adres: k.il || "", santiye: k.proje || "", pb: "USD", kur: "", odeme: "", not: w.not || "", renk: renk ? renk.r : null, iskonto: null, dil: "TR",
     kalemler: (w.kalemler || []).map(x => ({ k: spNewK(), sid: x.sid || null, kod: x.kod || "", ad: x.ad, adEn: "", w: "", h: "", n: "", birim: x.birim || "Adet", miktar: Number(x.miktar) || 0, renk: webRenk(x.renk), var: x.var || {}, ozel: x.not || "", liste: null, isk: 0, kdv: 20 })) };
   closeDrawer();
-  if (!c) toast(`“${k.firma}” müşteri listesinde bulunamadı; teklif formunda müşteriyi seçin ya da yeni cari ekleyin`);
+  if (!c) toast(`Teklif formunda “${k.firma}” için müşteriyi seçin`);
   setTimeout(() => tkOpenForm(null, { spKaynak: kay, webKaynak: true, onSaved: async (tkId, tkNo) => { const w2 = WEB.list.find(x => x.id === w.id) || w; await webDurum(w2, "teklif", `${tkNo} teklifi hazırlandı`, { teklifId: tkId, teklifNo: tkNo }); } }), 80);
 }
 // Web formundaki ürün grupları (üst grup → ürün grubu). Ad ya da kodla eşleşir; eşleşmeyen gruplar "DİĞER ÜRÜNLER" altında görünür.
