@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "100";
+const APP_V = "101";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3322,7 +3322,7 @@ const skNorm = s => String(s || "").toLocaleLowerCase("tr").normalize("NFC");
 // Sunucu aramasında en seçici kelime: ölçü (rakam içeren) önce, sonra en uzun kelime; kalan kelimeler ekranda süzülür
 const skBestTok = q => { const t = skNorm(q).split(/[^0-9a-zçğıöşü]+/).filter(Boolean); return (t.filter(x => /\d/.test(x)).sort((a, b) => b.length - a.length)[0] || t.sort((a, b) => b.length - a.length)[0] || skNorm(q)).slice(0, 11); };
 // Müşteri iskontosu = genel müşteri iskontosu (herkese %40) + özel müşteri iskontosu
-const CR_GENEL_ISK = 40;
+const CR_GENEL_ISK = 55;   // 27.11.2026: liste fiyatları %55 iskontoya göre (net fiyat aynı)
 const crIskG = c => { if (!c) return CR_GENEL_ISK; if (c.iskGenel != null) return Number(c.iskGenel) || 0; return c.iskonto != null && Number(c.iskonto) < CR_GENEL_ISK ? Number(c.iskonto) || 0 : CR_GENEL_ISK; };
 const crIskO = c => { if (!c) return 0; if (c.iskOzel != null) return Number(c.iskOzel) || 0; return c.iskonto != null ? Math.max(0, (Number(c.iskonto) || 0) - CR_GENEL_ISK) : 0; };
 const crIsk = c => Math.min(100, crIskG(c) + crIskO(c));
@@ -8658,9 +8658,9 @@ function tkOpenListe() {
   $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="lfT" style="width:min(760px,100%)">
     <div class="dh"><h2 id="lfT">Satış liste fiyatları</h2><button class="x" id="lfX" aria-label="Kapat">×</button></div>
     <div class="db" id="lfB"><div class="izbal"><b>Excel'de "Stok kodu" ve "Liste fiyatı" sütunları olsun.</b><div class="note">İsteğe bağlı "Para birimi" sütunu (USD, EUR, TRY); yoksa USD kabul edilir. Fiyatlar stok kartına yazılır ve teklif hazırlarken kalemlere kendiliğinden gelir. Tek ürünün fiyatı stok kartından da değiştirilebilir.</div></div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="lfF">Excel dosyası seç</button><input type="file" id="lfFi" accept=".xlsx" hidden><span class="note" id="lfN"></span></div><div id="lfP"></div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn" id="lfFm">Liste fiyatlarını formülden hesapla</button><button type="button" class="btn ghost" id="lfF">Excel dosyası seç</button><input type="file" id="lfFi" accept=".xlsx" hidden><span class="note" id="lfN"></span></div><div id="lfP"></div></div>
     <div class="df"><span class="note" id="lfS"></span><div class="r"><button class="btn ghost" id="lfC" type="button">Vazgeç</button><button class="btn" id="lfK" type="button" disabled>Kaydet</button></div></div></aside>`;
-  $("#scrim").onclick = closeDrawer; $("#lfX").onclick = closeDrawer; $("#lfC").onclick = closeDrawer; $("#lfF").onclick = () => $("#lfFi").click();
+  $("#scrim").onclick = closeDrawer; $("#lfX").onclick = closeDrawer; $("#lfC").onclick = closeDrawer; $("#lfF").onclick = () => $("#lfFi").click(); $("#lfFm").onclick = lfFormulAc;
   $("#lfFi").onchange = async e => { const fl = e.target.files[0]; e.target.value = ""; if (!fl) return; $("#lfN").textContent = "Okunuyor…";
     try { const S = await skReadXlsx(fl, true); R = [];
       S.forEach(sh => { const rows = sh.rows; const hi = rows.findIndex(r => r.some(c => /stokkod|^kod$/.test(pkN(c)))); if (hi < 0) return; const h = rows[hi].map(pkN), ik = h.findIndex(c => /stokkod|^kod$/.test(c)), ifi = h.findIndex(c => /listefiyat|satisfiyat|^fiyat/.test(c)), ip = h.findIndex(c => /parabirim|doviz|^pb$/.test(c));
@@ -8673,7 +8673,7 @@ function tkOpenListe() {
       $("#lfS").textContent = `${R.length - yok.length} fiyat yazılacak`; $("#lfK").disabled = R.length === yok.length;
     } catch (x) { console.error(x); $("#lfN").textContent = "Dosya okunamadı: " + (x.message || x); } };
   $("#lfK").onclick = async () => { const b = $("#lfK"); b.disabled = true; const now = Date.now(), W2 = R.filter(r => r.sid);
-    try { for (let i = 0; i < W2.length; i += 400) { const bt = writeBatch(fs); W2.slice(i, i + 400).forEach(r => bt.set(doc(fs, "satis_fiyat", r.sid), { liste: r.fy, pb: r.pb, kod: r.kod, updatedAt: now, updatedBy: ME.name }, { merge: true })); await bt.commit(); b.textContent = `Yazılıyor… ${Math.min(i + 400, W2.length)}/${W2.length}`; }
+    try { for (let i = 0; i < W2.length; i += 400) { const bt = writeBatch(fs); W2.slice(i, i + 400).forEach(r => bt.set(doc(fs, "satis_fiyat", r.sid), { liste: r.fy, pb: r.pb, kod: r.kod, kaynak: "excel", isk55: true, updatedAt: now, updatedBy: ME.name }, { merge: true })); await bt.commit(); b.textContent = `Yazılıyor… ${Math.min(i + 400, W2.length)}/${W2.length}`; }
       tkFiyatCache.clear(); toast(`${W2.length} liste fiyatı kaydedildi`); closeDrawer(); } catch (x) { b.disabled = false; b.textContent = "Kaydet"; toast(writeErr(x)); } };
 }
 // Stok kartında liste fiyatı satırı
@@ -8684,7 +8684,7 @@ function tkStokListe(it) {
     const b = document.getElementById("skListeEd"); if (b) b.onclick = async () => { const v0 = await prompt2(`${it.kod} satış liste fiyatı (USD; farklı para birimi için sonuna EUR / TRY yazın)`); if (v0 == null || !v0.trim()) return;
       const m = v0.trim().toUpperCase().match(/^([\d.,]+)\s*(USD|EUR|TRY|TL)?$/); if (!m) { toast("Örnek: 12,50 ya da 450 TRY"); return; }
       const fy = Number(m[1].replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")), pb = (m[2] || "USD").replace("TL", "TRY");
-      try { await setDoc(doc(fs, "satis_fiyat", it.id), { liste: fy, pb, kod: it.kod, updatedAt: Date.now(), updatedBy: ME.name }, { merge: true }); tkFiyatCache.delete(it.id); toast("Liste fiyatı kaydedildi"); el.innerHTML = `Liste fiyatı: <b>${money(fy, pb)}</b>`; } catch (x) { toast(writeErr(x)); } }; }, 0);
+      try { await setDoc(doc(fs, "satis_fiyat", it.id), { liste: fy, pb, kod: it.kod, kaynak: "elle", isk55: true, updatedAt: Date.now(), updatedBy: ME.name }, { merge: true }); tkFiyatCache.delete(it.id); toast("Liste fiyatı kaydedildi"); el.innerHTML = `Liste fiyatı: <b>${money(fy, pb)}</b>`; } catch (x) { toast(writeErr(x)); } }; }, 0);
   return '<span class="skyol" id="skListe">Liste fiyatı yükleniyor…</span>';
 }
 
@@ -11211,7 +11211,7 @@ function webCariBul(w) {
 async function webCariEkle(w) {
   const k = w.kisi || {}, now = Date.now(), ref = doc(collection(fs, "cari"));
   const data = { kod: crNextKod(), muhasebeKod: "", unvan: String(k.firma || "Web müşterisi").slice(0, 160), kisaAd: "", tedarikci: false, musteri: true, kategori: "", vd: "", vergiNo: "", mersis: "", adres: "", il: k.il || "", ilce: "", tel: k.tel || "", whatsapp: k.tel || "", eposta: k.eposta || "", web: "", vade: null, pb: "TRY",
-    iskGenel: 40, iskOzel: 0, iskonto: 40, iban: "", yetkililer: k.ad ? [{ ad: k.ad, gorev: "", tel: k.tel || "", eposta: k.eposta || "" }] : [], not: `Web sitesinden gelen teklif isteğiyle açıldı (${w.no})`, aktif: true, kaynak: "web", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
+    iskGenel: CR_GENEL_ISK, iskOzel: 0, iskonto: CR_GENEL_ISK, iban: "", yetkililer: k.ad ? [{ ad: k.ad, gorev: "", tel: k.tel || "", eposta: k.eposta || "" }] : [], not: `Web sitesinden gelen teklif isteğiyle açıldı (${w.no})`, aktif: true, kaynak: "web", createdAt: now, createdBy: ME.name, updatedAt: now, updatedBy: ME.name };
   await setDoc(ref, data); if (!crFind(ref.id)) CR.list.push({ id: ref.id, ...data });
   toast(`${data.unvan} müşteri olarak carilere eklendi (${data.kod})`);
   return { id: ref.id, ...data };
@@ -11303,5 +11303,95 @@ async function webCfg() {
       d.textContent = `${nf(U.length)} ürün yayınlandı`; toast("Web kataloğu yayınlandı");
     } catch (e) { d.textContent = ""; toast(e && e.code ? writeErr(e) : (e.message || String(e))); }
     b.disabled = false;
+  };
+}
+
+/* ================= LİSTE FİYATI FORMÜLLERİ =================
+   Kaynak: menfez_maliyet_program_.xlsx (Kar-Men fiyat programı). Formüller birebir aktarıldı ve Excel ile karşılaştırılarak doğrulandı.
+   Girdi: stok kartındaki ölçü (mm) → cm; A = BOY (büyük / ilk ölçü), B = EN. Excel'in sonucu %40 iskontoya göre USD listedir;
+   yeni liste %55 iskontoyla aynı net fiyatı verecek şekilde × 0,60 / 0,45 ile büyütülür. */
+const LF_KUR = 8, LF_ISK_ESKI = 0.40, LF_ISK_YENI = 0.55, LF_CARPAN = (1 - LF_ISK_ESKI) / (1 - LF_ISK_YENI);
+const lfIf = (x, S, son) => { for (const [l, v] of S) if (x <= l) return v; return son; };
+const lfSon = m => m * 100 / 45 / LF_KUR;   // (maliyet + kâr) → USD liste (eski)
+const LF_F = {
+  tsk: (A, B) => { const C = Math.max(A, B), D = B / 2 - 1, G = (2 * (A + B + 18) * 0.224 / 100 + D * A * 0.092 / 100) * 44, H = (12.6 + A) * (12.6 + B) * 2 / 1e4 * 22, I = lfIf(C, [[60, 5], [80, 6.25], [100, 8.5], [120, 12.5], [150, 30]], 40), J = I + H + G; return lfSon(J * 1.3); },
+  tskD: (A, B) => { const C = Math.max(A, B), D = B / 2 - 1, E = C / 4, I = (2 * (A + B + 18) * 0.271 / 100 + A * D * 0.092 / 100 + E * B * 0.143 / 100) * 44, J = (12.68 + A) * (12.68 + B) * 2 / 1e4 * 22, K = lfIf(C, [[60, 5.5], [80, 8.5], [100, 12.5], [120, 25], [140, 50]], 80); return lfSon((K + J + I) * 1.4); },
+  csk: (A, B) => { const C = Math.max(A, B), D = B / 2 - 1, E = A / 2 - 1, I = (2 * (A + B + 18) * 0.271 / 100 + A * D * 0.092 / 100 + B * E * 0.092 / 100) * 44, J = (12.68 + A) * (12.68 + B) * 2 / 1e4 * 22, K = lfIf(C, [[60, 5.5], [80, 8.5], [100, 12.5], [120, 25], [140, 50]], 80); return lfSon((K + J + I) * 1.3); },
+  // Excel'deki gibi: işçilik "KNT 2" (A/2-1) değerine göre
+  cskD: (A, B) => { const C = Math.max(A, B), D = B / 2 - 1, E = A / 2 - 1, F = C / 4, K = (2 * (A + B + 18) * 0.284 / 100 + A * D * 0.092 / 100 + B * E * 0.092 / 100 + F * B * 0.143 / 100) * 44, L = (12.68 + A) * (12.68 + B) * 2 / 1e4 * 22, M = lfIf(E, [[60, 11], [80, 15], [100, 20], [120, 25], [140, 50]], 80); return lfSon((M + L + K) * 1.3); },
+  lin: (A, B) => { const C = Math.max(A, B), D = B / 1.4, I = (B * 0.066 * 2 / 100 + B * 0.075 * 2 / 100 + (A + B + 17) * 2 * 0.19 / 100 + A * D * 0.082 / 100) * 44, J = (12 + A) * (12 + B) * 2 / 1e4 * 22, K = lfIf(C, [[100, 10], [150, 12.5], [200, 16.5], [250, 25]], 35); return lfSon((K + J + I) * 1.3); },
+  linD: (A, B) => { const C = Math.max(A, B), D = B / 1.4, E = A / 4, K = (B * 0.066 * 2 / 100 + B * 0.075 * 2 / 100 + (A + B + 17) * 2 * 0.19 / 100 + A * D * 0.082 / 100 + E * B * 0.143 / 100) * 44, L = (12 + A) * (12 + B) * 2 / 1e4 * 22, M = lfIf(C, [[100, 15], [150, 17.5], [200, 20], [250, 25]], 35); return lfSon((M + L + K) * 1.35); },
+  dhp: (A, B, bk) => { const C = Math.max(A, B), D = bk ? B / 5 : B / 4, H = ((24 + A + B) * 2 * (bk ? 0.42 : 0.213) / 100 + A * D * (bk ? 0.349 : 0.143) / 100) * 44, G = (8 + A) * (8 + B) / 1e4 * 25, I = (19 + A) * (19 + B) * 2 / 1e4 * 22, J = lfIf(C, [[50, 10], [100, 12.5], [150, 16.5], [200, 25], [250, 50]], 70); return lfSon((J + I + H + G) * 1.3); },
+  slot: (A, n, gz) => { const IS = { 1: [[100, 7], [150, 8.5], [200, 10], [250, 15]], 2: [[100, 8.5], [150, 10.5], [200, 13], [250, 18]], 3: [[100, 10], [150, 12.5], [200, 16.5], [250, 25]], 4: [[100, 12.5], [150, 16.5], [200, 25], [250, 33.5]], 5: [[100, 16.5], [150, 25], [200, 33.5], [250, 43.5]], 6: [[100, 25], [150, 33.5], [200, 43.5], [250, 53.5]] }, SN = { 1: 25, 2: 25, 3: 35, 4: 43.5, 5: 50, 6: 65 };
+    if (!IS[n]) return null; const C = n - 1, D = (n * 3.2 + 5 + A) * 2 / 100 * (gz ? 0.485 : 0.439), E = C * A * 0.292 / 100, F = A * n * 2 * 0.102 / 100 * 44, G = n * 3.2 * 3 * 0.066 / 100, H = n * 3.2 * 3 * 0.075 / 100, I = (D + E + G + H) * 44, J = (C * 6 + 18) * (A + 18) * 2 / 1e4 * 22, K = lfIf(A, IS[n], SN[n]); return lfSon((F + I + J + K) * 1.3); },
+  mud: (A, B) => { const C = Math.max(A, B), F = (A + B + 24) * 2 / 100 * 0.346 * 44, G = (A + 3) * (B + 1) / 1e4 * 4.8 * 13, I = (A + 10) * (B + 10) * 2 / 1e4 * 22, J = lfIf(C, [[60, 8.5], [100, 12.5]], 16.5); return lfSon((J + I + 4.6 + G + F) * 1.3); },
+  kpMud: (A, B) => { const C = Math.max(A, B), D = A * B / 1e4 * 200, E = (24 + A + B) * 2 / 100 * 0.346 * 44, F = (A + B) * 2 / 100 * 0.143 * 44, G = (10 + A) * (B + 10) * 2 / 1e4 * 22, I = lfIf(C, [[60, 12.5], [100, 16.5], [150, 25]], 40); return lfSon((I + 4.6 + G + F + E + D) * 1.3); },
+  kp: (A, B, kl) => { const C = Math.max(A, B), D = A * B / 1e4 * 200, E = (20 + A + B) * 2 * (kl ? 0.25 : 0.189) / 100 * 44, F = (6 + A) * (6 + B) * 2 / 1e4 * 22, G = lfIf(C, [[60, 8.5], [100, 12.5], [150, 25]], 35); return lfSon((G + F + E + D) * 1.3); },
+  volum: (A, B) => { const D = B / 10, G = (((A * 2 * 1.223) + ((B + 6) * 2 * 0.954)) / 100 + A * D * 0.84 / 100) * 44; return lfSon((17 + D * 4 + 2 + G) * 1.3); },
+  kapi: (A, B) => { const C = B / 2 - 1, F = (2 * (A + B + 18) * 0.224 / 100 + C * A * 0.092 / 100) * 44, G = (3.24 + 3.1 + A) * (3.24 + 3.1 + B) * 2 / 1e4 * 22; return lfSon((5 + G + F) * 1.3); },
+  banyo: (A, B) => { const C = Math.max(A, B), D = A / 4, G = (2 * (A + B + 18) * 0.224 / 100 + D * B * 0.143 / 100) * 44, H = (13.12 + A) * (13.12 + B) * 2 / 1e4 * 22, I = lfIf(C, [[60, 5], [80, 6], [100, 8], [120, 33]], 50); return lfSon((D * 0.045 * 2 + I + H + G) * 1.3); }
+};
+// Stok kartı → eski (USD, %40'a göre) liste fiyatı; formül yoksa null
+function lfHesap(it) {
+  const kod = String(it.kod || ""), m = kod.match(/^M-(\d{2})(\d{2})/); if (!m) return null;
+  const ana = m[1], alt = m[2], ad = String(it.ad || "").toLocaleUpperCase("tr"), grp = trFold(it.anaGrup || "");
+  const o = skOlcuOf(ad), G = Number(it.olcuG || o.olcuG) || 0, Y = Number(it.olcuY || o.olcuY) || 0;
+  const A = Math.max(G, Y) / 10, B = Math.min(G, Y) / 10, dik = A > 0 && B > 0;
+  if (ana === "06" || ana === "07") { const L = Number((ad.match(/(\d{3,4})\s*MM/) || [])[1]) || G; const n = Number(alt); return L ? LF_F.slot(L / 10, n, ana === "07") : null; }
+  if (!dik) return null;
+  const T = { "0101": () => LF_F.tsk(A, B), "0102": () => LF_F.tskD(A, B), "0201": () => LF_F.csk(A, B), "0202": () => LF_F.cskD(A, B), "0301": () => LF_F.lin(A, B), "0302": () => LF_F.linD(A, B), "0801": () => LF_F.mud(A, B), "0802": () => LF_F.kpMud(A, B) }[ana + alt];
+  if (T) return T();
+  if (ana === "04") return LF_F.dhp(A, B, false);
+  if (ana === "05") return LF_F.dhp(A, B, true);
+  // M-09 sonrası gruplar adla eşleşir (kod sistemi içe aktarmayla oluştu)
+  if (grp === trFold("HAVA AYAR DAMPERİ")) return LF_F.volum(A, B);
+  if (grp === trFold("KARE PETEK MENFEZ") || grp === trFold("KARE PETEK")) return LF_F.kp(A, B, /KLİPİN|CLİPİN/.test(ad));
+  if (grp === trFold("KAPI TRANSFER MENFEZİ")) return LF_F.kapi(A, B);
+  if (ana === "17" || grp === trFold("HAREKETLİ KANAT DIŞ HAVA PANJURU (BANYO)")) return LF_F.banyo(A, B);
+  return null;
+}
+const lfYeni = it => { const e = lfHesap(it); return e == null || !isFinite(e) || e <= 0 ? null : Math.round(e * LF_CARPAN * 100) / 100; };
+// Liste fiyatlarını formülden hesapla: önizleme → kaydet. Müşteri iskontoları da aynı net fiyatı koruyacak şekilde (bir kez) güncellenir.
+async function lfFormulAc() {
+  if (!can("sp.fiyat")) return;
+  const h = $("#lfB"); if (!h) return;
+  h.innerHTML = '<p class="note">Mamul stok kartları ve mevcut liste fiyatları okunuyor…</p>'; $("#lfK").disabled = true;
+  let U, F;
+  try {
+    const [s1, s2] = await Promise.all([getDocs(query(collection(fs, "stok"), where("kod", ">=", "M-"), where("kod", "<=", "M-"))), getDocs(collection(fs, "satis_fiyat"))]);
+    U = s1.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => i.aktif !== false); F = new Map(s2.docs.map(d => [d.id, d.data()]));
+  } catch (e) { h.innerHTML = `<p class="note">Okunamadı: ${esc(writeErr(e))}</p>`; return; }
+  const R = U.map(it => ({ it, yeni: lfYeni(it), eski: F.get(it.id) })).filter(r => r.yeni != null && !(r.eski && r.eski.kaynak === "elle"));
+  const disari = [...F.entries()].filter(([id, d]) => !R.some(r => r.it.id === id) && d && d.liste != null && d.kaynak !== "formul" && !d.isk55);
+  const grp = new Map(); R.forEach(r => { const k = r.it.kod.slice(0, 4); grp.set(k, (grp.get(k) || 0) + 1); });
+  const fiyatsiz = [...new Set(U.filter(i => !R.some(r => r.it.id === i.id)).map(i => i.kod.slice(0, 4) + " " + (i.anaGrup || "")))].sort();
+  const ornek = R.filter((r, i) => i % Math.max(1, Math.floor(R.length / 12)) === 0).slice(0, 12);
+  let cfg0 = {}; try { const s = await getDoc(doc(fs, "config", "siparis")); cfg0 = s.exists() ? s.data() : {}; } catch (e) { }
+  const iskYapildi = !!cfg0.isk55;
+  const mus = CR.list.filter(c => c.musteri);
+  h.innerHTML = `<div class="izbal"><b>Liste fiyatları formülden hesaplanacak</b><div class="note">Kaynak: Kar-Men fiyat programı (Excel). Ölçü stok kodundan alınır (mm → cm). Yeni liste = eski liste × 0,60 / 0,45 → <b>%55 iskontoyla net fiyat %40'taki ile aynı</b>. USD, 2 ondalık.</div></div>
+    <div class="cxst" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:10px 0"><div><span>Fiyatlanacak ürün</span><b class="num">${nf(R.length)}</b><small>${grp.size} ürün grubu</small></div><div><span>Fiyatı değişecek</span><b class="num">${nf(R.filter(r => !r.eski || r.eski.liste !== r.yeni).length)}</b><small>mevcut liste fiyatı farklı</small></div><div><span>Formülü olmayan mamul</span><b class="num">${nf(U.length - R.length)}</b><small>fiyatsız kalır</small></div></div>
+    <h4 style="margin:10px 0 6px">Örnek fiyatlar</h4><div class="lfor">${ornek.map(r => `<div><span class="num skk">${esc(r.it.kod)}</span><span>${esc(r.it.ad)}</span><b class="num">${money(r.yeni, "USD")}</b><small class="num">net %55: ${money(r.yeni * (1 - LF_ISK_YENI), "USD")}</small></div>`).join("")}</div>
+    ${fiyatsiz.length ? `<details style="margin-top:8px"><summary class="note">Formülü olmayan gruplar (${fiyatsiz.length})</summary><p class="note">${esc(fiyatsiz.join(" · "))}</p></details>` : ""}
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px">
+      ${disari.length ? `<label class="chk"><input type="checkbox" id="lfX55" checked> Formül dışındaki ${disari.length} mevcut liste fiyatını da × ${String(LF_CARPAN.toFixed(4)).replace(".", ",")} artır (net fiyat değişmesin)</label>` : ""}
+      ${!iskYapildi && can("c.edit") ? `<label class="chk"><input type="checkbox" id="lfMus" checked> ${mus.length} müşterinin iskontosunu yeni listeye göre güncelle: genel %40 → %55, özel iskonto net fiyat aynı kalacak şekilde yeniden hesaplanır (bir kez yapılır)</label>` : iskYapildi ? '<p class="note">Müşteri iskontoları daha önce %55 listesine göre güncellendi.</p>' : '<p class="note" style="color:#d92d20">Müşteri iskontolarını güncellemek için cari düzenleme yetkisi gerekir.</p>'}
+    </div>`;
+  $("#lfS").textContent = `${nf(R.length)} liste fiyatı yazılacak`; const k = $("#lfK"); k.disabled = !R.length; k.textContent = "Formül fiyatlarını kaydet";
+  k.onclick = async () => {
+    k.disabled = true; const now = Date.now(), W = [];
+    R.forEach(r => W.push([r.it.id, { liste: r.yeni, pb: "USD", kod: r.it.kod, kaynak: "formul", updatedAt: now, updatedBy: ME.name }]));
+    if ($("#lfX55") && $("#lfX55").checked) disari.forEach(([id, d]) => W.push([id, { liste: Math.round(Number(d.liste) * LF_CARPAN * 100) / 100, isk55: true, updatedAt: now, updatedBy: ME.name }]));
+    try {
+      for (let i = 0; i < W.length; i += 400) { const b = writeBatch(fs); W.slice(i, i + 400).forEach(([id, d]) => b.set(doc(fs, "satis_fiyat", id), d, { merge: true })); await b.commit(); $("#lfS").textContent = `${nf(Math.min(i + 400, W.length))} / ${nf(W.length)} yazıldı`; }
+      let mn = 0;
+      if ($("#lfMus") && $("#lfMus").checked) {
+        // eski toplam t → yeni toplam 1 - (1 - t) × 0,45/0,60 ; genel %55, kalan özel
+        const MU = mus.map(c => { const t = crIsk(c) / 100, yt = Math.min(1, 1 - (1 - t) / LF_CARPAN), oz = Math.max(0, Math.round((yt * 100 - 55) * 100) / 100); return [c.id, { iskGenel: 55, iskOzel: oz, iskonto: Math.min(100, 55 + oz), updatedAt: now, updatedBy: ME.name }]; });
+        for (let i = 0; i < MU.length; i += 400) { const b = writeBatch(fs); MU.slice(i, i + 400).forEach(([id, d]) => b.update(doc(fs, "cari", id), d)); await b.commit(); }
+        await setDoc(doc(fs, "config", "siparis"), { isk55: true, isk55At: now, isk55By: ME.name }, { merge: true }); mn = MU.length;
+      }
+      tkFiyatCache.clear(); toast(`${nf(R.length)} liste fiyatı kaydedildi${mn ? ` · ${mn} müşterinin iskontosu güncellendi` : ""}`); closeDrawer();
+    } catch (e) { k.disabled = false; toast(writeErr(e)); }
   };
 }
