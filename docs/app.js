@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "102";
+const APP_V = "103";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -7242,7 +7242,7 @@ function startSP() {
     e => { SP.ready = true; spChanged(); toast("Siparişler okunamadı: " + (e.code || e.message)); }));
   SP.fiyat = {};
   if (can("sp.fiyat") || can("mh.fiyat")) dataUnsubs.push(onSnapshot(collection(fs, "siparis_fiyat"), s => { SP.fiyat = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); spChanged(); }, () => {}));
-  dataUnsubs.push(onSnapshot(doc(fs, "config", "siparis"), s => { const d = s.exists() ? s.data() : {}; SP.cfg = { sikRenkler: Array.isArray(d.sikRenkler) && d.sikRenkler.length ? d.sikRenkler : ["9016", "9010", "7016", "9005", "9006", "7035"], varyasyon: d.varyasyon ?? SP_VAR_DEF, tkNotTR: d.tkNotTR, tkNotEN: d.tkNotEN, tkFirma: d.tkFirma, tkFirmaV: d.tkFirmaV, tkGecerlilik: d.tkGecerlilik, tkTeslimSure: d.tkTeslimSure, tkKase: d.tkKase }; spChanged(); }, () => {}));
+  dataUnsubs.push(onSnapshot(doc(fs, "config", "siparis"), s => { const d = s.exists() ? s.data() : {}; if (d.isk55 && !d.isk55fix) isk55Duzelt(); SP.cfg = { sikRenkler: Array.isArray(d.sikRenkler) && d.sikRenkler.length ? d.sikRenkler : ["9016", "9010", "7016", "9005", "9006", "7035"], varyasyon: d.varyasyon ?? SP_VAR_DEF, tkNotTR: d.tkNotTR, tkNotEN: d.tkNotEN, tkFirma: d.tkFirma, tkFirmaV: d.tkFirmaV, tkGecerlilik: d.tkGecerlilik, tkTeslimSure: d.tkTeslimSure, tkKase: d.tkKase }; spChanged(); }, () => {}));
   if (lvl("satinalma") === "none") dataUnsubs.push(onSnapshot(doc(fs, "config", "satinalma"), s => { const d = s.exists() ? s.data() : {}; SA.cfg = { ...SA.cfg, firma: { ...SA.cfg.firma, ...(d.firma || {}) } }; }, () => {}));
 }
 function spChanged() { if ($("#app").hidden) return; renderHome(); if (ROUTE === "siparis") renderSP(); if (ROUTE === "sevkiyat") renderSV(); if (ROUTE === "muhasebe") renderMH(); if (ROUTE === "planlama" && PL.view === "havuz") renderPlan(); if (spDrawerRefresh) spDrawerRefresh(); }
@@ -11353,6 +11353,23 @@ function lfHesap(it) {
   return null;
 }
 const lfYeni = it => { const e = lfHesap(it); return e == null || !isFinite(e) || e <= 0 ? null : Math.round(e * LF_CARPAN * 100) / 100; };
+// Eski (%40 listesine göre) toplam iskonto: genel alanı olmayan kartlarda varsayılan %40'tı
+const crIskEski = c => { const g = c.iskGenel != null ? Number(c.iskGenel) || 0 : c.iskonto != null && Number(c.iskonto) < 40 ? Number(c.iskonto) || 0 : 40;
+  const o = c.iskOzel != null ? Number(c.iskOzel) || 0 : c.iskonto != null ? Math.max(0, (Number(c.iskonto) || 0) - 40) : 0; return Math.min(100, g + o); };
+// 27.11.2026 düzeltmesi: iskonto güncellemesinde kayıtlı genel iskontosu olmayan müşteriler %40 yerine %55'ten hesaplandı → hepsine %11,25 özel iskonto yazıldı.
+// Bu müşterilerin özel iskontosu sıfırlanır (genel %55 kalır). Bir kez, yönetici açtığında çalışır.
+let isk55Calisiyor = false;
+async function isk55Duzelt() {
+  if (isk55Calisiyor || !isAdmin() || !can("c.edit")) return; isk55Calisiyor = true;
+  for (let i = 0; i < 60 && !CR.ready; i++) await new Promise(r => setTimeout(r, 500));
+  try {
+    const now = Date.now(), L = CR.list.filter(c => c.musteri && Number(c.iskGenel) === 55 && Math.abs((Number(c.iskOzel) || 0) - 11.25) < 0.01);
+    for (let i = 0; i < L.length; i += 400) { const b = writeBatch(fs); L.slice(i, i + 400).forEach(c => b.update(doc(fs, "cari", c.id), { iskOzel: 0, iskonto: 55, updatedAt: now, updatedBy: ME.name })); await b.commit(); }
+    await setDoc(doc(fs, "config", "siparis"), { isk55fix: true, isk55fixAt: now, isk55fixN: L.length }, { merge: true });
+    if (L.length) toast(`${L.length} müşterideki %11,25 özel iskonto kaldırıldı (genel %55)`);
+  } catch (e) { console.warn("iskonto düzeltme", e); }
+  isk55Calisiyor = false;
+}
 // Liste fiyatlarını formülden hesapla: önizleme → kaydet. Müşteri iskontoları da aynı net fiyatı koruyacak şekilde (bir kez) güncellenir.
 async function lfFormulAc() {
   if (!can("sp.fiyat")) return;
@@ -11389,7 +11406,7 @@ async function lfFormulAc() {
       let mn = 0;
       if ($("#lfMus") && $("#lfMus").checked) {
         // eski toplam t → yeni toplam 1 - (1 - t) × 0,45/0,60 ; genel %55, kalan özel
-        const MU = mus.map(c => { const t = crIsk(c) / 100, yt = Math.min(1, 1 - (1 - t) / LF_CARPAN), oz = Math.max(0, Math.round((yt * 100 - 55) * 100) / 100); return [c.id, { iskGenel: 55, iskOzel: oz, iskonto: Math.min(100, 55 + oz), updatedAt: now, updatedBy: ME.name }]; });
+        const MU = mus.map(c => { const t = crIskEski(c) / 100, yt = Math.min(1, 1 - (1 - t) / LF_CARPAN), oz = Math.max(0, Math.round((yt * 100 - 55) * 100) / 100); return [c.id, { iskGenel: 55, iskOzel: oz, iskonto: Math.min(100, 55 + oz), updatedAt: now, updatedBy: ME.name }]; });
         for (let i = 0; i < MU.length; i += 400) { const b = writeBatch(fs); MU.slice(i, i + 400).forEach(([id, d]) => b.update(doc(fs, "cari", id), d)); await b.commit(); }
         await setDoc(doc(fs, "config", "siparis"), { isk55: true, isk55At: now, isk55By: ME.name }, { merge: true }); mn = MU.length;
       }
