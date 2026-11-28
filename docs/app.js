@@ -25,7 +25,7 @@ const writeBatch = f => { const b = _writeBatch(f), c = b.commit.bind(b), Q = []
 
 /* ================= Sürüm kontrolü ================= */
 // index.html ile app.js farklı sürümden gelirse (tarayıcı/GitHub önbelleği) sayfayı bir kez tazele
-const APP_V = "105";
+const APP_V = "106";
 (() => {
   const m = document.querySelector('meta[name="app-version"]');
   const k = "karmen-reload-" + APP_V;
@@ -3499,6 +3499,7 @@ function renderStok() {
   document.querySelectorAll("#skTabs [data-sv]").forEach(b => { b.setAttribute("aria-pressed", b.dataset.sv === SK.view ? "true" : "false"); b.onclick = () => { SK.view = b.dataset.sv; closeDrawer(); renderStok(); }; });
   $("#skAdd").hidden = !can("s.edit"); $("#skAdd").onclick = () => skOpenCard(null);
   const ob = $("#skOlcuBtn"); if (ob) ob.onclick = () => skOpenOlcu();
+  const kab = $("#skKaBtn"); if (kab) kab.onclick = kaTopluAc;
   $("#skCfgBtn").hidden = !can("s.cfg"); $("#skCfgBtn").onclick = skOpenCfg;
   { const fb = $("#skFixBtn"); if (fb) { fb.hidden = !isAdmin(); fb.onclick = skKarakterOnar; } }
   const v = $("#skView");
@@ -3639,7 +3640,8 @@ function skOpenCard(id, tab) {
   const it = id ? skFind(id) : null; if (id && !it) { skGet(id).then(x => x ? skOpenCard(id, tab) : toast("Stok kartı bulunamadı")); return; }
   const ed = can("s.edit"), pr = can("s.price"), dis = ed ? "" : " disabled";
   const sid = it ? it.id : doc(collection(fs, "stok")).id;
-  let T = it ? (tab || "kart") : "kart", hist = [], histUnsub = null, foto = null, fotoNew = undefined, form = null;
+  let T = it ? (tab || "kart") : "kart", hist = [], histUnsub = null, foto = null, fotoNew = undefined, form = null, kaP = null;
+  if (T === "agac" && !(it && kaTip(it))) T = "kart";
   if (it) {
     histUnsub = onSnapshot(query(collection(fs, "stok_hareket"), where("sid", "==", it.id)), s => { hist = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.ts || 0) - (a.ts || 0)); if (T !== "kart") paint(); else { const c = $("#skHc"); if (c) c.textContent = hist.length; } }, () => {});
     getDoc(doc(fs, "stok_foto", it.id)).then(s => { if (s.exists()) { foto = s.data().data; const b = $("#skFoto"); if (b && fotoNew === undefined) paintFoto(); } }).catch(() => {});
@@ -3658,8 +3660,8 @@ function skOpenCard(id, tab) {
       ${cur ? `<div class="skhead"><div class="skbig" style="--tc:${L.c}"><b class="num">${nf(cur.miktar)}</b><span>${esc(cur.birim || "Adet")} · ${L.l}</span></div>
         <div class="skhm"><span>${esc([cur.depo, cur.adres].filter(Boolean).join(" · ") || "Depo girilmedi")}</span><span>Min ${nf(cur.minStok)}${cur.maxStok ? " · Max " + nf(cur.maxStok) : ""}${cur.sonHareket ? " · son hareket " + skTs(cur.sonHareket) : ""}</span><span class="skgg">${skGenel(cur) ? `<b>Genel grup:</b> ${esc(skGenel(cur))}` : "Genel grup girilmedi"}${cur.anaGrup ? ` · ${esc(cur.anaGrup)}${cur.altGrup ? " › " + esc(cur.altGrup) : ""}` : ""}</span>${saStokHead(cur)}${spStokHead(cur)}${tkStokListe(cur)}</div>
         <div class="skhb">${can("s.move") && cur.aktif !== false ? `<button type="button" class="qb ok" data-cmv="giris">+ Giriş</button><button type="button" class="qb ba" data-cmv="cikis">− Çıkış</button>` : ""}${can("s.count") && cur.aktif !== false ? '<button type="button" class="qb mo" data-cmv="sayim">Sayım</button>' : ""}${can("sa.talep") && cur.aktif !== false ? '<button type="button" class="qb" id="skTalep">Talep aç</button>' : ""}</div></div>
-        <div class="seg sktabs" role="tablist"><button type="button" data-ct="kart" aria-pressed="${T === "kart"}">Kart bilgileri</button><button type="button" data-ct="har" aria-pressed="${T === "har"}">Stok hareketleri <span class="acount num" id="skHc">${hist.length}</span></button>${pr ? `<button type="button" data-ct="fiy" aria-pressed="${T === "fiy"}">Alış fiyatı arşivi <span class="acount num">${(f.arsiv || []).length}</span></button>` : ""}</div>` : ""}
-      <div class="db" id="skBody">${T === "kart" ? cardForm(cur, f, t) : T === "har" ? histHtml(cur) : priceHtml(cur, f)}</div>
+        <div class="seg sktabs" role="tablist"><button type="button" data-ct="kart" aria-pressed="${T === "kart"}">Kart bilgileri</button><button type="button" data-ct="har" aria-pressed="${T === "har"}">Stok hareketleri <span class="acount num" id="skHc">${hist.length}</span></button>${pr ? `<button type="button" data-ct="fiy" aria-pressed="${T === "fiy"}">Alış fiyatı arşivi <span class="acount num">${(f.arsiv || []).length}</span></button>` : ""}${kaTip(cur) ? `<button type="button" data-ct="agac" aria-pressed="${T === "agac"}">Ürün ağacı</button>` : ""}</div>` : ""}
+      <div class="db" id="skBody">${T === "kart" ? cardForm(cur, f, t) : T === "har" ? histHtml(cur) : T === "agac" ? kaKartHtml(cur, kaP) : priceHtml(cur, f)}</div>
       ${T === "kart" ? `<div class="df"><span>${cur && can("s.delete") ? '<button class="btn danger" id="cDel" type="button">Sil</button>' : ""}</span><div class="r"><button class="btn ghost" id="cC" type="button">${ed ? "Vazgeç" : "Kapat"}</button>${ed ? '<button class="btn" id="cS" type="button">Kaydet</button>' : ""}</div></div>` : ""}
     </aside>`;
     $("#scrim").onclick = closeDrawer; $("#skX").onclick = closeDrawer;
@@ -3667,6 +3669,7 @@ function skOpenCard(id, tab) {
     document.querySelectorAll("[data-cmv]").forEach(b => b.onclick = () => skOpenMove(sid, b.dataset.cmv, () => skOpenCard(sid, T === "kart" ? "har" : T)));
     if (T === "kart") bindForm(cur, f);
     if (T === "fiy") bindPrice(cur, f);
+    if (T === "agac") bindAgac(cur);
     const stb = $("#skTalep"); if (stb) stb.onclick = () => saOpenTalepForm(null, { sid });
     document.querySelectorAll("#drawerHost [data-skpo]").forEach(b => b.onclick = () => saOpenPO(b.dataset.skpo));
   }
@@ -3735,6 +3738,15 @@ function skOpenCard(id, tab) {
         <div class="field"><label for="nT">Tedarikçi</label><input id="nT" maxlength="100" value="${esc((cur.ted && cur.ted.firma) || "")}"></div>
         <div class="field full"><label for="nN">Not</label><input id="nN" maxlength="120" placeholder="Örn. teklif no, kampanya, zam"></div>
       </div><button type="button" class="btn" id="nS" style="margin-top:10px">Fiyatı kaydet</button></section>` : ""}`;
+  }
+  function bindAgac(cur) {
+    const oku = () => { const P = {}; document.querySelectorAll("#skBody [data-kap]").forEach(el => { P[el.dataset.kap] = el.value.trim(); }); return P; };
+    document.querySelectorAll("#skBody [data-kap]").forEach(el => el.onchange = () => { kaP = oku(); paint(); });
+    const b = $("#kaS"); if (!b) return;
+    b.onclick = async () => { const P = oku(), r = kaHesap(cur, P); if (!r) return; b.disabled = true;
+      const temiz = Object.fromEntries(Object.entries(P).filter(([, x]) => x !== "" && isFinite(Number(x))).map(([k, x]) => [k, Number(x)]));
+      try { await updateDoc(doc(fs, "stok", sid), { agacP: temiz, agac: r.eksik.length ? null : kaKayit(r), updatedAt: Date.now(), updatedBy: ME.name }); kaP = null; toast(r.eksik.length ? "Ek bilgiler kaydedildi, ürün ağacı için eksik bilgi var" : "Ürün ağacı kaydedildi"); setTimeout(paint, 150); }
+      catch (x) { b.disabled = false; toast(writeErr(x)); } };
   }
   function bindPrice(cur, f) {
     const b = $("#nS"); if (!b) return;
@@ -11386,6 +11398,127 @@ function lfHesap(it) {
   return null;
 }
 const lfYeni = it => { const e = lfHesap(it); return e == null || !isFinite(e) || e <= 0 ? null : Math.round(e * LF_CARPAN * 100) / 100; };
+/* --- Kare kanal ve fittings ürün ağacı (Kar-Men "kanal_hesaplama_2021.xls") ---
+   Ölçüler mm, sonuç m². π Excel'deki gibi 3,14. Fiyat sonra: m² birim fiyatı × m². */
+const KA_PI = 3.14;
+// Sac kalınlığı en büyük kenara göre (Excel dirsek/redüksiyon/es sayfası; kanal şablonuyla 50 mm adımlarda aynı sonucu verir). Üstü 1,2 mm
+const KA_SAC = { std: [[349, 0.5], [590, 0.6], [990, 0.7], [1399, 0.8], [1990, 0.9], [2990, 1]], kapak: [[249, 0.5], [499, 0.6], [990, 0.7], [1249, 0.8], [1490, 0.9], [1990, 1]], ky: [[250, 0.5], [490, 0.6], [990, 0.7], [1249, 0.8], [1490, 0.9], [1990, 1]] };
+const kaSac = (n, T) => { for (const [s, t] of T) if (n <= s) return t; return 1.2; };
+// Varsayılanlar: dirsek iç çapı 150 mm, açı 90°; redüksiyon boyu 300 mm (stok kartında boy yoksa)
+const KA_DEF = { R: 150, aci: 90, redL: 300 };
+const KA_AD = { kanal: "Kare kanal", dirsek: "Dirsek", red: "Redüksiyon", es: "Es parça", ky: "Kareden yuvarlağa", kapak: "Kapak" };
+// Parametre alanları (stok kartında "Ürün ağacı" sekmesinde girilir; boşsa varsayılan / stok adından)
+const KA_PAR = { kanal: [["kanat", "Yönlendirici kanat sayısı"]], dirsek: [["aci", "Açı (°)"], ["R", "İç çap (mm)"], ["kanat", "Yönlendirici kanat sayısı"]], red: [["L", "Boy (mm)"], ["kanat", "Yönlendirici kanat sayısı"]],
+  es: [["kacik", "Kaçıklık (mm)"], ["L", "Boy (mm)"]], ky: [["cap", "Yuvarlak ağız Ø (mm)"], ["L", "Boy (mm)"]], kapak: [] };
+function kaTip(it) {
+  if (!/^M-/.test(String(it.kod || ""))) return null;
+  const T = [it.ad, it.anaGrup, it.altGrup].map(x => String(x || "").toLocaleUpperCase("tr")).join(" | ");
+  if (/KAREDEN\s*YUVARLA/.test(T)) return "ky";
+  if (/MENFEZ|DAMPER|DİFÜZÖR|PANJUR|MÜDAHALE/.test(T)) return null;
+  if (/DİRSEK/.test(T)) return "dirsek";
+  if (/REDÜKSİYON/.test(T)) return "red";
+  if (/(^|[^A-ZÇĞİÖŞÜ])ES([^A-ZÇĞİÖŞÜ]|$)|ES\s*PARÇA|S\s*PARÇA/.test(T)) return "es";
+  if (/KANAL\s*KAPA|(^|\s)KAPAK(\s|$)/.test(T)) return "kapak";
+  if (/KANAL/.test(T)) return "kanal";
+  return null;
+}
+// it: stok kartı; ek: elle girilen parametreler (stok kartındaki agacP'nin üstüne yazar)
+function kaHesap(it, ek) {
+  const tip = kaTip(it); if (!tip) return null;
+  const ad = String(it.ad || "").toLocaleUpperCase("tr"), P = { ...(it.agacP || {}), ...(ek || {}) };
+  const num = k => P[k] !== "" && P[k] != null && isFinite(Number(P[k])) ? Number(P[k]) : null;
+  const X = [...ad.matchAll(/(\d{2,4})\s*[X×*]\s*(\d{2,4})/g)].map(m => [Number(m[1]), Number(m[2])]);
+  const capAd = Number((ad.match(/Ø\s*(\d{2,4})/) || [])[1]) || null, aciAd = Number((T0 => (T0.match(/(\d{2,3})\s*°/) || [])[1])([ad, String(it.anaGrup || ""), String(it.altGrup || "")].join(" ")) || null);
+  const LAd = Number((ad.match(/(?:\bL|BOY)\s*[=:]?\s*(\d{2,4})/) || [])[1]) || null;
+  const r = { tip, tipAd: KA_AD[tip], birim: tip === "kanal" ? "m" : "adet", net: 0, fire: 0, fireOran: 0, yonl: 0, m2: 0, sac: null, flans: 0, kose: 0, kaynak: [], eksik: [], olcu: "" };
+  if (!X.length) { r.eksik.push(capAd ? "Yuvarlak (Ø) ürün: kare kanal formülü uygulanmaz" : "Stok adında A X B ölçüsü yok"); r.yuvarlak = !!capAd; return r; }
+  const kanat = num("kanat") || 0, [A, B] = X[0]; r.olcu = `${A}×${B}`;
+  const not = (k, v, src) => r.kaynak.push([k, v, src]);
+  if (tip === "kanal") {   // metre başına; flanş ve köşe her kanal parçası (2 uç) için
+    const L = 1000; r.net = 2 * (A + B) * L / 1e6; r.yonl = kanat ? Math.min(A, B) * L * kanat / 1e6 : 0;
+    r.sac = kaSac(Math.max(A, B), KA_SAC.std); r.flans = 4 * (A + B) / 1000; r.kose = 8; r.flansNot = "her kanal parçası (2 uç) için";
+  } else if (tip === "dirsek") {
+    const aci = num("aci") || aciAd || KA_DEF.aci, R = num("R") != null ? num("R") : KA_DEF.R;
+    not("Açı", aci + "°", num("aci") ? "elle" : aciAd ? "stok adı" : "varsayılan"); not("İç çap", R + " mm", num("R") != null ? "elle" : "varsayılan");
+    r.net = 2 * KA_PI * (aci / 360) * (A + 2 * (2 * R)) / 1000 * (A + B) / 1000; r.fireOran = 0.25;
+    r.yonl = kanat ? kanat * (KA_PI * (A + 2 * R) * B / 4) / 1e6 : 0;
+    r.sac = kaSac(Math.max(A, B), KA_SAC.std); r.flans = 4 * (A + B) / 1000; r.kose = 8;
+  } else if (tip === "red") {
+    if (X.length < 2) { r.eksik.push("Redüksiyon için stok adında iki ölçü olmalı (örn. 600 X 400 - 400 X 300)"); return r; }
+    const [C, D] = X[1], H = num("L") || LAd || KA_DEF.redL; r.olcu = `${A}×${B} → ${C}×${D}`;
+    not("Boy", H + " mm", num("L") ? "elle" : LAd ? "stok adı" : "varsayılan");
+    // Excel: D,E = 1. ağız (gen, yük); F,G = 2. ağız; H = boy
+    r.net = ((A + C) / 1000) * Math.sqrt((H / 1000) ** 2 + (D / 2000 - B / 2000) ** 2) + (B / 1000 + D / 1000) * Math.sqrt((H / 1000) ** 2 + (A / 2000 - C / 2000) ** 2);
+    r.fireOran = 0.25; r.yonl = kanat ? ((B + D) / 2) * H * kanat / 1e6 : 0;
+    r.sac = kaSac(Math.max(A, B, C, D), KA_SAC.std); r.flans = (2 * (A + B) + 2 * (C + D)) / 1000; r.kose = 8;
+  } else if (tip === "es") {
+    const K = num("kacik"), L = num("L") || LAd;
+    if (K == null) r.eksik.push("Kaçıklık girilmedi"); if (!L) r.eksik.push("Boy girilmedi");
+    r.sac = kaSac(Math.max(A, B), KA_SAC.std); r.flans = 4 * (A + B) / 1000; r.kose = 8; r.fireOran = 0.25;
+    if (K != null && L) { not("Kaçıklık", K + " mm", "elle"); not("Boy", L + " mm", num("L") ? "elle" : "stok adı"); r.net = ((A + B) * 2 + 14) / 1000 * (K + L) / 1000; }
+  } else if (tip === "ky") {
+    const cap = num("cap") || capAd, L = num("L") || LAd;
+    if (!cap) r.eksik.push("Yuvarlak ağız çapı girilmedi"); if (!L) r.eksik.push("Boy girilmedi");
+    r.flans = 2 * (A + B) / 1000; r.kose = 4; r.fireOran = 0.25; r.sac = kaSac(Math.max(A, B, cap || 0), KA_SAC.ky);
+    if (cap && L) { r.olcu += ` → Ø${cap}`; not("Boy", L + " mm", num("L") ? "elle" : "stok adı"); r.net = ((cap * KA_PI + (A + B) * 2) / 2) * L / 1e6; }
+  } else if (tip === "kapak") {
+    r.net = (A + 60) * (B + 60) / 1e6; r.fireOran = 0.4; r.sac = kaSac(Math.max(A, B), KA_SAC.kapak); r.flans = 2 * (A + B) / 1000; r.kose = 4;
+  }
+  r.fire = r.net * r.fireOran; r.m2 = r.net + r.fire + r.yonl;
+  if (kanat) not("Yönlendirici kanat", kanat + " adet", "elle");
+  return r;
+}
+const kaSacTxt = s => s == null ? "—" : String(s).replace(".", ",") + " mm";
+const kaM2 = n => nf(n, 3) + " m²";
+// Stok kartındaki "Ürün ağacı" sekmesi
+function kaKartHtml(cur, P) {
+  const r = kaHesap(cur, P), ed = can("s.edit"); if (!r) return '<p class="note">Bu kart kare kanal / fittings grubunda değil.</p>';
+  const par = KA_PAR[r.tip] || [], v = k => P && k in P ? P[k] : ((cur.agacP || {})[k] ?? "");
+  const ph = { aci: "90 (varsayılan)", R: "150 (varsayılan)", L: r.tip === "red" ? "300 (varsayılan)" : "", kanat: "0" };
+  const rows = [["Net sac alanı", kaM2(r.net)], r.fireOran ? [`Fittings fire payı %${Math.round(r.fireOran * 100)}`, kaM2(r.fire)] : null, r.yonl ? ["Yönlendirici kanat", kaM2(r.yonl)] : null].filter(Boolean);
+  return `<div class="kaag">
+    <div class="izbal"><b>${esc(r.tipAd)}${r.olcu ? " · " + esc(r.olcu) + " mm" : ""}</b><div class="note">Kar-Men kanal hesap programındaki formülle hesaplanır.${r.birim === "m" ? " Kanal metre olarak satılır; değerler <b>1 metre</b> içindir." : " Değerler 1 adet içindir."} Fiyat, m² birim fiyatı girildiğinde bu alandan hesaplanacak.</div></div>
+    ${r.eksik.length ? `<p class="kaeks">${r.eksik.map(esc).join("<br>")}</p>` : ""}
+    <div class="kast">
+      <div class="kabig"><span>Toplam sac</span><b class="num">${r.eksik.length && !r.net ? "—" : kaM2(r.m2)}</b><small>${r.birim === "m" ? "metre başına" : "adet başına"}</small></div>
+      <div><span>Sac kalınlığı</span><b class="num">${kaSacTxt(r.sac)}</b><small>galvaniz</small></div>
+      <div><span>Flanş</span><b class="num">${nf(r.flans, 2)} m</b><small>${esc(r.flansNot || "parça başına")}</small></div>
+      <div><span>Köşe</span><b class="num">${r.kose} adet</b><small>${esc(r.flansNot || "parça başına")}</small></div>
+    </div>
+    <div class="kadet">${rows.map(([k, x]) => `<div><span>${esc(k)}</span><b class="num">${x}</b></div>`).join("")}${r.kaynak.map(([k, x, s]) => `<div><span>${esc(k)}</span><b class="num">${esc(x)} <small>${esc(s)}</small></b></div>`).join("")}</div>
+    ${par.length ? `<h3 class="sec-t" style="margin-top:14px">Ek bilgiler</h3><div class="fgrid three">${par.map(([k, l]) => `<div class="field"><label for="kaP_${k}">${esc(l)}</label><input id="kaP_${k}" data-kap="${k}" type="number" step="any" min="0" value="${esc(String(v(k)))}" placeholder="${esc(ph[k] || "")}"${ed ? "" : " disabled"}></div>`).join("")}</div>
+      ${ed ? '<button type="button" class="btn" id="kaS" style="margin-top:10px">Ürün ağacını kaydet</button>' : ""}` : ed ? '<button type="button" class="btn" id="kaS" style="margin-top:10px">Ürün ağacını kaydet</button>' : ""}
+    ${cur.agac && cur.agac.at ? `<p class="note" style="margin-top:8px">Son kayıt: ${skTs(cur.agac.at)}${cur.agac.by ? " · " + esc(cur.agac.by) : ""}</p>` : ""}
+  </div>`;
+}
+const kaKayit = (r, P) => ({ tip: r.tip, birim: r.birim, m2: +r.m2.toFixed(4), net: +r.net.toFixed(4), fire: +r.fire.toFixed(4), yonl: +r.yonl.toFixed(4), sac: r.sac, flans: +r.flans.toFixed(3), kose: r.kose, at: Date.now(), by: ME.name });
+// Toplu: tüm kare kanal / fittings kartlarının ürün ağacı
+async function kaTopluAc() {
+  $("#drawerHost").innerHTML = `<div class="scrim" id="scrim"></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="kaT" style="width:min(900px,100%)">
+    <div class="dh"><h2 id="kaT">Kanal ve fittings ürün ağacı</h2><button class="x" id="kaX" aria-label="Kapat">×</button></div>
+    <div class="db" id="kaB"><p class="note">Stok kartları okunuyor…</p></div>
+    <div class="df"><span class="note" id="kaN"></span><div class="r"><button class="btn ghost" id="kaC" type="button">Kapat</button>${can("s.edit") ? '<button class="btn" id="kaK" type="button" disabled>Ürün ağaçlarını kaydet</button>' : ""}</div></div></aside>`;
+  $("#scrim").onclick = closeDrawer; $("#kaX").onclick = closeDrawer; $("#kaC").onclick = closeDrawer;
+  let U; try { const s = await getDocs(query(collection(fs, "stok"), where("kod", ">=", "M-"), where("kod", "<=", "M-\uf8ff"))); U = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => i.aktif !== false); }
+  catch (e) { $("#kaB").innerHTML = `<p class="note">Okunamadı: ${esc(writeErr(e))}</p>`; return; }
+  const R = U.map(it => ({ it, r: kaHesap(it) })).filter(x => x.r).sort((a, b) => a.it.kod.localeCompare(b.it.kod));
+  const ok = R.filter(x => !x.r.eksik.length), eks = R.filter(x => x.r.eksik.length && !x.r.yuvarlak), yuv = R.filter(x => x.r.yuvarlak);
+  const say = {}; ok.forEach(x => say[x.r.tip] = (say[x.r.tip] || 0) + 1);
+  const row = x => `<div class="row" data-kaid="${esc(x.it.id)}"><div><span class="num skk">${esc(x.it.kod)}</span></div><div>${esc(x.it.ad)}</div><div>${esc(x.r.tipAd)}</div><div class="num">${kaSacTxt(x.r.sac)}</div><div class="num"><b>${x.r.eksik.length ? "—" : nf(x.r.m2, 3)}</b>${x.r.birim === "m" ? "<small> /m</small>" : ""}</div><div class="num">${nf(x.r.flans, 2)}</div><div class="num">${x.r.kose}</div></div>`;
+  const head = '<div class="lhead" role="row"><div>Kod</div><div>Stok adı</div><div>Tür</div><div>Sac</div><div>m²</div><div>Flanş m</div><div>Köşe</div></div>';
+  $("#kaB").innerHTML = `<div class="izbal"><b>Ürün ağacı stok adındaki ölçüden hesaplanır</b><div class="note">m² = net sac + fittings fire payı (dirsek, redüksiyon, es, kareden yuvarlağa %25 · kapak %40) + yönlendirici kanat. Kanal metre başına, fittings adet başına. Flanş ve köşe fiyata dahil değildir, stok takibi için tutulur. Varsayılan: dirsek 90° ve iç çap 150 mm, redüksiyon boyu 300 mm. Farklı değerler stok kartının <b>Ürün ağacı</b> sekmesinden girilir.</div></div>
+    <div class="cxst" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:10px 0"><div><span>Hesaplanan kart</span><b class="num">${nf(ok.length, 0)}</b><small>${Object.entries(say).map(([k, n]) => `${KA_AD[k]} ${n}`).join(" · ") || "—"}</small></div><div><span>Bilgi eksik</span><b class="num">${nf(eks.length, 0)}</b><small>es parça, kareden yuvarlağa vb.</small></div><div><span>Yuvarlak (kapsam dışı)</span><b class="num">${nf(yuv.length, 0)}</b><small>Ø ölçülü kartlar</small></div></div>
+    ${ok.length ? `<div class="ledger kaled" role="table">${head}${ok.map(row).join("")}</div>` : '<p class="note">Kare kanal / fittings stok kartı bulunamadı.</p>'}
+    ${eks.length ? `<h4 style="margin:14px 0 6px">Bilgi eksik olanlar</h4><div class="ledger kaled" role="table">${head}${eks.map(x => row(x).replace("</div></div>", `</div><div class="kaeks" style="grid-column:1/-1">${x.r.eksik.map(esc).join(" · ")}</div></div>`)).join("")}</div>` : ""}
+    ${yuv.length ? `<details style="margin-top:10px"><summary class="note">Yuvarlak ölçülü kartlar (${yuv.length}) — bu formül uygulanmaz</summary><p class="note">${yuv.slice(0, 80).map(x => esc(x.it.kod + " " + x.it.ad)).join(" · ")}${yuv.length > 80 ? " …" : ""}</p></details>` : ""}`;
+  document.querySelectorAll("#kaB [data-kaid]").forEach(el => el.onclick = () => skOpenCard(el.dataset.kaid, "agac"));
+  $("#kaN").textContent = ok.length ? `${nf(ok.length, 0)} kartın ürün ağacı yazılacak` : "";
+  const k = $("#kaK"); if (!k) return; k.disabled = !ok.length;
+  k.onclick = async () => { k.disabled = true;
+    try { for (let i = 0; i < ok.length; i += 400) { const b = writeBatch(fs); ok.slice(i, i + 400).forEach(x => b.update(doc(fs, "stok", x.it.id), { agac: kaKayit(x.r), updatedAt: Date.now(), updatedBy: ME.name })); await b.commit(); $("#kaN").textContent = `${nf(Math.min(i + 400, ok.length), 0)} / ${nf(ok.length, 0)} yazıldı`; }
+      toast(`${nf(ok.length, 0)} kartın ürün ağacı kaydedildi`); }
+    catch (e) { k.disabled = false; toast(writeErr(e)); } };
+}
 // Eski (%40 listesine göre) toplam iskonto: genel alanı olmayan kartlarda varsayılan %40'tı
 const crIskEski = c => { const g = c.iskGenel != null ? Number(c.iskGenel) || 0 : c.iskonto != null && Number(c.iskonto) < 40 ? Number(c.iskonto) || 0 : 40;
   const o = c.iskOzel != null ? Number(c.iskOzel) || 0 : c.iskonto != null ? Math.max(0, (Number(c.iskonto) || 0) - 40) : 0; return Math.min(100, g + o); };

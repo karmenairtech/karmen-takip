@@ -1807,3 +1807,15 @@ body.rpacik{overflow:hidden}body.rpacik .p2{z-index:70}
 /* v105 */
 .spiskr{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}.spiskr>span:first-child{font-weight:600}
 .spk3 .note.num{white-space:nowrap}
+/* v106 kanal ürün ağacı */
+.kast{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:10px;margin:12px 0}
+.kast>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.kast span,.kadet span{font-size:12px;color:var(--ink-2)}.kast b{font-size:17px}.kast small{font-size:11.5px;color:var(--ink-3)}
+.kast .kabig{background:var(--soft,#f4f6f8)}.kast .kabig b{font-size:22px}
+.kadet{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kadet>div{display:flex;justify-content:space-between;gap:10px;padding:7px 12px;border-top:1px solid var(--line);font-size:13px}.kadet>div:first-child{border-top:0}
+.kadet small{color:var(--ink-3);font-weight:400}
+.kaeks{color:var(--k-izinsiz,#b42318);font-size:12.5px;margin:8px 0}
+.kaled .lhead,.kaled .row{grid-template-columns:120px minmax(0,1fr) 110px 64px 84px 70px 50px;gap:10px;padding:8px 12px;font-size:13px}
+.kaled .row{cursor:pointer}.kaled .row small{color:var(--ink-3)}
+@media (max-width:700px){.kast{grid-template-columns:1fr 1fr}.kaled .lhead{display:none}.kaled .row{grid-template-columns:1fr 1fr;gap:3px 10px}}
